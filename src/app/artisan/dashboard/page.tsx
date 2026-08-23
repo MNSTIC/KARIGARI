@@ -460,8 +460,11 @@ function DetailsModal({ item, onClose }: { item: any, onClose: () => void }) {
               <div className="text-center my-2"><span className="bg-[#E1F3FB] text-gray-600 text-[11px] font-bold px-3 py-1.5 rounded-lg shadow-sm">Today</span></div>
               
               <div className="bg-white p-3 rounded-r-xl rounded-bl-xl max-w-[90%] shadow-sm relative">
-                <p className="text-sm text-gray-900 leading-snug">🎉 <strong>New Match for your Craft!</strong></p>
-                <p className="text-sm text-gray-800 mt-2 leading-snug">A buyer in Mumbai is looking for <strong>Handwoven Odia Saree</strong>. They are offering <strong>₹4,500</strong>.</p>
+                <p className="text-sm text-gray-900 leading-snug"><span role="img" aria-label="party">🎉</span> <strong>New Match for your Craft!</strong></p>
+                <p className="text-sm text-gray-800 mt-2 leading-snug">
+                  A buyer in Mumbai is looking for <strong>{dashboardData?.artisanProfile?.craftType || 'your craft item'}</strong>. 
+                  They are offering <strong>&#8377;{dashboardData?.inventory?.[0]?.marketPriceMin || 4500}</strong>.
+                </p>
                 <p className="text-sm text-gray-800 mt-2 font-medium">Reply '1' to Accept</p>
                 <p className="text-sm text-gray-800 font-medium">Reply '2' to Reject</p>
                 <div className="text-[10px] text-gray-400 text-right mt-1">10:42 AM</div>
@@ -473,8 +476,11 @@ function DetailsModal({ item, onClose }: { item: any, onClose: () => void }) {
               </div>
 
               <div className="bg-white p-3 rounded-r-xl rounded-bl-xl max-w-[90%] shadow-sm relative mt-2">
-                <p className="text-sm text-gray-900 leading-snug">✅ <strong>Order Confirmed!</strong></p>
-                <p className="text-sm text-gray-800 mt-2 leading-snug">The NGO facilitator has been notified to pick up the item tomorrow at 10 AM. Advance payment of ₹1,500 has been credited to your bank account via UPI.</p>
+                <p className="text-sm text-gray-900 leading-snug"><span role="img" aria-label="check">✅</span> <strong>Order Confirmed!</strong></p>
+                <p className="text-sm text-gray-800 mt-2 leading-snug">
+                  The NGO facilitator has been notified to pick up the item tomorrow at 10 AM. 
+                  Advance payment of <strong>&#8377;{Math.round((dashboardData?.inventory?.[0]?.marketPriceMin || 4500) * 0.4)}</strong> (40%) has been credited to your bank account via UPI.
+                </p>
                 <div className="text-[10px] text-gray-400 text-right mt-1">10:45 AM</div>
               </div>
             </div>
