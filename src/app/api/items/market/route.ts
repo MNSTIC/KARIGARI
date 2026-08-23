@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { cookies } from 'next/headers';
-import { verifyJwt } from '@/lib/jwt';
+import jwt from 'jsonwebtoken';
 
 export async function GET(req: Request) {
   try {
@@ -10,7 +10,7 @@ export async function GET(req: Request) {
     
     if (token) {
       try {
-        const payload = verifyJwt(token);
+        const payload = jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret') as any;
         userId = payload.userId;
       } catch (e) {
         // Not fatal, we can still show public listings
