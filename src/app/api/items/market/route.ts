@@ -5,7 +5,8 @@ import jwt from 'jsonwebtoken';
 
 export async function GET(req: Request) {
   try {
-    const token = cookies().get('auth_token')?.value;
+    const cookieStore = await cookies();
+    const token = cookieStore.get('auth_token')?.value;
     let userId = null;
     
     if (token) {
@@ -22,14 +23,27 @@ export async function GET(req: Request) {
         artisan: {
           select: {
             name: true,
-            clusterName: true,
+            artisanProfile: {
+              select: {
+                clusterName: true,
+              }
+            }
           }
         }
       },
       orderBy: { createdAt: 'desc' }
     });
 
-    return NextResponse.json({ success: true, items, currentUserId: userId });
+    // Map it so frontend can just read artisan.clusterName
+    const formattedItems = items.map(item => ({
+      ...item,
+      artisan: {
+        name: item.artisan.name,
+        clusterName: item.artisan.artisanProfile?.clusterName || 'Artisan Cluster'
+      }
+    }));
+
+    return NextResponse.json({ success: true, items: formattedItems, currentUserId: userId });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ success: false }, { status: 500 });
