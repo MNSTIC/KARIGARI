@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { generateContentWithFallback } from '@/lib/gemini';
 
 export async function POST(req: Request) {
   try {
@@ -11,30 +12,22 @@ export async function POST(req: Request) {
     const openAiKey = process.env.OPENAI_API_KEY;
     let transcriptText = "";
 
-    // Hackathon fallback: If no API key is set, we gracefully fallback to simulated STT
-    // rather than breaking the demo on stage.
     if (!openAiKey) {
       console.log("[Whisper API] OPENAI_API_KEY missing. Simulating transcription...");
-      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate latency
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
-      transcriptText = "This is a beautiful handwoven saree. It took me 5 days to weave and the raw materials cost around 1500 rupees.";
-      if (language === 'hi') transcriptText = "यह एक सुंदर हाथ से बुनी साड़ी है। इसे बनाने में 5 दिन लगे और सामग्री की लागत लगभग 1500 रुपये थी।";
-      if (language === 'or') transcriptText = "ଏହା ଏକ ସୁନ୍ଦର ହାତବୁଣା ଶାଢ଼ୀ। ଏହାକୁ ବୁଣିବା ପାଇଁ ୫ ଦିନ ଲାଗିଲା ଏବଂ କଞ୍ଚାମାଲ ମୂଲ୍ୟ ପ୍ରାୟ ୧୫୦୦ ଟଙ୍କା ଥିଲା।";
+      transcriptText = "I need help with government schemes. What are the benefits of PM Vishwakarma?";
+      if (language === 'hi') transcriptText = "मुझे सरकारी योजनाओं में मदद चाहिए। पीएम विश्वकर्मा के क्या लाभ हैं?";
+      if (language === 'or') transcriptText = "ମୋତେ ସରକାରୀ ଯୋଜନା ବିଷୟରେ ସାହାଯ୍ୟ ଦରକାର। ପିଏମ୍ ବିଶ୍ୱକର୍ମାର ଲାଭ କ'ଣ?";
     } else {
-      // 1. Convert base64 back to a blob
       const base64Data = audio.replace(/^data:audio\/\w+;base64,/, "");
       const buffer = Buffer.from(base64Data, "base64");
       
-      // 2. Prepare FormData for OpenAI
       const formData = new FormData();
       const blob = new Blob([buffer], { type: 'audio/webm' });
       formData.append('file', blob, 'audio.webm');
       formData.append('model', 'whisper-1');
       
-      // Optionally restrict language to improve accuracy
-      // if (language === 'hi') formData.append('language', 'hi');
-
-      // 3. Call OpenAI Whisper API
       console.log("[Whisper API] Calling api.openai.com/v1/audio/transcriptions");
       const whisperRes = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
@@ -54,38 +47,36 @@ export async function POST(req: Request) {
       transcriptText = whisperData.text;
     }
 
-    // Now forward the transcript to the existing Voice Assistant LLM endpoint
-    // We can simulate the NLP engine response here for simplicity based on the transcript
-    
-    // Simulate NLP Response based on route
-    let response = "I have noted those details for your listing.";
-    
-    if (transcriptText.toLowerCase().includes("ondc") || transcriptText.toLowerCase().includes("ओएनडीसी") || transcriptText.toLowerCase().includes("ଓଏନଡିସି")) {
-      response = "ONDC stands for Open Network for Digital Commerce. It allows you to sell directly to buyers. You just earned the Level 1 Digital Merchant badge!";
-    } else if (currentRoute?.includes("insights")) {
-      response = "I have filtered the demand map based on your query.";
-    } else if (currentRoute?.includes("schemes")) {
-      if (transcriptText.toLowerCase().includes('vishwakarma') || transcriptText.toLowerCase().includes('benefit') || transcriptText.toLowerCase().includes('what') || transcriptText.toLowerCase().includes('scheme')) {
-         if (language === 'hi') {
-            response = 'पीएम विश्वकर्मा योजना के तहत आपको ₹15,000 का टूलकिट, 5% ब्याज पर ऋण और कौशल प्रशिक्षण मिलता है। क्या मैं आपके लिए ऑटो-अप्लाई कर दूँ?';
-         } else if (language === 'or') {
-            response = 'ପିଏମ୍ ବିଶ୍ୱକର୍ମା ଯୋଜନାରେ ଆପଣଙ୍କୁ ₹୧୫,୦୦୦ ର ଟୁଲକିଟ୍, ୫% ସୁଧରେ ଋଣ ଏବଂ ଦକ୍ଷତା ତାଲିମ ମିଳିବ। ମୁଁ ଆପଣଙ୍କ ପାଇଁ ଅଟୋ-ଅପ୍ଲାଏ କରିଦେବି କି?';
-         } else {
-            response = 'Under the PM Vishwakarma Yojana, you get a ₹15,000 toolkit incentive, collateral-free credit at 5% interest, and skill training. Shall I auto-apply for you?';
-         }
-      } else {
-         response = 'I will help you apply for this scheme using your verified Aadhaar profile. Just click the Auto-Apply button.';
-      }
+    // Call Gemini for truly dynamic response
+    const prompt = `You are a helpful, extremely concise, and encouraging voice assistant for the 'Karigari' app.
+Your user is a marginalized Indian artisan named ${artisanName || 'Artisan'}. 
+They are currently on this page route: "${currentRoute || '/dashboard'}"
+They just said this to you via voice typing: "${transcriptText}"
 
-    } else {
-       if (language === 'hi') response = "मैंने आपकी सूची के लिए वे विवरण नोट कर लिए हैं।";
-       if (language === 'or') response = "ମୁଁ ଆପଣଙ୍କ ତାଲିକା ପାଇଁ ସେହି ବିବରଣୀଗୁଡିକ ନୋଟ୍ କରିଛି।";
+CRITICAL KNOWLEDGE:
+- If they ask about "PM Vishwakarma" or "schemes", explicitly mention: "You get a ₹15,000 toolkit incentive, collateral-free credit at 5% interest, and skill training. I can auto-apply for you."
+- If they ask about ONDC, mention: "ONDC allows you to sell directly to buyers nationwide."
+
+Based on the page they are on and what they said, guide them appropriately. Be very brief (1-2 sentences max).
+CRITICAL INSTRUCTION: You MUST respond in the native script for language code '${language}' (e.g. use proper Odia script for 'or', proper Devanagari for 'hi', proper English for 'en'). Do NOT transliterate. Provide the actual native characters so it displays correctly on screen.`;
+
+    let responseText = "I have noted your request.";
+    try {
+      const result = await generateContentWithFallback(
+        [{ text: prompt }],
+        { responseMimeType: "text/plain" }
+      );
+      if (result && result.text) {
+        responseText = result.text.replace(/\*/g, ''); // Remove markdown bolding for clean TTS
+      }
+    } catch (llmError) {
+      console.error("Gemini LLM Error:", llmError);
     }
 
     return NextResponse.json({
       success: true,
       transcript: transcriptText,
-      response: response
+      response: responseText
     });
     
   } catch (error: any) {
