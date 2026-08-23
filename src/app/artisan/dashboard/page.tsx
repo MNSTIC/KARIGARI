@@ -27,6 +27,7 @@ export default function ArtisanDashboard() {
   const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
+  const [isWhatsappSimOpen, setIsWhatsappSimOpen] = useState(false);
   
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -173,6 +174,18 @@ export default function ArtisanDashboard() {
               {healthScore}%
             </span>
           </div>
+        </div>
+
+        
+        {/* WHATSAPP SIMULATOR BANNER */}
+        <div className="mb-10 bg-gradient-to-r from-green-500 to-teal-600 rounded-2xl p-6 shadow-md text-white flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div>
+            <h3 className="font-bold text-lg mb-1">Demo: Offline SMS / WhatsApp Fallback</h3>
+            <p className="text-white/80 text-sm">Show judges how artisans receive demand alerts via WhatsApp when offline.</p>
+          </div>
+          <button onClick={() => setIsWhatsappSimOpen(true)} className="bg-white text-green-700 font-bold px-6 py-3 rounded-xl shadow hover:bg-green-50 transition-colors whitespace-nowrap">
+            Run Simulation
+          </button>
         </div>
 
         {/* QUICK ACTIONS */}
