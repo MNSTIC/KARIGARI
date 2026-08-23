@@ -88,7 +88,7 @@ export default function InsightsPage() {
             
             {/* Dynamic New Demand (Delhi) */}
             {newDemandAppeared && (
-              <div className="absolute top-[30%] left-[32%] group cursor-pointer animate-fade-in-up z-30">
+              <div className="absolute top-[26%] left-[40%] group cursor-pointer animate-fade-in-up z-30">
                 <div className="w-12 h-12 bg-blue-500 rounded-full animate-ping absolute opacity-50 -left-4 -top-4"></div>
                 <div className="relative z-10 w-4 h-4 bg-blue-600 border-[3px] border-white rounded-full shadow-lg"></div>
                 
@@ -111,7 +111,7 @@ export default function InsightsPage() {
             )}
               
               {/* Mumbai Hotspot (High Demand) */}
-              <div className="absolute top-[45%] left-[25%] group cursor-pointer">
+              <div className="absolute top-[57%] left-[24%] group cursor-pointer">
                 <div className="w-8 h-8 bg-red-500 rounded-full animate-ping absolute opacity-30 -left-2 -top-2"></div>
                 <div className="relative z-10 w-4 h-4 bg-red-600 border-[3px] border-white rounded-full shadow-md"></div>
                 
@@ -133,7 +133,7 @@ export default function InsightsPage() {
               </div>
 
               {/* Bangalore Hotspot (High Demand) */}
-              <div className="absolute top-[65%] left-[35%] group cursor-pointer">
+              <div className="absolute top-[74%] left-[37%] group cursor-pointer">
                 <div className="w-8 h-8 bg-red-500 rounded-full animate-ping absolute opacity-30 -left-2 -top-2"></div>
                 <div className="relative z-10 w-4 h-4 bg-red-600 border-[3px] border-white rounded-full shadow-md"></div>
                 
@@ -155,7 +155,7 @@ export default function InsightsPage() {
               </div>
 
               {/* Local Cluster (High Supply) */}
-              <div className="absolute top-[50%] left-[60%] group cursor-pointer">
+              <div className="absolute top-[50%] left-[70%] group cursor-pointer">
                 <div className="relative z-10 w-4 h-4 bg-green-500 border-[3px] border-white rounded-full shadow-md"></div>
                 
                 <div className="absolute top-6 left-1/2 -translate-x-1/2 bg-white rounded-xl shadow-2xl border border-gray-100 w-56 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 overflow-hidden">
@@ -175,6 +175,9 @@ export default function InsightsPage() {
                 </div>
               </div>
             </div>
+
+            </div> {/* End Inner Map Wrapper */}
+            </div> {/* End Outer Container */}
 
             {/* Legend */}
             <div className="flex flex-wrap gap-4 mt-6 px-2">

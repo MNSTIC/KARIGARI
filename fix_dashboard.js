@@ -1,12 +1,14 @@
 const fs = require('fs');
-let content = fs.readFileSync('C:/Users/DELL/.gemini/antigravity/brain/7e01581f-b738-4d2a-b156-9053ea7320e8/src/app/artisan/dashboard/page.tsx', 'utf8');
+const targetPath = 'src/app/artisan/dashboard/page.tsx';
+let content = fs.readFileSync(targetPath, 'utf8');
 
-content = content.replace(
-  'const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);',
-  'const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);\n  const [isWhatsappSimOpen, setIsWhatsappSimOpen] = useState(false);'
-);
+if (!content.includes('isWhatsappSimOpen')) {
+  content = content.replace(
+    'const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);',
+    'const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);\n  const [isWhatsappSimOpen, setIsWhatsappSimOpen] = useState(false);'
+  );
 
-const banner = `
+  const banner = `
         {/* WHATSAPP SIMULATOR BANNER */}
         <div className="mb-10 bg-gradient-to-r from-green-500 to-teal-600 rounded-2xl p-6 shadow-md text-white flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
@@ -20,9 +22,9 @@ const banner = `
 
         {/* QUICK ACTIONS */}`;
 
-content = content.replace('{/* QUICK ACTIONS */}', banner);
+  content = content.replace('{/* QUICK ACTIONS */}', banner);
 
-const whatsappModal = `
+  const whatsappModal = `
       {isWhatsappSimOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-[2.5rem] w-full max-w-[320px] h-[640px] shadow-2xl flex flex-col overflow-hidden relative border-[10px] border-gray-900">
@@ -73,6 +75,9 @@ const whatsappModal = `
         </div>
       )}`;
 
-content = content.replace('</main>', whatsappModal + '\n      </main>');
-
-fs.writeFileSync('C:/Users/DELL/.gemini/antigravity/brain/7e01581f-b738-4d2a-b156-9053ea7320e8/src/app/artisan/dashboard/page.tsx', content);
+  content = content.replace('</main>', whatsappModal + '\n      </main>');
+  fs.writeFileSync(targetPath, content);
+  console.log("Success! Dashboard updated.");
+} else {
+  console.log("Dashboard already contains the Whatsapp simulation code.");
+}

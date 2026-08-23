@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Globe, TrendingUp, Search, Package, ChevronRight, Store, DollarSign, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Globe, TrendingUp, Search, Package, ChevronRight, Store, DollarSign, CheckCircle2, MapPin } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import Image from "next/image";
@@ -10,154 +10,174 @@ import Image from "next/image";
 export default function MarketPage() {
   const { t, language } = useLanguage();
   const [activeTab, setActiveTab] = useState("ondc");
+  const [listings, setListings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/items/market')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setListings(data.items || []);
+          setCurrentUserId(data.currentUserId);
+        }
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const myListings = listings.filter(item => item.artisanId === currentUserId);
+  const otherListings = listings.filter(item => item.artisanId !== currentUserId);
+
+  // Fallback mocks if DB is empty
+  const mockB2B = [
+    { title: "Corporate Diwali Hampers", qty: "500 Units", price: "₹4,500/unit", buyer: "Tech Corp India" },
+    { title: "Hotel Lobby Decor Sets", qty: "50 Units", price: "₹12,000/set", buyer: "Taj Group" }
+  ];
 
   return (
     <div className="min-h-screen bg-[var(--color-background)] font-sans pb-12">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 px-6 py-3 flex items-center justify-between">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 px-6 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-4">
           <Link href="/artisan/dashboard" className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-            <ArrowLeft size={20} />
+            <ArrowLeft size={20} className="text-gray-700"/>
           </Link>
           <KarigariLogo variant="dark" showWordmark={true} size={28} />
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-8">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-serif font-bold text-[#1A4731] flex items-center gap-3">
+          <h1 className="text-3xl font-serif font-bold text-[#0F2D20] flex items-center gap-3">
             <Globe size={28} className="text-[#1A4731]" />
-            {language === 'hi' ? 'बाज़ार और B2B लिस्टिंग' : 'Global Market & B2B Listing'}
+            ONDC & B2B Market
           </h1>
-          <p className="text-gray-600 mt-2 text-lg">
-            {language === 'hi' ? 'अपने उत्पादों को देश भर के थोक खरीदारों और खुदरा ग्राहकों तक पहुँचाएँ।' : 'Reach bulk buyers and retail customers across the country through open networks.'}
+          <p className="text-gray-600 mt-2 text-sm sm:text-base">
+            View live listings on the Open Network for Digital Commerce and connect directly with bulk buyers.
           </p>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-4 mb-6">
+        <div className="flex gap-2 sm:gap-4 mb-8 border-b border-gray-200 pb-1 overflow-x-auto no-scrollbar">
           <button 
             onClick={() => setActiveTab("ondc")}
-            className={`flex-1 py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'ondc' ? 'bg-[#1A4731] text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
+            className={`py-3 px-6 rounded-t-xl font-bold flex items-center justify-center gap-2 transition-all whitespace-nowrap ${activeTab === 'ondc' ? 'bg-[#0F2D20] text-white shadow-md' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}
           >
-            <Store size={20} /> ONDC Network
+            <Store size={18} /> Live ONDC Listings
           </button>
           <button 
             onClick={() => setActiveTab("b2b")}
-            className={`flex-1 py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-colors ${activeTab === 'b2b' ? 'bg-[#1A4731] text-white' : 'bg-white text-gray-600 border border-gray-200'}`}
+            className={`py-3 px-6 rounded-t-xl font-bold flex items-center justify-center gap-2 transition-all whitespace-nowrap ${activeTab === 'b2b' ? 'bg-[#0F2D20] text-white shadow-md' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}
           >
-            <Package size={20} /> Bulk Buyers (B2B)
+            <Package size={18} /> B2B Bulk Requests
           </button>
         </div>
 
-        {activeTab === 'ondc' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up">
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 border-b border-gray-100 flex justify-between items-center">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">ONDC Integration</h2>
-                <p className="text-gray-600 max-w-lg">
-                  {language === 'hi' 
-                    ? 'ओएनडीसी (ONDC) नेटवर्क से जुड़कर अपने उत्पादों को Paytm, Magicpin और अन्य ई-कॉमर्स ऐप्स पर एक साथ बेचें।' 
-                    : 'List once on Karigari and sell simultaneously across multiple buyer apps like Paytm, Magicpin, and Snapdeal via the ONDC network.'}
-                </p>
-              </div>
-              <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-sm p-4 hidden md:flex">
-                <Globe size={40} className="text-blue-500" />
-              </div>
-            </div>
-            
-            <div className="p-6">
-              <h3 className="font-bold text-gray-900 mb-4 text-lg">Features & Benefits</h3>
-              <div className="grid md:grid-cols-2 gap-4 mb-8">
-                <div className="flex gap-3">
-                  <div className="mt-1"><CheckCircle2 className="text-green-500" size={20} /></div>
-                  <div>
-                    <strong className="block text-gray-900">Zero Commission</strong>
-                    <span className="text-gray-600 text-sm">Keep 100% of your earnings. No middleman cuts.</span>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <div className="mt-1"><CheckCircle2 className="text-green-500" size={20} /></div>
-                  <div>
-                    <strong className="block text-gray-900">Auto-Translation</strong>
-                    <span className="text-gray-600 text-sm">Your product descriptions are translated to buyer's language.</span>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <div className="mt-1"><CheckCircle2 className="text-green-500" size={20} /></div>
-                  <div>
-                    <strong className="block text-gray-900">Logistics Handled</strong>
-                    <span className="text-gray-600 text-sm">IndiaPost and Shiprocket integration for easy shipping.</span>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <div className="mt-1"><CheckCircle2 className="text-green-500" size={20} /></div>
-                  <div>
-                    <strong className="block text-gray-900">Trust Badges</strong>
-                    <span className="text-gray-600 text-sm">Your GI Tags and Artisan ID boost search rankings.</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 rounded-xl p-4 flex items-center justify-between border border-gray-100">
+        {loading ? (
+          <div className="py-20 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0F2D20]"></div></div>
+        ) : (
+          <div>
+            {activeTab === 'ondc' && (
+              <div className="space-y-10">
+                {/* MY LISTINGS SECTION */}
                 <div>
-                  <div className="font-bold text-gray-900">Ready to start selling?</div>
-                  <div className="text-sm text-gray-500">Your profile meets all ONDC requirements.</div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-4 border-b border-gray-200 pb-2 flex items-center gap-2">
+                    <CheckCircle2 className="text-green-600"/> My Active Listings
+                  </h2>
+                  
+                  {myListings.length === 0 ? (
+                    <div className="bg-gray-50 border border-dashed border-gray-300 rounded-2xl p-8 text-center">
+                      <p className="text-gray-500 mb-4">You haven't listed any products on ONDC yet.</p>
+                      <Link href="/artisan/dashboard" className="bg-[#1A4731] text-white px-6 py-2 rounded-lg font-bold">
+                        Capture a Craft to List
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {myListings.map(item => (
+                        <div key={item.id} className="bg-white rounded-2xl border border-green-200 shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-all">
+                          <div className="h-48 bg-gray-100 relative">
+                            {item.images?.[0] ? (
+                              <Image src={item.images[0]} fill alt={item.craftType} className="object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-400"><Package size={40}/></div>
+                            )}
+                            <div className="absolute top-2 right-2 bg-green-500 text-white text-[10px] font-bold px-2 py-1 rounded shadow">ONDC LIVE</div>
+                          </div>
+                          <div className="p-5 flex flex-col flex-1">
+                            <h3 className="font-bold text-lg text-gray-900 mb-1 line-clamp-1">{item.descriptionEnglish || item.craftType}</h3>
+                            <div className="text-xs text-gray-500 mb-4 flex items-center gap-1"><Store size={12}/> Listed by You</div>
+                            
+                            <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
+                              <span className="text-[#0F2D20] font-bold text-lg">₹{item.marketPriceMin || item.standardMarketPrice || 'N/A'}</span>
+                              <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded">Edit Listing</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button className="bg-[#1A4731] hover:bg-[#123323] text-white font-bold py-2.5 px-6 rounded-lg transition-colors flex items-center gap-2">
-                  Link Account <ChevronRight size={16} />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
-        {activeTab === 'b2b' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in-up">
-            <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-6 border-b border-gray-100 flex justify-between items-center">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">Wholesale & B2B Orders</h2>
-                <p className="text-gray-600 max-w-lg">
-                  {language === 'hi' 
-                    ? 'कॉर्पोरेट उपहार और बड़े ऑर्डर के लिए सीधे कारखानों और ब्रांडों से जुड़ें।' 
-                    : 'Connect directly with brands, boutiques, and corporate buyers for large volume bulk orders.'}
-                </p>
+                {/* OTHER LISTINGS SECTION */}
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-4 border-b border-gray-200 pb-2">
+                    Other Artisan Listings in your Cluster
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {otherListings.length === 0 ? (
+                      <p className="text-gray-500 italic">No other listings in this network.</p>
+                    ) : (
+                      otherListings.map(item => (
+                        <div key={item.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+                          <div className="h-48 bg-gray-100 relative">
+                            {item.images?.[0] ? (
+                              <Image src={item.images[0]} fill alt={item.craftType} className="object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-400"><Package size={40}/></div>
+                            )}
+                          </div>
+                          <div className="p-5 flex flex-col flex-1">
+                            <h3 className="font-bold text-lg text-gray-900 mb-1 line-clamp-1">{item.descriptionEnglish || item.craftType}</h3>
+                            <div className="text-xs text-gray-500 mb-4 flex items-center gap-1"><MapPin size={12}/> {item.artisan?.clusterName || 'Artisan Cluster'}</div>
+                            
+                            <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
+                              <span className="text-[#0F2D20] font-bold text-lg">₹{item.marketPriceMin || item.standardMarketPrice || 'N/A'}</span>
+                              <span className="text-gray-400 text-xs">View</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center shadow-sm p-4 hidden md:flex">
-                <DollarSign size={40} className="text-amber-500" />
-              </div>
-            </div>
-            
-            <div className="p-6">
-              <h3 className="font-bold text-gray-900 mb-4 text-lg">Active Bulk Enquiries</h3>
-              
+            )}
+
+            {activeTab === 'b2b' && (
               <div className="space-y-4">
-                <div className="border border-gray-200 rounded-xl p-4 hover:border-[#1A4731] transition-colors">
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-bold text-lg text-gray-900">FabIndia Procurement</h4>
-                    <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded">MATCH</span>
-                  </div>
-                  <p className="text-gray-600 text-sm mb-3">Looking for 500 meters of authentic Ikat fabric for upcoming summer collection. Timeline: 45 days.</p>
-                  <div className="flex items-center gap-4 text-sm font-medium">
-                    <span className="text-gray-900">Value: ₹1,50,000</span>
-                    <span className="text-gray-400">|</span>
-                    <button className="text-[#1A4731] hover:underline">Submit Quote</button>
-                  </div>
+                <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl text-blue-800 text-sm mb-6 flex gap-3">
+                  <TrendingUp size={20} className="shrink-0" />
+                  <p>These are bulk orders requested directly by businesses. Using your Karigari escrow wallet, you can safely accept these and get a 40% advance payment.</p>
                 </div>
-
-                <div className="border border-gray-200 rounded-xl p-4 hover:border-[#1A4731] transition-colors">
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-bold text-lg text-gray-900">Corporate Gifting (TCS)</h4>
-                    <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded">NEW</span>
+                {mockB2B.map((b2b, idx) => (
+                  <div key={idx} className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                    <div>
+                      <div className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Buyer: {b2b.buyer}</div>
+                      <h3 className="font-bold text-lg text-gray-900 mb-2">{b2b.title}</h3>
+                      <div className="flex gap-3">
+                        <span className="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-1 rounded-md">Req: {b2b.qty}</span>
+                        <span className="bg-[#E6F4EA] text-[#1A4731] text-xs font-bold px-2 py-1 rounded-md">Est. {b2b.price}</span>
+                      </div>
+                    </div>
+                    <button className="bg-[#0F2D20] text-white px-6 py-2 rounded-lg font-bold shadow hover:bg-[#1A4731] transition-colors whitespace-nowrap">
+                      Submit Bid
+                    </button>
                   </div>
-                  <p className="text-gray-600 text-sm mb-3">Requirement of 200 handcrafted items (Dhokra/Pottery) for Diwali employee gifting.</p>
-                  <div className="flex items-center gap-4 text-sm font-medium">
-                    <span className="text-gray-900">Value: ₹80,000</span>
-                    <span className="text-gray-400">|</span>
-                    <button className="text-[#1A4731] hover:underline">Submit Portfolio</button>
-                  </div>
-                </div>
+                ))}
               </div>
-            </div>
+            )}
           </div>
         )}
       </main>
