@@ -1,58 +1,58 @@
-# Karigari - AI Fairness Trust Protocol
+# KARIGARI Heritage 🇮🇳
+**Smart India Hackathon (SIH) Prototype** | **Ministry of Social Justice and Empowerment (MoSJE)**
 
-**Smart India Hackathon (SIH) 2026**
-*Addressing Problem Statement S8: Fairness for the artisan using AI on the systems*
+> *Empowering rural artisans through AI-driven market linkages, cryptographic provenance, and offline-first digital inclusion.*
 
-## 🎯 The Problem
-Artisans in India face severe exploitation through a long chain of middlemen, leading to extreme poverty despite the high market value of their crafts. Furthermore, cheap power-loom counterfeits flood the market, degrading the value of authentic handloom. Artisans lack the digital literacy to onboard onto complex e-commerce systems or ONDC independently.
+## 🚨 The Problem (SIH Context)
+Rural artisans in India face severe exploitation from long chains of middlemen. They lack the digital literacy to onboard onto complex e-commerce systems, and authentic handlooms are constantly undercut by cheap power-loom counterfeits. Furthermore, forcing rural users to download heavy mobile apps fails due to low device storage and intermittent internet.
 
-## 💡 The Solution: Karigari
-Karigari is not just an e-commerce storefront—it is an **AI-driven Verification and Escrow Protocol**. We act as a trust bridge between rural artisans and global markets (ONDC, B2B wholesale, etc.), guaranteeing fairness at every step using Artificial Intelligence.
+## 💡 Our Solution
+**Karigari** is an AI-driven Provenance and Fair-Wage Protocol. Instead of a traditional e-commerce app, it acts as a trust bridge connecting rural artisans directly to global buyers (and B2B networks) while guaranteeing fair pay.
 
-### Key Features (The SIH Prototype)
-1. **🎙️ AI Voice-to-Data Onboarding:** Illiterate artisans do not need to fill out complex forms. They speak into the app, and Gemini AI parses their audio into structured product data (material, labor days, craft type).
-2. **⚖️ AI Fair Wage Prediction:** The AI calculates the exact `Fair Wage Floor` based on regional labor rates and raw material costs. This is the absolute minimum advance the artisan must be paid, preventing exploitation.
-3. **🔐 Cryptographic QR Patching:** Local cooperative admins physically inspect the product and attach a Karigari `PATCH-ID` QR code, permanently tying the physical asset to the digital ledger.
-4. **👁️ AI Vision Gate (Cross-Check):** Before an artisan can sell, they must upload a photo of the product with the tag attached. AI Vision verifies the match, preventing tag-swapping fraud.
-5. **🔀 Aggregator Routing Engine:** The artisan transfers digital selling rights to Karigari in exchange for an immediate upfront advance (secured by a liquidity pool). Karigari then routes the product to the most profitable channel (ONDC integration, B2B boutique, or Karigari custody).
-6. **🏛️ Immutable Govt Ledger & Oversight:** The Super Admin dashboard tracks a `Regional Economic Health Index`, sorting cooperatives in a Min-Heap. The government can instantly see which regions are falling behind on fair wage compliance.
-7. **🛡️ Counterfeit Dispute Resolution:** If an item is flagged by a buyer, the artisan is shown side-by-side visual evidence. They must confirm under penalty of a platform ban before requesting a Super Admin review, eliminating frivolous disputes.
-8. **📈 Live Economic Analytics & Trends:** The Admin and Artisan dashboards dynamically compute 7-day trailing trends across sales, advances, captures, and regional compliance, powered by real-time aggregation algorithms.
-9. **🕵️ Privacy-First PII Masking & Ledger Tracking:** The system securely masks sensitive artisan identities (names, UPIs) on administrative channels while mapping a completely transparent, step-by-step blockchain-style audit log of every custody handoff and UPI disbursement event.
+### ✨ Core Innovations
+1. **🎙️ AI Voice Onboarding (No Typing Required):** Artisans simply speak to the app in their native language. Gemini AI parses the audio into structured product data (labor days, raw materials) without requiring digital literacy.
+2. **⚖️ AI Fair-Wage Engine:** Calculates a strict minimum `Fair Wage Floor` based on labor and materials. If an item routes through Karigari, the artisan immediately receives a **40% UPI Advance** before the item is even sold.
+3. **📶 Offline-First SMS/WhatsApp Fallback:** Artisans without internet receive SMS alerts for high-demand signals in their region and can auto-list inventory simply by replying "YES".
+4. **📸 Dual-Lock Provenance (QR + AI Vision):** 
+   - A physical QR `patchId` is attached to the item by a Field Facilitator.
+   - When a buyer scans it, they must take a live photo of the item. **Gemini Vision AI** compares the live photo against the original artisan upload to prevent tag-swapping and counterfeits.
+5. **🏛️ Nodal Officer Audit Ledger:** A macro-level government dashboard that tracks regional economic health, strips PII for privacy, and maintains an immutable hash-ledger of every transaction for compliance.
 
-## 🛠️ Tech Stack
-- **Frontend:** Next.js 15 (App Router), React, Tailwind CSS, Lucide Icons
-- **Backend:** Next.js Server Actions & API Routes, Prisma ORM
-- **Database:** PostgreSQL (Neon / Supabase)
-- **AI Integration:** Google Gemini (Generative AI) for Voice Parsing, Vision Verification, and Pricing logic.
+## 🏗️ System Architecture
+- **Framework:** Next.js 14 App Router (React, TypeScript)
+- **Database:** PostgreSQL via Prisma ORM
+- **AI Models:** Google Gemini 1.5 (`@google/genai`) for Vision, Valuation, and NLP
+- **Authentication:** Custom JWT-based Role-Based Access Control (RBAC)
+- **Deployment Strategy:** Progressive Web App (PWA) to bypass Play Store friction.
 
-## 🚀 Getting Started
+*(For a deep dive into our state machine, routing, and database schema, see `ARCHITECTURE.md`)*
 
-First, install dependencies:
-```bash
-npm install
-```
+## 🚀 Local Setup
 
-Set up your `.env` file (see `.env.example`):
-```env
-DATABASE_URL="your-postgres-url"
-JWT_SECRET="your-secret"
-GEMINI_API_KEY="your-gemini-key"
-```
+1. **Install Dependencies**
+   ```bash
+   npm install
+   ```
 
-Push the database schema:
-```bash
-npx prisma db push
-```
+2. **Environment Variables**
+   Create a `.env` file based on `.env.example`:
+   ```env
+   DATABASE_URL="postgresql://user:password@localhost:5432/karigari"
+   JWT_SECRET="your-secret"
+   GEMINI_API_KEY="your-google-gemini-key"
+   ```
 
-Run the development server:
-```bash
-npm run dev
-```
+3. **Database Setup**
+   ```bash
+   npx prisma db push
+   npx prisma generate
+   ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+4. **Run the Development Server**
+   ```bash
+   npm run dev
+   ```
+   *The platform will be available at `http://localhost:3000`.*
 
-## 👥 User Roles in Prototype
-- **Artisan:** Onboards products via voice, captures AI images, receives advances, and tracks inventory.
-- **Local Admin:** Verifies physical products in bulk and issues QR tags.
-- **Super Admin (Govt):** Oversees macro-economic health indices and immutable audit logs.
+---
+*Built with ❤️ for Smart India Hackathon.*
