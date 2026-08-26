@@ -32,6 +32,9 @@ graph TD
   START["Artisan visits Landing /"]:::ui --> AUTHCHK{"Has auth-token JWT cookie?"}
   AUTHCHK -->|No| REG["Register /register - ARTISAN tab"]:::ui
   AUTHCHK -->|Yes| DASH["Artisan Dashboard /artisan/dashboard"]:::ui
+  PWA_SYNC["Offline IndexedDB Sync"]:::ext -. auto-flushes .-> CE
+  IVR["Toll-Free AI IVR"]:::ext -. creates item .-> NEWITEM
+  WA_HOOK["WhatsApp/SMS Webhook"]:::ext -. replies 1 to sell .-> RADV
 
   subgraph AUTH["Authentication and RBAC"]
     REG --> AREG["POST /api/auth/register<br/>bcrypt hash, sign JWT"]:::api
@@ -247,6 +250,48 @@ graph LR
 `PENDING_VERIFICATION → VERIFIED → TAG_ATTACHED → (ADVANCE_PAID | SOLD_MIDDLEMAN | LISTED_AUCTION | PENDING_DISBURSEMENT) → SOLD_FINAL → PAYOUT_COMPLETED`; penalty branch `FLAGGED → APPLIED_FOR_REVIEW`. Every transition writes an immutable `AuditLog` row (hash-ledger via `ledgerHash`).
 
 ---
+
+
+
+---
+
+## 5. Advanced SIH Workflows (Offline, Sync, Pooling, & Fallbacks)
+
+To ensure **100% digital inclusion** and B2B scalability, KARIGARI implements four advanced resilience layers:
+
+### 5.1 Offline Sync (PWA Local Storage)
+**Goal:** Enable cataloging in zero-internet zones.
+**Flow:**
+1. Artisan opens the PWA (cached via service worker).
+2. Uses the camera and dictates details.
+3. If `navigator.onLine` is false, the app saves the `CraftItem` payload to the browser's **IndexedDB** (local storage).
+4. The UI displays an `Offline Mode: Synced to Device` badge.
+5. When the device reconnects to 4G, a background sync listener (or layout `useEffect`) automatically flushes the queue to `POST /api/items/capture`, generating the `UPLOAD_CREATED` audit logs retroactively.
+
+### 5.2 WhatsApp / SMS Fallback (Low-Bandwidth Comm)
+**Goal:** Reach artisans who have a feature phone or minimal data, bypassing the web app entirely.
+**Flow:**
+1. When a B2B buyer posts a bulk demand, the backend `notifyArtisansForDemand()` checks the artisan's connectivity.
+2. If web is unreachable, the system triggers the **Twilio / Meta Cloud API Webhook** (`/api/webhooks/whatsapp`).
+3. Artisan receives an SMS/WhatsApp: *"Demand for 50 Ikats. Reply 1 to accept."*
+4. Artisan replies "1". The webhook parses the sender's number, matches the `ArtisanProfile`, and updates the `CraftItem` status to `ADVANCE_PAID` directly in the Prisma database.
+
+### 5.3 Toll-Free AI IVR (Zero-Tech Fallback)
+**Goal:** Absolute inclusion for the most marginalized artisans with no smartphone or SMS literacy.
+**Flow:**
+1. Artisan dials a toll-free number: **1800-KARIGARI**.
+2. A **Bhashini-powered AI Voicebot** asks in the local dialect: *"What did you weave today?"*
+3. The artisan replies, *"Two red silk sarees."*
+4. The audio is transcribed and parsed via the same `/api/items/voice-parse` logic, and a `PENDING_VERIFICATION` item is inserted into the database. The NGO facilitator simply visits later to attach the physical QR patch.
+
+### 5.4 Cluster Pooling (B2B ONDC Logistics)
+**Goal:** Allow individual rural weavers to fulfill massive B2B wholesale orders by aggregating their inventory.
+**Flow:**
+1. An artisan uploads a saree. The AI Engine detects similar items uploaded by 9 other artisans in the same `clusterName` (e.g., *Pochampally Coop*).
+2. The **ONDC Beckn Adapter** (`/api/ondc/catalog`) dynamically groups these 10 distinct items into a single **"Bulk B2B Listing"**.
+3. A hotel chain on Paytm buys the bulk listing.
+4. The Escrow disbursement API splits the incoming UPI payment into 10 separate micro-payouts, crediting each artisan individually while fulfilling the buyer's bulk requirement.
+
 
 ## Brief vs. code — gap analysis
 
