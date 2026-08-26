@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateContentWithFallback } from '@/lib/gemini';
 
+/**
+ * Latency-first model order. The shared FALLBACK_MODELS list leads with
+ * gemini-3.7-flash, which has been answering 503 and pushing this request past
+ * 40 seconds — far too long for someone standing over a photo they just took.
+ */
+const CAPTURE_MODELS = ['gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.1-flash-lite'];
+
 export async function POST(req: NextRequest) {
   try {
     const { imageBase64, description, targetLanguage } = await req.json();
@@ -59,29 +66,42 @@ export async function POST(req: NextRequest) {
           },
           required: ["isVerified", "reasoning", "qualityCheckPassed", "qualityCheckNotes", "descriptionEnglish", "descriptionLocal"]
         }
-      }
+      },
+      CAPTURE_MODELS
     );
 
+    // generateContentWithFallback resolves to the SDK response object, not a
+    // string — the JSON lives on `.text`. Reading the object directly left
+    // every field undefined, which read as "not verified" and rejected every
+    // image while saving an empty listing.
+    const rawText =
+      typeof result === 'string' ? result : (result as { text?: string })?.text || '';
+
     let parsedResult;
-    if (result && typeof result === 'string') {
-        try {
-            parsedResult = JSON.parse(result);
-        } catch(e) {
-            console.error("Failed to parse Gemini response", e);
-            parsedResult = { isVerified: true, reasoning: "Fallback verification", qualityCheckPassed: true, qualityCheckNotes: "Fallback QA check", descriptionEnglish: "Beautiful handcrafted item.", descriptionLocal: "Beautiful handcrafted item." };
-        }
-    } else {
-        parsedResult = result;
+    try {
+      parsedResult = JSON.parse(
+        rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
+      );
+    } catch (e) {
+      console.error("Failed to parse Gemini response", e);
+      parsedResult = {
+        isVerified: true,
+        reasoning: "Vision service returned an unreadable response; accepted without an AI check.",
+        qualityCheckPassed: true,
+        qualityCheckNotes: "Quality check unavailable.",
+        descriptionEnglish: description,
+        descriptionLocal: description,
+      };
     }
 
     return NextResponse.json({
       success: true,
       data: parsedResult
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Vision Verify Error:", error);
     return NextResponse.json(
-      { error: "Failed to verify image using AI", details: error.message },
+      { error: "Failed to verify image using AI", details: (error as Error)?.message },
       { status: 500 }
     );
   }

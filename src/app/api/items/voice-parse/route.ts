@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { generateContentWithFallback } from '@/lib/gemini';
 
+/** Same latency-first order as the other capture-flow routes. */
+const CAPTURE_MODELS = ['gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.1-flash-lite'];
+
 export async function POST(req: Request) {
   try {
     const { regionalTranscript } = await req.json();
@@ -26,9 +29,11 @@ Ensure the response format is strictly JSON exactly matching this structure (do 
 Transcript:
 "${regionalTranscript}"`;
 
-    const response = await generateContentWithFallback(prompt, {
-      responseMimeType: "application/json",
-    });
+    const response = await generateContentWithFallback(
+      prompt,
+      { responseMimeType: "application/json" },
+      CAPTURE_MODELS
+    );
 
     const responseText = response.text;
     if (!responseText) {
@@ -40,11 +45,11 @@ Transcript:
 
     return NextResponse.json({ success: true, data: parsedData });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Voice parse error:', error);
     
     // Bulletproof Fallback for Hackathon MVP: if ANY AI error occurs, don't crash the UI for the judges.
-    console.warn("Using fallback mock data due to Gemini error:", error.message);
+    console.warn("Using fallback mock data due to Gemini error:", (error as Error)?.message);
     return NextResponse.json({ 
       success: true, 
       data: {

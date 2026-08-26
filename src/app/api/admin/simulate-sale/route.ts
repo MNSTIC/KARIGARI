@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
+import { getPricingDiscrepancy } from '@/lib/pricing';
 
 export async function POST(req: Request) {
   try {
@@ -51,12 +52,19 @@ export async function POST(req: Request) {
     // Remainder to be queued to the artisan
     const finalPayoutQueued = Math.max(0, salePrice - advancePaid);
 
+    // Anti-exploitation guardian: a price more than 30% below the AI fair wage
+    // floor means the artisan is very likely being squeezed by a middleman.
+    const discrepancy = getPricingDiscrepancy({ fairWageFloor: item.fairWageFloor, salePrice });
+
     const updatedItem = await prisma.craftItem.update({
       where: { id: itemId },
       data: { 
         status: 'SOLD_FINAL',
         salePrice: salePrice,
-        finalPayoutQueued: finalPayoutQueued
+        finalPayoutQueued: finalPayoutQueued,
+        pricingFlag: discrepancy.flagged,
+        flagReason: discrepancy.flagged ? discrepancy.reason : null,
+        fairnessScore: discrepancy.flagged ? Math.max(0, 100 - discrepancy.pctBelow) : (item.fairnessScore ?? 95)
       }
     });
 
@@ -71,7 +79,20 @@ export async function POST(req: Request) {
       comments: `UPI Payment processed for buyer sale: ₹${salePrice.toLocaleString()}. Final direct payout of ₹${finalPayoutQueued.toLocaleString()} disbursed to artisan's linked bank account.`
     });
 
-    return NextResponse.json({ success: true, item: updatedItem });
+    if (discrepancy.flagged) {
+      await logCraftItemEvent({
+        prisma,
+        craftItemId: itemId,
+        actorId: decoded.userId,
+        actorRole: 'SYSTEM',
+        action: 'PRICING_FLAG_RAISED',
+        previousState: { pricingFlag: item.pricingFlag },
+        newState: { pricingFlag: true, salePrice, fairWageFloor: item.fairWageFloor },
+        comments: `${discrepancy.reason}. Held for facilitator review under the anti-exploitation policy.`
+      });
+    }
+
+    return NextResponse.json({ success: true, item: updatedItem, pricing: discrepancy });
   } catch (error: any) {
     console.error('Simulate Sale API error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

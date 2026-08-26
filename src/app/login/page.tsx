@@ -7,7 +7,7 @@ import { ShieldCheck, User } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [role, setRole] = useState<'ARTISAN' | 'ADMIN' | 'SUPER_ADMIN'>('ARTISAN');
+  const [role, setRole] = useState<'ARTISAN' | 'ADMIN'>('ARTISAN');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -41,15 +41,13 @@ export default function LoginPage() {
       // Check if they selected the right role tab
       if (data.user.role === 'ADMIN' && role === 'ARTISAN') {
         throw new Error(`Invalid role. This account belongs to a Admin.`);
-      } else if (data.user.role === 'ARTISAN' && (role === 'ADMIN' || role === 'SUPER_ADMIN')) {
+      } else if (data.user.role === 'ARTISAN' && role === 'ADMIN') {
         throw new Error(`Invalid role. This account belongs to an Artisan.`);
       }
 
-      // Success! Redirect to dashboard.
-      if (role === 'SUPER_ADMIN' || data.user.isSuperAdmin) {
-        router.push("/super-admin/dashboard");
-      } else if (role === 'ADMIN' || data.user.role === 'ADMIN') {
-        router.push("/admin/dashboard");
+      // Success! One ADMIN role opens both admin dashboards; land on Facilitator.
+      if (data.user.role === 'ADMIN') {
+        router.push("/admin/facilitator");
       } else {
         router.push("/artisan/dashboard");
       }
@@ -99,7 +97,7 @@ export default function LoginPage() {
               type="button"
               onClick={() => setRole('ADMIN')}
               className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
-                (role === 'ADMIN' || role === 'SUPER_ADMIN') ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                role === 'ADMIN' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               <ShieldCheck size={16} />
@@ -107,22 +105,8 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {(role === 'ADMIN' || role === 'SUPER_ADMIN') && (
-            <div className="flex gap-4 mb-8 justify-center">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="radio" name="adminType" checked={role === 'ADMIN'} onChange={() => setRole('ADMIN')} className="text-primary focus:ring-primary" />
-                <span className={role === 'ADMIN' ? 'font-bold text-gray-900' : 'text-gray-600'}>Local Admin</span>
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="radio" name="adminType" checked={role === 'SUPER_ADMIN'} onChange={() => {
-                  setRole('SUPER_ADMIN');
-                  setFormData({...formData, email: 'superadmin@karigari.com', password: 'password123'});
-                }} className="text-primary focus:ring-primary" />
-                <span className={role === 'SUPER_ADMIN' ? 'font-bold text-gray-900' : 'text-gray-600'}>Super Admin</span>
-              </label>
-            </div>
-          )}
-          {role === 'ARTISAN' && <div className="mb-8"></div>}
+          <div className="mb-8"></div>
+
 
           <form className="space-y-6" onSubmit={handleSubmit}>
             {error && (

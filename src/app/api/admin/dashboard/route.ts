@@ -45,7 +45,8 @@ export async function GET(req: Request) {
       alertCount,
       atRiskArtisans,
       adminUser,
-      allArtisans
+      allArtisans,
+      disbursementRows
     ] = await Promise.all([
       prisma.user.count({ where: { role: 'ARTISAN' } }),
       prisma.craftItem.aggregate({ _sum: { advancePaid: true }, where: { status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] } } }),
@@ -62,7 +63,8 @@ export async function GET(req: Request) {
       prisma.craftItem.count({ where: { assignedAdminId: decoded.userId, OR: [ { status: 'FLAGGED' }, { fairnessScore: { lt: 60 } } ] } }),
       prisma.user.findMany({ where: { role: 'ARTISAN', accountStatus: 'ACTIVE', artisanProfile: { healthScore: { lt: 65 } } }, include: { artisanProfile: true } }),
       prisma.user.findUnique({ where: { id: decoded.userId } }),
-      prisma.user.findMany({ where: { role: 'ARTISAN' }, include: { artisanProfile: true, craftItems: { where: { status: { in: ['ADVANCE_PAID', 'SOLD_FINAL', 'SOLD_MIDDLEMAN'] } }, select: { advancePaid: true, fairWageFloor: true, finalPayoutQueued: true } } } })
+      prisma.user.findMany({ where: { role: 'ARTISAN' }, include: { artisanProfile: true, craftItems: { where: { status: { in: ['ADVANCE_PAID', 'SOLD_FINAL', 'SOLD_MIDDLEMAN'] } }, select: { advancePaid: true, fairWageFloor: true, finalPayoutQueued: true } } } }),
+      prisma.craftItem.findMany({ select: { createdAt: true, advancePaid: true, finalPayoutQueued: true }, orderBy: { createdAt: 'asc' } })
     ]);
 
     const totalAdvances = advances._sum.advancePaid || 0;
@@ -88,21 +90,15 @@ export async function GET(req: Request) {
     
     const complianceRate = adminItems.length > 0 ? Math.round(totalScore / adminItems.length) : 100;
 
-    atRiskArtisans.forEach((a: any) => {
-      a.name = a.name.substring(0, 2) + "***";
-      if (a.artisanProfile && a.artisanProfile.upiId) {
-        a.artisanProfile.upiId = a.artisanProfile.upiId.substring(0, 3) + "***@upi";
-      }
-    });
-
     const leaderboard = allArtisans.map((a: any) => {
       let earnings = 0;
       a.craftItems.forEach((ci: any) => {
-        earnings += (ci.advancePaid || ci.fairWageFloor || 0) + (ci.finalPayoutQueued || 0);
+        // Real money only: advance actually disbursed plus final payout queued.
+        earnings += (ci.advancePaid || 0) + (ci.finalPayoutQueued || 0);
       });
       return {
         id: a.id,
-        name: a.name.substring(0, 2) + "***",
+        name: a.name,
         image: a.artisanProfile?.photoUrl || "/female_artisan.jpg",
         items: a.craftItems.length,
         earnings
@@ -120,32 +116,28 @@ export async function GET(req: Request) {
     
     const totalWageItems = above + at + below;
     const fairWageData = totalWageItems > 0 ? [
-      { name: "Above Fair Floor", value: Math.round((above / totalWageItems) * 100), color: "#10b981" },
-      { name: "At Fair Floor", value: Math.round((at / totalWageItems) * 100), color: "#34d399" },
-      { name: "Below Fair Floor", value: Math.round((below / totalWageItems) * 100), color: "#ef4444" }
+      { name: "Above Fair Floor", value: Math.round((above / totalWageItems) * 100), color: "#3D624F" },
+      { name: "At Fair Floor", value: Math.round((at / totalWageItems) * 100), color: "#A9BFB0" },
+      { name: "Below Fair Floor", value: Math.round((below / totalWageItems) * 100), color: "#B14B39" }
     ] : [
-      { name: "No Sales Data", value: 100, color: "#e5e7eb" }
+      { name: "No Sales Data", value: 100, color: "#E4DCD6" }
     ];
     
-    const disbursementData = [
-      { day: "1 May", amount: 200000 },
-      { day: "5 May", amount: 450000 },
-      { day: "10 May", amount: Math.floor(totalAdvances * 0.3) || 380000 },
-      { day: "15 May", amount: Math.floor(totalAdvances * 0.5) || 820000 },
-      { day: "20 May", amount: Math.floor(totalAdvances * 0.7) || 1100000 },
-      { day: "25 May", amount: Math.floor(totalAdvances * 0.9) || 1482300 },
-      { day: "Today", amount: totalAdvances || 1350000 }
-    ];
+    // Real cumulative disbursement over the last six weeks, computed from the
+    // ledger rather than from placeholder figures.
+    const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const disbursementData = Array.from({ length: 7 }, (_, i) => {
+      const cutoff = now - (6 - i) * WEEK_MS;
+      const amount = disbursementRows
+        .filter((r: any) => r.createdAt.getTime() <= cutoff)
+        .reduce((sum: number, r: any) => sum + (r.advancePaid || 0) + (r.finalPayoutQueued || 0), 0);
+      return {
+        day: i === 6 ? 'Today' : new Date(cutoff).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+        amount
+      };
+    });
     
-    recentCaptures.forEach((rc: any) => {
-       if (rc.artisan && rc.artisan.name) rc.artisan.name = rc.artisan.name.substring(0,2) + "***";
-       if (rc.artisan?.artisanProfile?.upiId) rc.artisan.artisanProfile.upiId = rc.artisan.artisanProfile.upiId.substring(0,3) + "***@upi";
-    });
-    pendingCaptures.forEach((pc: any) => {
-       if (pc.artisan && pc.artisan.name) pc.artisan.name = pc.artisan.name.substring(0,2) + "***";
-       if (pc.artisan?.artisanProfile?.upiId) pc.artisan.artisanProfile.upiId = pc.artisan.artisanProfile.upiId.substring(0,3) + "***@upi";
-    });
-
     return NextResponse.json({
       success: true,
       data: {

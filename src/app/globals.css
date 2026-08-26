@@ -1,30 +1,58 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #1A4731;
-  --color-primary-dark: #123323;
-  --color-primary-light: #2c6e4e;
-  --color-background: #F5F0E8;
-  --color-foreground: #111827;
-  --color-sidebar: #1A1A1A;
-  --color-cream: #F5F0E8;
-  --color-card: #FFFFFF;
+  /* Brand */
+  --color-primary: #24332C;
+  --color-primary-dark: #1A2721;
+  --color-primary-light: #3D5145;
 
-  --color-stat-teal: #0D9488;
-  --color-stat-orange: #EA580C;
-  --color-stat-blue: #2563EB;
-  --color-stat-brown: #92400E;
+  /* Surfaces */
+  --color-background: #FCF8F7;
+  --color-foreground: #211D1B;
+  --color-card: #FFFFFF;
+  --color-cream: #FCF8F7;
+  --color-sidebar: #F5F1EF;
+
+  /* Secondary greens */
+  --color-sage: #A9BFB0;
+  --color-mint: #DCEBE0;
+
+  /* StatCard accent tokens */
+  --color-stat-teal:   #3D624F;
+  --color-stat-orange: #8F412F;
+  --color-stat-blue:   #4D5D6C;
+  --color-stat-brown:  #9A7B3F;
+
+  /* Warm neutral ramp — overrides Tailwind defaults */
+  --color-gray-50:  #FCF8F7;
+  --color-gray-100: #F3EEEB;
+  --color-gray-200: #ECE6E2;
+  --color-gray-300: #DCD4CE;
+  --color-gray-400: #A69C95;
+  --color-gray-500: #6B635E;
+  --color-gray-600: #554E4A;
+  --color-gray-700: #403A37;
+  --color-gray-800: #2E2926;
+  --color-gray-900: #211D1B;
+
+  /* Muted status ramps */
+  --color-red-50: #FADCD9; --color-red-100: #F6C9C3; --color-red-200: #EFB2AA; --color-red-500: #B14B39; --color-red-600: #9E4130; --color-red-700: #863628; --color-red-800: #6E2C20; --color-red-900: #4E1F16;
+  --color-green-50: #E9F1EB; --color-green-100: #D7E6DC; --color-green-200: #C2D8C9; --color-green-300: #A9BFB0; --color-green-400: #6F8E7B; --color-green-500: #3D624F; --color-green-600: #34543F; --color-green-700: #2B4534; --color-green-800: #24382B; --color-green-900: #1B2A20;
+  --color-blue-50: #E7ECF0; --color-blue-100: #D3DCE4; --color-blue-200: #BDCAD5; --color-blue-500: #4D5D6C; --color-blue-600: #42505D; --color-blue-700: #37424D; --color-blue-800: #2C353E;
+  --color-yellow-50: #F3EBD9; --color-yellow-100: #EBDFC4; --color-yellow-500: #9A7B3F; --color-yellow-600: #8A6E38; --color-yellow-700: #7C6231; --color-yellow-800: #63501F;
+  --color-orange-50: #F5E7DF; --color-orange-100: #ECD6C9; --color-orange-500: #B14B39; --color-orange-600: #9B412F; --color-orange-700: #86392A; --color-orange-900: #5A261C;
+  --color-purple-50: #EDE8F0; --color-purple-100: #DED4E4; --color-purple-500: #6B5A78;
 
   --font-sans: var(--font-inter);
   --font-serif: var(--font-playfair);
-  
+
   --shadow-soft: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
   --shadow-card: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
 }
 
 :root {
-  --background: #F5F0E8;
-  --foreground: #111827;
+  --background: #FCF8F7;
+  --foreground: #211D1B;
 }
 
 body {

@@ -47,20 +47,36 @@ export async function GET(req: Request) {
         include: { artisanProfile: true, schemeApplications: true } 
       }),
       prisma.craftItem.count({ where: { artisanId } }),
-      prisma.craftItem.findMany({ where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] } }, select: { advancePaid: true, fairWageFloor: true } }),
+      prisma.craftItem.findMany({ where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] } }, select: { advancePaid: true } }),
       prisma.craftItem.count({ where: { artisanId, status: { in: ['SOLD_FINAL', 'SOLD_MIDDLEMAN'] } } }),
       prisma.craftItem.aggregate({ _sum: { finalPayoutQueued: true }, where: { artisanId, status: 'SOLD_FINAL' } }),
-      prisma.craftItem.findMany({ where: { artisanId }, orderBy: { createdAt: 'desc' }, take: 10 }),
+      // auditLogs travel with the item so "View Details" can render the same
+      // Product Timeline the public passport shows, without a second round trip.
+      prisma.craftItem.findMany({
+        where: { artisanId },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        include: { auditLogs: { orderBy: { createdAt: 'desc' } } }
+      }),
       prisma.craftItem.count({ where: { artisanId, createdAt: { gte: oneWeekAgo } } }),
-      prisma.craftItem.findMany({ where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] }, createdAt: { gte: oneWeekAgo } }, select: { advancePaid: true, fairWageFloor: true } }),
+      prisma.craftItem.findMany({ where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] }, createdAt: { gte: oneWeekAgo } }, select: { advancePaid: true } }),
       prisma.craftItem.count({ where: { artisanId, status: { in: ['SOLD_FINAL', 'SOLD_MIDDLEMAN'] }, createdAt: { gte: oneWeekAgo } } }),
       prisma.craftItem.aggregate({ _sum: { finalPayoutQueued: true }, where: { artisanId, status: 'SOLD_FINAL', createdAt: { gte: oneWeekAgo } } })
     ]);
 
-    const totalAdvances = advancedItems.reduce((sum: number, item: any) => sum + (item.advancePaid || item.fairWageFloor || 0), 0);
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Your session is no longer valid. Please sign in again.', code: 'SESSION_STALE' },
+        { status: 401 }
+      );
+    }
+
+    // Only money actually disbursed counts. The `fairWageFloor` fallback that used
+    // to sit here invented an advance for every item that had not been paid yet.
+    const totalAdvances = advancedItems.reduce((sum: number, item: any) => sum + (item.advancePaid || 0), 0);
     const totalEarnings = totalAdvances + (queued._sum.finalPayoutQueued || 0);
 
-    const pastWeekAdvances = pastWeekAdvancedItems.reduce((sum: number, item: any) => sum + (item.advancePaid || item.fairWageFloor || 0), 0);
+    const pastWeekAdvances = pastWeekAdvancedItems.reduce((sum: number, item: any) => sum + (item.advancePaid || 0), 0);
     const pastWeekEarnings = pastWeekAdvances + (pastWeekQueued._sum.finalPayoutQueued || 0);
 
     return NextResponse.json({

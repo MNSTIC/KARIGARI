@@ -3,20 +3,19 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { 
-  Bell, Globe, ChevronDown, TrendingUp, Package, HandCoins, Banknote, 
-  LogOut, X, MapPin, Award, Camera, FileText, ArrowRightCircle
+import {
+  Globe, ChevronDown, TrendingUp, Package, HandCoins, Banknote,
+  LogOut, X, MapPin, Award, Camera, FileText, ArrowRightCircle, Clock, CheckCircle2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
 import { CaptureModal } from "@/components/CaptureModal";
 import { AgentHandoffModal } from "@/components/AgentHandoffModal";
 import { DisputeModal } from "@/components/DisputeModal";
 import { ProfileEditorModal } from "@/components/ProfileEditorModal";
 import { useLanguage } from "@/lib/translations";
-import { CheckCircle2 } from "lucide-react";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
-import { VoiceOnboarding } from "@/components/VoiceOnboarding";
+import { NotificationsBell } from "@/components/NotificationsBell";
+import { formatRupees, getListingPrice } from "@/lib/pricing";
 
 export default function ArtisanDashboard() {
   const router = useRouter();
@@ -33,19 +32,19 @@ export default function ArtisanDashboard() {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [selectedDisputeItem, setSelectedDisputeItem] = useState<any>(null);
-  const [showNotifications, setShowNotifications] = useState(false);
   const [showLangMenu, setShowLangMenu] = useState(false);
 
   const fetchDashboardData = async () => {
     try {
       const res = await fetch('/api/artisan/dashboard', { cache: 'no-store' });
+      if (res.status === 401 || res.status === 403) {
+        await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+        router.push('/login');
+        return;
+      }
       const data = await res.json();
       if (data.success) {
         setDashboardData(data.data);
-      } else {
-        if (data.status === 401 || data.status === 403) {
-          router.push('/login');
-        }
       }
     } catch (e) {
       console.error(e);
@@ -54,6 +53,27 @@ export default function ArtisanDashboard() {
 
   useEffect(() => {
     fetchDashboardData();
+  }, []);
+
+  // Deep link from the insights map ("complete profile"). Read straight off the
+  // URL rather than via useSearchParams so this fully-client page needs no
+  // Suspense boundary, and drop the param so a refresh does not reopen it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("edit") !== "profile") return;
+
+    // Deferred by a macrotask so the effect body performs no synchronous
+    // setState — same pattern the insights and schemes pages use. The URL is
+    // rewritten inside the callback, not beside it: StrictMode runs this effect
+    // twice in dev, and stripping the param on the first pass (whose timer the
+    // cleanup then cancels) left the second pass with nothing to act on.
+    const kickoff = setTimeout(() => {
+      setIsProfileEditorOpen(true);
+      params.delete("edit");
+      const query = params.toString();
+      window.history.replaceState({}, "", window.location.pathname + (query ? `?${query}` : ""));
+    }, 0);
+    return () => clearTimeout(kickoff);
   }, []);
 
   const handleLogout = async () => {
@@ -101,35 +121,21 @@ export default function ArtisanDashboard() {
             )}
           </div>
           
-          {/* Notifications */}
-          <div className="relative">
-            <button onClick={() => setShowNotifications(!showNotifications)} className="text-gray-500 hover:text-gray-900 transition-colors">
-              <Bell size={20} />
-              {flaggedItems.length > 0 && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border border-white"></span>}
-            </button>
-            {showNotifications && (
-              <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-lg border border-gray-100 z-50">
-                <div className="p-3 border-b border-gray-50"><h3 className="text-sm font-bold text-gray-900">Notifications</h3></div>
-                {flaggedItems.length > 0 ? (
-                  <div className="max-h-60 overflow-y-auto">
-                    {flaggedItems.map((item: any) => (
-                      <div key={item.id} className="p-3 border-b border-gray-50 hover:bg-red-50 cursor-pointer text-sm">
-                        <p className="font-bold text-red-600 mb-1">Attention Required</p>
-                        <p className="text-gray-700">Your item <strong>{item.craftType}</strong> was flagged.</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : <div className="p-4 text-center text-sm text-gray-500">No new notifications.</div>}
-              </div>
-            )}
-          </div>
-          
-          <Link href="/buyer" className="hidden sm:flex items-center justify-center bg-[#0F2D20] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#1A4731] transition-colors ml-2 shadow-sm border border-[#0F2D20]/50">
+          {/* Notifications — real Notification rows plus any locally flagged items */}
+          <NotificationsBell
+            localAlerts={flaggedItems.map((item: any) => ({
+              id: item.id,
+              title: t('attention_required'),
+              message: `${item.craftType} — ${t('item_flagged')}`,
+            }))}
+          />
+
+          <Link href="/buyer" className="hidden sm:flex items-center justify-center bg-[#14211B] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#24332C] transition-colors ml-2 shadow-sm border border-[#14211B]/50">
             Switch to Buyer View
           </Link>
 
           <div 
-            className="w-[34px] h-[34px] rounded-full overflow-hidden border border-gray-200 cursor-pointer shadow-sm hover:ring-2 hover:ring-[#1A4731] transition-all ml-2"
+            className="w-[34px] h-[34px] rounded-full overflow-hidden border border-gray-200 cursor-pointer shadow-sm hover:ring-2 hover:ring-[#24332C] transition-all ml-2"
             onClick={() => setIsProfileEditorOpen(true)}
           >
             <Image src={dashboardData?.artisanProfile?.photoUrl || "/female_artisan.jpg"} alt="Avatar" width={34} height={34} className="object-cover w-full h-full" />
@@ -169,9 +175,9 @@ export default function ArtisanDashboard() {
           <div className="flex items-center gap-3 sm:min-w-[260px] bg-gray-50 py-2 px-4 rounded-xl border border-gray-100">
             <span className="text-[12px] font-bold text-gray-500 whitespace-nowrap">{t('artisan_trust')}</span>
             <div className="flex-1 h-[6px] bg-gray-200 rounded-full overflow-hidden">
-              <div className={`h-full ${healthScore >= 80 ? 'bg-[#0D9488]' : healthScore >= 50 ? 'bg-orange-500' : 'bg-red-500'}`} style={{ width: `${healthScore}%` }}></div>
+              <div className={`h-full ${healthScore >= 80 ? 'bg-[#3D624F]' : healthScore >= 50 ? 'bg-orange-500' : 'bg-red-500'}`} style={{ width: `${healthScore}%` }}></div>
             </div>
-            <span className={`text-[13px] font-bold ${healthScore >= 80 ? 'text-[#0D9488]' : healthScore >= 50 ? 'text-orange-500' : 'text-red-500'}`}>
+            <span className={`text-[13px] font-bold ${healthScore >= 80 ? 'text-[#3D624F]' : healthScore >= 50 ? 'text-orange-500' : 'text-red-500'}`}>
               {healthScore}%
             </span>
           </div>
@@ -199,7 +205,7 @@ export default function ArtisanDashboard() {
           <button 
             onClick={() => setIsModalOpen(true)}
             className="rounded-3xl p-8 flex flex-col justify-between min-h-[160px] relative transition-transform hover:-translate-y-1 group overflow-hidden"
-            style={{ background: 'linear-gradient(135deg,#1A4731 0%, #0F2D20 100%)', boxShadow: '0 10px 25px -5px rgba(26,71,49,0.4)' }}
+            style={{ background: 'linear-gradient(135deg,#24332C 0%, #14211B 100%)', boxShadow: '0 10px 25px -5px rgba(26,71,49,0.4)' }}
           >
             <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
             <span className="absolute top-6 right-6 bg-white/20 text-white text-[12px] font-bold tracking-wider px-4 py-1.5 rounded-full uppercase">
@@ -222,7 +228,7 @@ export default function ArtisanDashboard() {
           {/* Action 2 */}
           <Link href="/artisan/schemes" className="rounded-3xl p-8 flex flex-col justify-between min-h-[160px] bg-white border border-gray-200 shadow-sm transition-all hover:-translate-y-1 hover:border-gray-300 hover:shadow-md group">
             <div>
-              <div className="w-12 h-12 rounded-2xl bg-green-50 text-[#1A4731] flex items-center justify-center mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-green-50 text-[#24332C] flex items-center justify-center mb-6">
                 <FileText size={24} />
               </div>
               <div className="text-xl font-bold text-gray-900 mb-2">{t('apply_for_schemes')}</div>
@@ -230,7 +236,7 @@ export default function ArtisanDashboard() {
                 {t('schemes_subtitle')}
               </div>
             </div>
-            <div className="mt-8 text-base font-bold text-[#1A4731] flex items-center group-hover:translate-x-1 transition-transform">
+            <div className="mt-8 text-base font-bold text-[#24332C] flex items-center group-hover:translate-x-1 transition-transform">
               {t('view_schemes')}
             </div>
           </Link>
@@ -238,7 +244,7 @@ export default function ArtisanDashboard() {
           {/* Action 3 */}
           <Link href="/artisan/insights" className="rounded-3xl p-8 flex flex-col justify-between min-h-[160px] bg-white border border-gray-200 shadow-sm transition-all hover:-translate-y-1 hover:border-gray-300 hover:shadow-md group">
             <div>
-              <div className="w-12 h-12 rounded-2xl bg-green-50 text-[#1A4731] flex items-center justify-center mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-green-50 text-[#24332C] flex items-center justify-center mb-6">
                 <Globe size={24} />
               </div>
               <div className="text-xl font-bold text-gray-900 mb-2">{t('market_insights') || 'Market Insights'}</div>
@@ -247,7 +253,7 @@ export default function ArtisanDashboard() {
               </div>
             </div>
             <div className="flex justify-end mt-4">
-              <ArrowRightCircle size={28} className="text-[#1A4731] opacity-0 group-hover:opacity-100 transition-opacity" />
+              <ArrowRightCircle size={28} className="text-[#24332C] opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           </Link>
           
@@ -346,7 +352,7 @@ export default function ArtisanDashboard() {
                       <td className="py-5 px-6">
                         <button 
                           onClick={() => { setSelectedItem(item); setIsDetailsModalOpen(true); }}
-                          className="text-[#1A4731] font-bold text-sm hover:underline"
+                          className="text-[#24332C] font-bold text-sm hover:underline"
                         >
                           {t('view_details')}
                         </button>
@@ -442,13 +448,79 @@ export default function ArtisanDashboard() {
   );
 }
 
+/**
+ * What the artisan has actually been paid on one item, driven off `status`.
+ *
+ * An advance only becomes real in `disbursement/apply`, i.e. after an admin has
+ * verified the item AND the artisan has claimed it. Every status before that
+ * must read zero. The AI `fairWageFloor` is a valuation, so it may only ever be
+ * shown as an *eligible* amount, never as money received.
+ */
+function describeArtisanMoney(item: any, t: (key: string) => string) {
+  const advancePaid = Number(item?.advancePaid) || 0;
+  const finalPayout = Number(item?.finalPayoutQueued) || 0;
+  const eligible = Number(item?.fairWageFloor) || 0;
+  const helperWith = (key: string, amount: number) =>
+    t(key).replace('{amount}', formatRupees(amount));
+
+  switch (String(item?.status || '')) {
+    case 'PENDING_VERIFICATION':
+      return {
+        label: t('advance_received'),
+        value: formatRupees(0),
+        helper: helperWith('advance_helper_pending', eligible),
+        received: false,
+      };
+    case 'VERIFIED':
+    case 'TAG_ATTACHED':
+      return {
+        label: t('advance_received'),
+        value: formatRupees(0),
+        helper: helperWith('advance_helper_verified', eligible),
+        received: false,
+      };
+    case 'SOLD_FINAL':
+    case 'PAYOUT_COMPLETED':
+      return {
+        label: t('total_earned'),
+        value: formatRupees(advancePaid + finalPayout),
+        helper: `${t('advance_received')} ${formatRupees(advancePaid)} · ${t('final_payout')} ${formatRupees(finalPayout)}`,
+        received: advancePaid + finalPayout > 0,
+      };
+    case 'SOLD_MIDDLEMAN':
+      return {
+        label: t('advance_received'),
+        value: formatRupees(advancePaid),
+        helper: t('advance_helper_middleman'),
+        received: advancePaid > 0,
+      };
+    case 'LISTED_AUCTION':
+      return {
+        label: t('advance_received'),
+        value: formatRupees(advancePaid),
+        helper: t('advance_helper_auction'),
+        received: advancePaid > 0,
+      };
+    default:
+      // ADVANCE_PAID and anything later: the row's own number is the truth.
+      return {
+        label: t('advance_received'),
+        value: formatRupees(advancePaid),
+        helper: advancePaid > 0 ? null : helperWith('advance_helper_verified', eligible),
+        received: advancePaid > 0,
+      };
+  }
+}
+
 function DetailsModal({ item, onClose }: { item: any, onClose: () => void }) {
   const { t } = useLanguage();
+  const money = describeArtisanMoney(item, t);
+  const listingPrice = getListingPrice(item);
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in-up">
       <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col">
         <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-          <h2 className="font-serif font-bold text-lg text-[#1A4731]">{t('transaction_details')}</h2>
+          <h2 className="font-serif font-bold text-lg text-[#24332C]">{t('transaction_details')}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors text-gray-500">
             <X size={20} />
           </button>
@@ -469,13 +541,21 @@ function DetailsModal({ item, onClose }: { item: any, onClose: () => void }) {
               <span className="text-xs text-gray-400 font-bold uppercase tracking-wider block mb-1">{t('status')}</span>
               <span className="font-medium text-gray-800">{item.status.replace(/_/g, ' ')}</span>
             </div>
-            <div className="bg-green-50 p-4 rounded-xl border border-green-100">
-              <span className="text-xs text-green-600 font-bold uppercase tracking-wider block mb-1">{t('advance_received')}</span>
-              <span className="font-bold text-xl text-green-700">₹{item.advancePaid > 0 ? item.advancePaid.toLocaleString() : (item.fairWageFloor?.toLocaleString() || 0)}</span>
+            <div className={`p-4 rounded-xl border ${money.received ? 'bg-green-50 border-green-100' : 'bg-gray-50 border-gray-100'}`}>
+              <span className={`text-xs font-bold uppercase tracking-wider block mb-1 ${money.received ? 'text-green-600' : 'text-gray-400'}`}>{money.label}</span>
+              <span className={`font-bold text-xl ${money.received ? 'text-green-700' : 'text-gray-500'}`}>{money.value}</span>
             </div>
           </div>
+
+          {money.helper && (
+            <p className="-mt-4 mb-6 text-xs text-gray-500 leading-relaxed">{money.helper}</p>
+          )}
           
           <div className="space-y-3">
+            <div className="flex justify-between text-sm py-2 border-b border-gray-100">
+              <span className="text-gray-500">{t('your_listing_price')}</span>
+              <span className="font-bold text-gray-900">{formatRupees(listingPrice)}</span>
+            </div>
             <div className="flex justify-between text-sm py-2 border-b border-gray-100">
               <span className="text-gray-500">{t('total_valuation_band')}</span>
               <span className="font-medium">₹{item.marketPriceMin?.toLocaleString()} - ₹{item.marketPriceMax?.toLocaleString()}</span>
@@ -487,6 +567,50 @@ function DetailsModal({ item, onClose }: { item: any, onClose: () => void }) {
             <div className="flex justify-between text-sm py-2">
               <span className="text-gray-500">{t('material_cost')}</span>
               <span className="font-medium">₹{item.rawMaterialCost?.toLocaleString()}</span>
+            </div>
+          </div>
+
+          {/* Product Timeline — the same audit chain the public passport shows */}
+          <div className="mt-8 pt-6 border-t border-gray-100">
+            <h4 className="font-bold text-base text-gray-900 mb-5 flex items-center gap-2">
+              <span className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Clock size={16} />
+              </span>
+              {t('product_timeline')}
+            </h4>
+
+            <div className="space-y-4 relative before:absolute before:inset-0 before:ml-4 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-gray-200 before:to-transparent">
+              {item.auditLogs && item.auditLogs.length > 0 ? (
+                item.auditLogs.map((log: any) => (
+                  <div key={log.id} className="relative flex items-start gap-4">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full border-2 border-white bg-blue-100 text-blue-500 shrink-0 shadow-sm relative z-10">
+                      <CheckCircle2 size={14} />
+                    </div>
+                    <div className="flex-1 min-w-0 p-4 rounded-xl border border-gray-100 bg-gray-50 shadow-sm">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="font-bold text-sm text-gray-900">
+                          {log.action.replace(/_/g, ' ')}
+                        </span>
+                        {log.actorRole && (
+                          <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-200 px-2 py-0.5 rounded shrink-0">
+                            {log.actorRole}
+                          </span>
+                        )}
+                      </div>
+                      <time className="text-xs font-medium text-blue-500 mb-2 block">
+                        {new Date(log.createdAt).toLocaleDateString()} · {new Date(log.createdAt).toLocaleTimeString()}
+                      </time>
+                      <p className="text-xs text-gray-600 leading-relaxed">
+                        {log.comments || `State updated to ${log.newState?.status || 'Unknown'}`}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center text-sm text-gray-500 italic py-4">
+                  {t('no_timeline_events')}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { getListingPrice } from '@/lib/pricing';
 import crypto from 'crypto';
 
 export async function GET(req: Request, { params }: { params: Promise<{ patchId: string }> }) {
@@ -36,6 +37,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ patchId:
       materials: item.tags.join(", "), // Fallback if explicit materials list isn't present
       timeToMake: `${item.laborDays} Days`,
       fairWageFloor: item.fairWageFloor,
+      // What the item is actually offered at — the artisan's own price.
+      listingPrice: item.salePrice ?? getListingPrice(item),
       status: item.status,
       dateVerified: item.createdAt,
       passportHash,

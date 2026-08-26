@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck, User, MapPin, Briefcase } from "lucide-react";
+import { ShieldCheck, User, MapPin, Briefcase, Info } from "lucide-react";
+import { CITY_OPTIONS, locateCity } from "@/lib/indiaGeo";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -26,6 +27,10 @@ export default function RegisterPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
+
+  // The demand map can only pin a town it knows. Warn while typing rather than
+  // silently registering someone who will never appear on the map.
+  const locationResolves = Boolean(locateCity(formData.location));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,12 +55,12 @@ export default function RegisterPage() {
 
       // Success! The httpOnly cookie is set. Redirect to dashboard.
       if (role === 'ADMIN') {
-        router.push("/admin/dashboard");
+        router.push("/admin/facilitator");
       } else {
         router.push("/artisan/dashboard");
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to register");
     } finally {
       setLoading(false);
     }
@@ -174,17 +179,24 @@ export default function RegisterPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                      <MapPin size={14} /> Location
+                      <MapPin size={14} /> Town or City
                     </label>
                     <input
                       name="location"
                       type="text"
                       required
+                      list="karigari-cities"
+                      autoComplete="off"
                       value={formData.location}
                       onChange={handleChange}
                       className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                      placeholder="Telangana"
+                      placeholder="Start typing, e.g. Pochampally"
                     />
+                    <datalist id="karigari-cities">
+                      {CITY_OPTIONS.map((city) => (
+                        <option key={city} value={city} />
+                      ))}
+                    </datalist>
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1">Experience (Years)</label>
@@ -200,6 +212,17 @@ export default function RegisterPage() {
                     />
                   </div>
                 </div>
+
+                {formData.location.trim() !== "" && !locationResolves && (
+                  <div className="-mt-3 flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                    <Info size={14} className="shrink-0 mt-0.5" />
+                    <span>
+                      We do not have this place on the demand map yet. Pick the nearest town from
+                      the list so buyers near you can find you — a state name on its own will not
+                      place a pin.
+                    </span>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>

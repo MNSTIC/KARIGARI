@@ -13,11 +13,12 @@ export async function POST(req: Request) {
     if (!name || !email || !password || !role) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
+    const normalizedEmail = email.toLowerCase().trim();
     if (role === 'ARTISAN' && (!aadhaarLast4 || !annualIncome)) {
       return NextResponse.json({ error: 'Aadhaar Last 4 and Annual Income are required for artisans' }, { status: 400 });
     }
 
-    const existingUser = await prisma.user.findUnique({ where: { email } });
+    const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existingUser) {
       return NextResponse.json({ error: 'User already exists' }, { status: 400 });
     }
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
     const user = await prisma.user.create({
       data: {
         name,
-        email,
+        email: normalizedEmail,
         passwordHash,
         role,
         ...(role === 'ARTISAN' && {

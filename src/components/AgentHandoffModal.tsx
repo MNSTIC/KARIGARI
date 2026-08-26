@@ -239,14 +239,14 @@ export function AgentHandoffModal({ isOpen, onClose, item }: AgentHandoffModalPr
                 <p className="text-gray-500 text-sm mb-4">Based on market analysis, we recommend routing this product for maximum yield. All sales on Karigari incur a standard 3% platform fee.</p>
               </div>
 
-              <div className="bg-[#0F2D20] text-white p-5 rounded-2xl mb-6 shadow-md relative overflow-hidden">
+              <div className="bg-[#14211B] text-white p-5 rounded-2xl mb-6 shadow-md relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-xl -mr-8 -mt-8 pointer-events-none"></div>
                 <h4 className="text-xs font-bold text-white/70 uppercase tracking-wider mb-1 flex items-center gap-2"><Sparkles size={14}/> Dynamic Pricing Assistant</h4>
                 <p className="text-[13px] text-white/80 mb-3">AI-suggested optimal selling price based on current Diwali season demand, {item.laborDays} labor days, and raw material costs:</p>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-serif font-bold text-[#E9E3D6]">₹{item.marketPriceMin?.toLocaleString() || 2500}</span>
+                  <span className="text-3xl font-serif font-bold text-[#F3EEEB]">₹{item.marketPriceMin?.toLocaleString() || 2500}</span>
                   <span className="text-xl text-white/50">-</span>
-                  <span className="text-3xl font-serif font-bold text-[#E9E3D6]">₹{item.marketPriceMax?.toLocaleString() || 3200}</span>
+                  <span className="text-3xl font-serif font-bold text-[#F3EEEB]">₹{item.marketPriceMax?.toLocaleString() || 3200}</span>
                 </div>
               </div>
 

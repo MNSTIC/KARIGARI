@@ -36,11 +36,22 @@ export async function POST(req: Request) {
       const admin = await tx.user.findUnique({ where: { id: decoded.userId } });
       if (!admin) throw new Error("Admin not found");
       
-      const itemsToVerify = [];
+      const itemsToVerify: string[] = [];
+      // Keep the row around: publishing needs the artisan's listing text, and
+      // re-reading it inside the update loop would cost a second query each.
+      const itemDetails = new Map<
+        string,
+        { descriptionEnglish: string | null; aiGeneratedListing: string | null }
+      >();
+
       for (const id of itemIds) {
         const item = await tx.craftItem.findUnique({ where: { id } });
         if (item && item.status === 'PENDING_VERIFICATION') {
           itemsToVerify.push(id);
+          itemDetails.set(id, {
+            descriptionEnglish: item.descriptionEnglish,
+            aiGeneratedListing: item.aiGeneratedListing,
+          });
         }
       }
 
@@ -53,17 +64,26 @@ export async function POST(req: Request) {
       const updatedItems = [];
       for (let i = 0; i < itemsToVerify.length; i++) {
         const id = itemsToVerify[i];
-        
+        const source = itemDetails.get(id);
+
         // Generate mathematically unique patch ID: PATCH-[base36-timestamp]-[random]
         const uniqueSuffix = Date.now().toString(36).toUpperCase() + Math.floor(1000 + Math.random() * 9000).toString();
         const generatedPatchId = `PATCH-${uniqueSuffix}`;
 
+        // Approval IS publication — there is no second manual step. The listing
+        // text is the artisan's own edited English description, so whatever they
+        // approved in the capture flow is exactly what goes out.
+        const listingText =
+          (source?.aiGeneratedListing || '').trim() || (source?.descriptionEnglish || '').trim() || null;
+
         const updated = await tx.craftItem.update({
           where: { id },
-          data: { 
+          data: {
             status: 'VERIFIED',
             patchId: generatedPatchId,
-            assignedAdminId: decoded.userId
+            assignedAdminId: decoded.userId,
+            isListedOnMarketplace: true,
+            ...(listingText ? { aiGeneratedListing: listingText } : {})
           }
         });
 
@@ -73,9 +93,21 @@ export async function POST(req: Request) {
           actorId: decoded.userId,
           actorRole: 'ADMIN',
           action: 'ADMIN_VERIFIED',
-          previousState: { status: 'PENDING_VERIFICATION' },
-          newState: { status: 'VERIFIED', patchId: generatedPatchId },
+          previousState: { status: 'PENDING_VERIFICATION', isListedOnMarketplace: false },
+          newState: { status: 'VERIFIED', patchId: generatedPatchId, isListedOnMarketplace: true },
           comments: `Admin verified AI math and attached Patch ID: ${generatedPatchId}.`
+        });
+
+        await logCraftItemEvent({
+          prisma: tx as any,
+          craftItemId: id,
+          actorId: decoded.userId,
+          actorRole: 'ADMIN',
+          action: 'MARKETPLACE_PUBLISHED',
+          newState: { isListedOnMarketplace: true, patchId: generatedPatchId },
+          comments: listingText
+            ? "Published to the ONDC listing board on approval, carrying the artisan's own English description."
+            : 'Published to the ONDC listing board on approval. No description was supplied by the artisan.'
         });
 
         updatedItems.push(updated);

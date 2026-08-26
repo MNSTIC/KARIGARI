@@ -50,7 +50,7 @@ export async function POST(req: Request) {
         actorId: decoded.userId,
         actorRole: 'ARTISAN',
         action: 'APPLIED_FOR_REVIEW',
-        comments: 'Artisan disputed counterfeit flag and requested manual super-admin review.'
+        comments: 'Artisan disputed counterfeit flag and requested manual admin review.'
       }
     });
 

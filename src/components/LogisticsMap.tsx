@@ -4,7 +4,7 @@ import { Truck, Leaf, Clock, MapPin } from 'lucide-react';
 
 export function LogisticsMap() {
   return (
-    <div className='relative w-full aspect-video bg-[#E8EAED] rounded-xl border border-gray-200 overflow-hidden shadow-inner'>
+    <div className='relative w-full aspect-video bg-[#ECE6E2] rounded-xl border border-gray-200 overflow-hidden shadow-inner'>
       {/* Base Map */}
       <div className='absolute inset-0 z-0'>
         <iframe 
@@ -17,30 +17,30 @@ export function LogisticsMap() {
           className='pointer-events-none'
         ></iframe>
       </div>
-      <div className='absolute inset-0 z-0 shadow-inner bg-gradient-to-b from-transparent to-[#E8EAED]/50 pointer-events-none'></div>
+      <div className='absolute inset-0 z-0 shadow-inner bg-gradient-to-b from-transparent to-[#ECE6E2]/50 pointer-events-none'></div>
 
       {/* SVG Routes */}
       <svg className='absolute inset-0 w-full h-full pointer-events-none z-10'>
         {/* Red Route (Standard/High Carbon) */}
-        <path d='M 750,300 Q 500,200 150,350' fill='none' stroke='#ef4444' strokeWidth='4' strokeDasharray='8 8' className='animate-pulse' />
+        <path d='M 750,300 Q 500,200 150,350' fill='none' stroke='#B14B39' strokeWidth='4' strokeDasharray='8 8' className='animate-pulse' />
         {/* Green Route (Eco-Friendly / EV / Rail) */}
-        <path d='M 750,300 Q 400,450 150,350' fill='none' stroke='#22c55e' strokeWidth='6' />
+        <path d='M 750,300 Q 400,450 150,350' fill='none' stroke='#3D624F' strokeWidth='6' />
       </svg>
 
       {/* Origin Pin (e.g. Odisha Artisan) */}
       <div className='absolute top-[40%] right-[20%] group z-20 flex flex-col items-center'>
-        <div className='bg-[#0F2D20] text-white p-2 rounded-full shadow-lg border-2 border-white mb-1'>
+        <div className='bg-[#14211B] text-white p-2 rounded-full shadow-lg border-2 border-white mb-1'>
           <MapPin size={20} />
         </div>
-        <div className='bg-white px-3 py-1 rounded-full shadow text-xs font-bold whitespace-nowrap text-[#0F2D20]'>Odisha Cluster</div>
+        <div className='bg-white px-3 py-1 rounded-full shadow text-xs font-bold whitespace-nowrap text-[#14211B]'>Odisha Cluster</div>
       </div>
 
       {/* Destination Pin (e.g. Mumbai Buyer) */}
       <div className='absolute top-[50%] left-[15%] group z-20 flex flex-col items-center'>
-        <div className='bg-[#1A4731] text-white p-2 rounded-full shadow-lg border-2 border-white mb-1'>
+        <div className='bg-[#24332C] text-white p-2 rounded-full shadow-lg border-2 border-white mb-1'>
           <MapPin size={20} />
         </div>
-        <div className='bg-white px-3 py-1 rounded-full shadow text-xs font-bold whitespace-nowrap text-[#1A4731]'>Mumbai Hub</div>
+        <div className='bg-white px-3 py-1 rounded-full shadow text-xs font-bold whitespace-nowrap text-[#24332C]'>Mumbai Hub</div>
       </div>
 
       {/* Route Info Cards */}

@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import crypto from 'crypto';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { validateArtisanClaim } from '@/lib/benchmarkData';
+import { estimateCraftValuation, FAIR_WAGE_TOLERANCE } from '@/lib/pricing';
 
 export async function POST(req: Request) {
   try {
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { craftType, rawMaterialCost, laborDays, descriptionOriginal, descriptionEnglish, tags, assignedAdminId, images, aiGeneratedListing } = body;
+    const { craftType, rawMaterialCost, laborDays, descriptionOriginal, descriptionEnglish, tags, assignedAdminId, images, aiGeneratedListing, askingPrice } = body;
     
     console.log(`[Capture API] Received payload with ${images ? images.length : 'NO'} images.`);
     if (images && images.length > 0) {
@@ -48,30 +49,30 @@ export async function POST(req: Request) {
     }
 
     // --- ML Prediction Engine (Mock) ---
-    // 1. Dynamic Base Wage based on craft
-    let baseWage = 500;
-    const craftLower = craftType.toLowerCase();
-    if (craftLower.includes('silk')) baseWage = 650;
-    else if (craftLower.includes('cotton')) baseWage = 450;
-    else if (craftLower.includes('wool')) baseWage = 550;
-
-    const laborCost = days * baseWage;
-    const overhead = (laborCost + rawCost) * 0.1;
-    const fairWageFloor = laborCost + rawCost + overhead;
-    
-    // 2. Seasonality Factor (Mocking current month)
-    const currentMonth = new Date().getMonth(); 
-    let seasonalBump = 1.0;
-    // Example: October/November (Diwali) bumps Silk prices
-    if ((currentMonth === 9 || currentMonth === 10) && craftLower.includes('silk')) {
-      seasonalBump = 1.15; // +15% demand
-    }
-
-    // 3. Predicted Market Prices
-    const standardMarketPrice = (fairWageFloor * 1.4) * seasonalBump;
-    const marketPriceMin = (fairWageFloor * 1.2) * seasonalBump;
-    const marketPriceMax = (fairWageFloor * 1.6) * seasonalBump;
+    // Shared with the artisan's price-setting UI (`estimateCraftValuation`), so
+    // the band they were quoted in Capture Step 3 is the band we persist here.
+    const { fairWageFloor, standardMarketPrice, marketPriceMin, marketPriceMax } =
+      estimateCraftValuation(craftType, days, rawCost);
     const creditScore = 85.5; // Mock credit score based on history
+
+    // --- Artisan's own listing price ---
+    // They choose what to sell for. Blank falls back to the AI market price so
+    // an item is never listed without a price, but it is never silently their
+    // "choice" either — a real choice is whatever number they typed.
+    const requestedPrice = Number(askingPrice);
+    const artisanSetPrice = Number.isFinite(requestedPrice) && requestedPrice > 0 ? requestedPrice : null;
+    const resolvedAskingPrice = artisanSetPrice ?? standardMarketPrice;
+
+    // Anti-exploitation guardian: an artisan pricing themselves far under their
+    // own fair wage floor is the artisan-facing half of the middleman squeeze.
+    const underpriced =
+      artisanSetPrice !== null && fairWageFloor > 0 && artisanSetPrice < fairWageFloor * FAIR_WAGE_TOLERANCE;
+    const pctBelow = underpriced
+      ? Math.round(((fairWageFloor - artisanSetPrice!) / fairWageFloor) * 100)
+      : 0;
+    const flagReason = underpriced
+      ? `Artisan set price ${Math.round(artisanSetPrice!)}, ${pctBelow}% below AI fair-wage floor ${Math.round(fairWageFloor)}`
+      : null;
     
     // Auto-update ArtisanProfile tags with the new craftType
     try {
@@ -119,8 +120,11 @@ export async function POST(req: Request) {
         standardMarketPrice,
         marketPriceMin,
         marketPriceMax,
+        askingPrice: resolvedAskingPrice,
         creditScore,
         fairnessScore: 95.0,
+        pricingFlag: underpriced,
+        flagReason,
         status: 'PENDING_VERIFICATION',
       }
     });
@@ -134,6 +138,18 @@ export async function POST(req: Request) {
       newState: { status: 'PENDING_VERIFICATION' },
       comments: `Artisan uploaded ${craftType}. Auto-verified math plausible. Sent to Admin for review.`
     });
+
+    if (underpriced) {
+      await logCraftItemEvent({
+        prisma,
+        craftItemId: item.id,
+        actorId: decoded.userId,
+        actorRole: 'SYSTEM',
+        action: 'PRICING_FLAG_RAISED',
+        newState: { pricingFlag: true, askingPrice: artisanSetPrice, fairWageFloor },
+        comments: `${flagReason}. Held for facilitator review under the anti-exploitation policy.`
+      });
+    }
 
     return NextResponse.json({ 
       success: true, 

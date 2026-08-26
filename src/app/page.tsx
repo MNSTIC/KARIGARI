@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowRight, ShieldCheck, HandCoins, Building2, TrendingUp, CheckCircle2 } from 'lucide-react';
+import { KarigariLogo } from "@/components/ui/KarigariLogo";
 
 export default function LandingPage() {
   return (
@@ -9,18 +10,13 @@ export default function LandingPage() {
       <nav className="fixed w-full z-50 bg-white/80 backdrop-blur-md border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-20">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-lg leading-none">K</span>
-              </div>
-              <span className="font-serif font-bold text-2xl tracking-tight text-primary">KARIGARI</span>
-            </div>
+            <KarigariLogo variant="dark" showWordmark={true} size={32} />
             
             <div className="hidden md:flex space-x-8 items-center">
               <Link href="#" className="text-gray-600 hover:text-primary transition-colors font-medium">Home</Link>
               <Link href="#" className="text-gray-600 hover:text-primary transition-colors font-medium">How it Works</Link>
-              <Link href="#" className="text-gray-600 hover:text-primary transition-colors font-medium">For Artisans</Link>
-              <Link href="#" className="text-gray-600 hover:text-primary transition-colors font-medium">For Admins</Link>
+              <Link href="/login" className="text-gray-600 hover:text-primary transition-colors font-medium">For Artisans</Link>
+              <Link href="/login" className="text-gray-600 hover:text-primary transition-colors font-medium">For Admins</Link>
             </div>
 
             <div className="flex items-center gap-4">
@@ -64,11 +60,11 @@ export default function LandingPage() {
               </p>
               
               <div className="flex flex-col sm:flex-row gap-4 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
-                <Link href="/artisan/dashboard" className="bg-primary hover:bg-primary-dark text-white px-8 py-4 rounded-full font-semibold text-lg transition-all shadow-soft flex items-center justify-center gap-2 group">
+                <Link href="/login" className="bg-primary hover:bg-primary-dark text-white px-8 py-4 rounded-full font-semibold text-lg transition-all shadow-soft flex items-center justify-center gap-2 group">
                   For Artisans
                   <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                 </Link>
-                <Link href="/admin/dashboard" className="bg-white hover:bg-gray-50 text-gray-800 border-2 border-gray-200 px-8 py-4 rounded-full font-semibold text-lg transition-all shadow-soft flex items-center justify-center">
+                <Link href="/login" className="bg-white hover:bg-gray-50 text-gray-800 border-2 border-gray-200 px-8 py-4 rounded-full font-semibold text-lg transition-all shadow-soft flex items-center justify-center">
                   For Admins
                 </Link>
               </div>

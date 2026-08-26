@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Mic, UploadCloud, FileText, QrCode, ArrowRight, X, Sparkles, CheckCircle2, Camera, Trash2, ShieldCheck, Wallet, Globe } from "lucide-react";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { Mic, UploadCloud, FileText, ArrowRight, X, Sparkles, CheckCircle2, Camera, Trash2, ShieldCheck, Globe, AlertTriangle, Pencil, IndianRupee } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/translations";
+import { estimateCraftValuation, formatRupees } from "@/lib/pricing";
 
 interface CaptureModalProps {
   isOpen: boolean;
@@ -15,8 +14,19 @@ interface CaptureModalProps {
 
 type Message = { id: string; role: "assistant" | "user"; text: string; isProcessing?: boolean };
 
+/**
+ * What the capture API is sent when voice extraction produced nothing usable.
+ * The price quote in Step 3 is computed from the same values, so the artisan is
+ * always shown the band that will actually be persisted on their item.
+ */
+const FALLBACK_CRAFT_TYPE = "Crafted Item";
+const FALLBACK_LABOR_DAYS = 9;
+const FALLBACK_MATERIAL_COST = 2800;
+
+/** In-app replacement for every browser `alert()` this modal used to fire. */
+type Notice = { tone: "error" | "warning"; title: string; body?: string };
+
 export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
-  const router = useRouter();
   const { t, language } = useLanguage();
   const [step, setStep] = useState(1);
   const [isListening, setIsListening] = useState(false);
@@ -45,6 +55,11 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
   const [englishDescription, setEnglishDescription] = useState<string>("");
   const [sourceLanguage, setSourceLanguage] = useState<string>("");
   const [craftType, setCraftType] = useState<string>("");
+
+  // Step 3 price-setting. Kept as a string so the field can be cleared without
+  // snapping back to 0, and so a blank means "use the AI suggestion".
+  const [askingPrice, setAskingPrice] = useState<string>("");
+  const [priceTouched, setPriceTouched] = useState(false);
   
   // Dual Camera State
   const [images, setImages] = useState<string[]>([]);
@@ -52,30 +67,25 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
 
-  // Payment & Decision State
-  const [selectedOption, setSelectedOption] = useState<'middleman' | 'auction' | 'karigari'>('karigari');
-  const [upiId, setUpiId] = useState("sunita@upi");
-  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [generatedPatchId, setGeneratedPatchId] = useState<string | null>(null);
-
-  // New ML and Admin features
+  // AI vision verification
   const [isVerifyingVision, setIsVerifyingVision] = useState(false);
   const [isVisionVerified, setIsVisionVerified] = useState(false);
   const [isEnhancingImage, setIsEnhancingImage] = useState(false);
   const [ecommerceDescEnglish, setEcommerceDescEnglish] = useState("");
   const [ecommerceDescLocal, setEcommerceDescLocal] = useState("");
-  const [admins, setAdmins] = useState<any[]>([]);
-  const [assignedAdminId, setAssignedAdminId] = useState<string>("");
+
+  /**
+   * Vision rejection is in-app state, not a popup — and it also stops the
+   * verification effect from firing again on the same rejected photo.
+   */
+  const [visionRejected, setVisionRejected] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState("");
+
+  /** Every other former `alert()` lands here and renders as a banner. */
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
   const [createdItemId, setCreatedItemId] = useState<string | null>(null);
-  
-  // Data for Step 6 breakdown
-  const [standardMarketPrice, setStandardMarketPrice] = useState<number>(0);
-  const [marketPriceMin, setMarketPriceMin] = useState<number>(0);
-  const [marketPriceMax, setMarketPriceMax] = useState<number>(0);
-  const [fairWageFloor, setFairWageFloor] = useState<number>(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -83,23 +93,12 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isProcessingAI]);
 
-  useEffect(() => {
-    fetch('/api/users/admins')
-      .then(r => r.json())
-      .then(d => {
-        if(d.success && d.admins.length > 0) {
-          setAdmins(d.admins);
-          setAssignedAdminId(d.admins[0].id);
-        }
-      })
-      .catch(err => {
-        console.error("Failed to load admins:", err);
-      });
-  }, []);
-
   // AI Vision Verification & Enhancement
   useEffect(() => {
-    if (images.length > 0 && !isVisionVerified && !isVerifyingVision && step === 2) {
+    // `visionRejected` is part of the guard on purpose: without it a rejected
+    // photo re-triggers this effect forever, because the effect itself flips
+    // isVerifyingVision back to false.
+    if (images.length > 0 && !isVisionVerified && !isVerifyingVision && !visionRejected && step === 2) {
       setIsVerifyingVision(true);
       setIsEnhancingImage(true);
 
@@ -119,55 +118,94 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
       .then(data => {
         setIsVerifyingVision(false);
         setIsEnhancingImage(false);
-        if (data.success && data.data.isVerified) {
+        if (data.success && data.data?.isVerified) {
           setIsVisionVerified(true);
-          setEcommerceDescEnglish(data.data.ecommerceDescriptionEnglish || "");
-          setEcommerceDescLocal(data.data.ecommerceDescriptionLocal || "");
+          setVisionRejected(false);
+          setRejectionReason("");
+          // The route returns `descriptionEnglish` / `descriptionLocal`. Reading
+          // the old `ecommerceDescription*` names left the listing blank and
+          // saved an empty aiGeneratedListing with every item.
+          setEcommerceDescEnglish(data.data.descriptionEnglish || englishDescription || "");
+          setEcommerceDescLocal(data.data.descriptionLocal || "");
         } else {
-          alert("AI Vision Rejected: " + (data.data?.reasoning || 'Image does not match description.'));
-          setImages([]);
+          setVisionRejected(true);
+          setRejectionReason(
+            data.data?.reasoning || data.error || t('vision_rejected_default')
+          );
         }
       })
       .catch(err => {
         console.error(err);
         setIsVerifyingVision(false);
         setIsEnhancingImage(false);
-        alert("Vision verification failed. Please try again.");
-        setImages([]);
+        setVisionRejected(true);
+        setRejectionReason(t('vision_check_failed'));
       });
     }
-  }, [images, isVisionVerified, isVerifyingVision, step, englishDescription, language]);
+  }, [images, isVisionVerified, isVerifyingVision, visionRejected, step, englishDescription, language, t]);
+
+  // The AI valuation the artisan is quoted in Step 3. Same function the capture
+  // API runs server-side, so the suggested band is not a second, drifting guess.
+  const valuation = useMemo(
+    () =>
+      estimateCraftValuation(
+        craftType || FALLBACK_CRAFT_TYPE,
+        laborDays || FALLBACK_LABOR_DAYS,
+        rawMaterialCost || FALLBACK_MATERIAL_COST
+      ),
+    [craftType, laborDays, rawMaterialCost]
+  );
+
+  // Prefill with the suggested market-mid until the artisan types their own
+  // number; after that their choice stands even if the valuation shifts.
+  useEffect(() => {
+    if (step === 3 && !priceTouched) {
+      setAskingPrice(String(Math.round(valuation.standardMarketPrice)));
+    }
+  }, [step, priceTouched, valuation]);
+
+  const enteredPrice = Number(askingPrice);
+  const hasEnteredPrice = askingPrice.trim() !== "" && Number.isFinite(enteredPrice) && enteredPrice > 0;
+  const isBelowFairFloor = hasEnteredPrice && enteredPrice < valuation.fairWageFloor;
+  const hasValuationInput = laborDays > 0 || rawMaterialCost > 0;
 
   // Auto create draft on Step 3 completion (Wait for save button)
   const handleSaveUpload = async () => {
     if (isCreatingDraft || createdItemId) return;
     setIsCreatingDraft(true);
+    setNotice(null);
     try {
+      // The English box is what goes out as the ONDC listing; the artisan's own
+      // language version is what the digital passport tells the buyer.
+      const englishListing = (ecommerceDescEnglish.trim() || englishDescription.trim());
+      const localListing = (ecommerceDescLocal.trim() || originalTranscript.trim());
+
       const res = await fetch("/api/items/capture", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          craftType: craftType || "Crafted Item",
-          laborDays: laborDays || 9,
-          rawMaterialCost: rawMaterialCost || 2800,
-          descriptionOriginal: originalTranscript || "Craft item description",
-          descriptionEnglish: englishDescription || "English description of craft",
+          craftType: craftType || FALLBACK_CRAFT_TYPE,
+          laborDays: laborDays || FALLBACK_LABOR_DAYS,
+          rawMaterialCost: rawMaterialCost || FALLBACK_MATERIAL_COST,
+          askingPrice: hasEnteredPrice ? enteredPrice : null,
+          descriptionOriginal: localListing,
+          descriptionEnglish: englishDescription.trim() || englishListing,
           tags: [craftType || "ArtisanCraft"],
           images: images,
-          aiGeneratedListing: ecommerceDescEnglish
+          aiGeneratedListing: englishListing
         })
       });
-      
+
       const data = await res.json();
       if (res.ok && data.item?.id) {
         setCreatedItemId(data.item.id);
         setStep(4); // Use step 4 as the success screen
       } else {
-        alert(data.error || "Failed to save upload.");
+        setNotice({ tone: "error", title: t('save_failed'), body: data.error });
       }
     } catch (e) {
       console.error(e);
-      alert("Error saving upload.");
+      setNotice({ tone: "error", title: t('save_failed'), body: t('network_error_retry') });
     } finally {
       setIsCreatingDraft(false);
     }
@@ -184,7 +222,7 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
     
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("Your browser does not support Speech Recognition.");
+      setNotice({ tone: "warning", title: t('speech_unsupported'), body: t('speech_unsupported_body') });
       return;
     }
 
@@ -263,12 +301,12 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
         setCraftType(result.data.craftType || "Crafted Item");
         setIsProcessed(true);
       } else {
-        alert("AI parsing failed.");
+        setNotice({ tone: "error", title: t('ai_parsing_failed') });
         setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", text: t('ai_parsing_failed') }]);
       }
     } catch (e) {
       console.error(e);
-      alert("AI processing failed. Please try again.");
+      setNotice({ tone: "error", title: t('ai_parsing_network_error') });
       setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", text: t('ai_parsing_network_error') }]);
     } finally {
       setIsProcessingAI(false);
@@ -284,7 +322,7 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
       }
     } catch (err) {
       console.error("Error accessing camera:", err);
-      alert("Camera access denied or not available.");
+      setNotice({ tone: "warning", title: t('camera_blocked'), body: t('camera_blocked_body') });
     }
   };
 
@@ -314,7 +352,7 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
         if (images.length < 4) {
           setImages([...images, dataUrl]);
         } else {
-          alert("Maximum 4 images allowed.");
+          setNotice({ tone: "warning", title: t('max_images') });
         }
       }
     }
@@ -329,7 +367,7 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
           if (images.length < 4) {
             setImages([...images, event.target.result as string]);
           } else {
-            alert("Maximum 4 images allowed.");
+            setNotice({ tone: "warning", title: t('max_images') });
           }
         }
       };
@@ -340,6 +378,17 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
   const removeImage = (index: number) => {
     setImages(images.filter((_, i) => i !== index));
     setIsVisionVerified(false);
+    // Clearing the rejection re-arms the verification effect for the next photo.
+    setVisionRejected(false);
+    setRejectionReason("");
+  };
+
+  /** "Try another photo" on the rejection banner. */
+  const discardRejectedImages = () => {
+    setImages([]);
+    setIsVisionVerified(false);
+    setVisionRejected(false);
+    setRejectionReason("");
   };
 
 
@@ -359,10 +408,17 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
       setRawMaterialCost(0);
       setIsVisionVerified(false);
       setIsVerifyingVision(false);
+      setVisionRejected(false);
+      setRejectionReason("");
+      setNotice(null);
+      setEcommerceDescEnglish("");
+      setEcommerceDescLocal("");
       setCreatedItemId(null);
       setOriginalTranscript("");
       setEnglishDescription("");
       setSourceLanguage("");
+      setAskingPrice("");
+      setPriceTouched(false);
       setInputText("");
       setMessages([]);
       if (recognitionInstance) {
@@ -384,6 +440,32 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
             <X size={20} />
           </button>
         </div>
+
+        {/* In-app notice — replaces the browser alerts this modal used to fire */}
+        {notice && (
+          <div
+            role="alert"
+            className={cn(
+              "mx-6 mt-4 px-4 py-3 rounded-xl border flex items-start gap-3 text-sm animate-fade-in-up",
+              notice.tone === "error"
+                ? "bg-red-50 border-red-200 text-red-800"
+                : "bg-yellow-50 border-yellow-200 text-yellow-800"
+            )}
+          >
+            <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p className="font-bold">{notice.title}</p>
+              {notice.body && <p className="mt-1 text-xs leading-relaxed opacity-90">{notice.body}</p>}
+            </div>
+            <button
+              onClick={() => setNotice(null)}
+              className="shrink-0 p-1 rounded-full hover:bg-black/5 transition-colors"
+              aria-label={t('close_btn')}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {/* Content */}
         <div className="p-8 flex-grow overflow-y-auto">
@@ -445,8 +527,19 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
                         </span>
                         {sourceLanguage && <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md text-[10px] font-bold border border-gray-200">{sourceLanguage} Detected</span>}
                       </div>
-                      <p className="text-md text-gray-800 font-medium leading-relaxed">{englishDescription}</p>
-                      
+                      {/* Editable: the artisan owns this text, not the model. */}
+                      <label className="block">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1 mb-1">
+                          <Pencil size={10} /> {t('english_description_editable')}
+                        </span>
+                        <textarea
+                          value={englishDescription}
+                          onChange={(e) => setEnglishDescription(e.target.value)}
+                          rows={3}
+                          className="w-full text-md text-gray-800 font-medium leading-relaxed bg-gray-50 border border-gray-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-y"
+                        />
+                      </label>
+
                       <div className="flex flex-wrap gap-2 pt-2">
                         <span className="px-3 py-1.5 bg-green-50 text-green-700 text-xs font-bold rounded-lg flex items-center gap-1.5 border border-green-100">
                           <Sparkles size={12} className="text-green-500" /> {laborDays} Days Labor
@@ -528,32 +621,78 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
                 </div>
               )}
 
+              {/* Rejection is an in-app banner, mirroring the green one below —
+                  the photos stay on screen so the artisan can see what failed. */}
+              {visionRejected && (
+                <div
+                  role="alert"
+                  className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl mb-6 text-sm flex gap-3 items-start shadow-sm animate-fade-in-up"
+                >
+                  <AlertTriangle size={20} className="text-red-600 shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold">{t('vision_rejected_title')}</p>
+                    <p className="mt-1 text-xs leading-relaxed text-red-700">{rejectionReason}</p>
+                    <button
+                      onClick={discardRejectedImages}
+                      className="mt-3 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors"
+                    >
+                      {t('try_another_photo')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {isVisionVerified && images.length > 0 && (
                 <div className="mb-6 space-y-4">
                   <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm flex gap-3 items-center shadow-sm animate-fade-in-up">
                     <ShieldCheck size={20} className="text-green-600 shrink-0" />
                     <p><strong>AI Verified & Enhanced:</strong> Ready for e-commerce listing.</p>
                   </div>
-                  
-                  {ecommerceDescEnglish && (
-                    <div className="bg-white border border-gray-200 p-4 rounded-xl shadow-sm animate-fade-in-up">
-                      <div className="flex items-center gap-2 mb-2">
-                         <Globe size={16} className="text-blue-500"/>
-                         <h4 className="font-bold text-sm text-gray-800">E-Commerce Description (English)</h4>
-                      </div>
-                      <p className="text-xs text-gray-600 leading-relaxed">{ecommerceDescEnglish}</p>
-                    </div>
-                  )}
 
-                  {ecommerceDescLocal && ecommerceDescLocal !== ecommerceDescEnglish && language !== 'en' && (
-                    <div className="bg-white border border-gray-200 p-4 rounded-xl shadow-sm animate-fade-in-up">
-                      <div className="flex items-center gap-2 mb-2">
-                         <Globe size={16} className="text-green-600"/>
-                         <h4 className="font-bold text-sm text-gray-800">E-Commerce Description ({language.toUpperCase()})</h4>
-                      </div>
-                      <p className="text-xs text-gray-600 leading-relaxed">{ecommerceDescLocal}</p>
+                  {/* Both listings are editable before save. The English one is
+                      the text that goes out as the ONDC listing. */}
+                  <div className="bg-white border border-gray-200 p-4 rounded-xl shadow-sm animate-fade-in-up">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Globe size={16} className="text-blue-500"/>
+                      <h4 className="font-bold text-sm text-gray-800">{t('listing_english_title')}</h4>
+                      <span className="ml-auto text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-full">
+                        {t('ondc_listing_tag')}
+                      </span>
                     </div>
-                  )}
+                    <p className="text-[11px] text-gray-500 mb-2">{t('listing_english_help')}</p>
+                    <textarea
+                      value={ecommerceDescEnglish}
+                      onChange={(e) => setEcommerceDescEnglish(e.target.value)}
+                      rows={5}
+                      placeholder={t('listing_english_placeholder')}
+                      className="w-full text-xs text-gray-700 leading-relaxed bg-gray-50 border border-gray-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-y"
+                    />
+                  </div>
+
+                  <div className="bg-white border border-gray-200 p-4 rounded-xl shadow-sm animate-fade-in-up">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Globe size={16} className="text-green-600"/>
+                      <h4 className="font-bold text-sm text-gray-800">
+                        {t('listing_local_title')} ({language.toUpperCase()})
+                      </h4>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mb-2">{t('listing_local_help')}</p>
+                    <textarea
+                      value={ecommerceDescLocal}
+                      onChange={(e) => setEcommerceDescLocal(e.target.value)}
+                      rows={5}
+                      placeholder={originalTranscript || t('listing_local_placeholder')}
+                      className="w-full text-xs text-gray-700 leading-relaxed bg-gray-50 border border-gray-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all resize-y"
+                    />
+                    {originalTranscript && ecommerceDescLocal.trim() !== originalTranscript.trim() && (
+                      <button
+                        onClick={() => setEcommerceDescLocal(originalTranscript)}
+                        className="mt-2 text-[11px] font-bold text-primary hover:underline"
+                      >
+                        {t('use_my_own_words')}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
               
@@ -615,9 +754,67 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
             </div>
           )}
 
-          {/* Step 3: Raw Material Proof */}
+          {/* Step 3: Set your price, then raw material proof */}
           {step === 3 && (
             <div className="animate-fade-in-up">
+              <h3 className="text-2xl font-bold mb-2">{t('set_your_price')}</h3>
+
+              {/* AI guidance first, so the artisan is never guessing blind. */}
+              <div className="bg-[#DCEBE0] border border-primary/15 rounded-2xl px-4 py-3 mb-4 flex gap-3 items-start">
+                <Sparkles className="shrink-0 mt-0.5 text-primary" size={16} />
+                <div className="text-sm text-primary leading-relaxed">
+                  <p className="font-bold">
+                    {t('price_ai_suggests').replace(
+                      '{band}',
+                      `${formatRupees(valuation.marketPriceMin)} – ${formatRupees(valuation.marketPriceMax)}`
+                    )}
+                  </p>
+                  <p className="opacity-80">
+                    {t('price_fair_floor_note').replace('{amount}', formatRupees(valuation.fairWageFloor))}
+                  </p>
+                  {!hasValuationInput && (
+                    <p className="opacity-80 mt-1">{t('price_needs_labour_first')}</p>
+                  )}
+                </div>
+              </div>
+
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                {t('asking_price_label')}
+              </label>
+              <div className="relative mb-2">
+                <IndianRupee
+                  size={18}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                />
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  value={askingPrice}
+                  onChange={(e) => {
+                    setPriceTouched(true);
+                    setAskingPrice(e.target.value);
+                  }}
+                  className={cn(
+                    "w-full pl-11 pr-4 py-4 rounded-2xl border-2 bg-white text-lg font-bold text-gray-900 focus:outline-none transition-colors",
+                    isBelowFairFloor
+                      ? "border-amber-300 focus:border-amber-400"
+                      : "border-gray-200 focus:border-primary"
+                  )}
+                />
+              </div>
+              <p className="text-xs text-gray-400 mb-4">{t('asking_price_hint')}</p>
+
+              {/* Warns, never blocks: the artisan's price is still their choice. */}
+              {isBelowFairFloor && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl mb-6 text-sm flex gap-2 items-start">
+                  <AlertTriangle className="shrink-0 mt-0.5" size={16} />
+                  <p>{t('price_below_floor_warning')}</p>
+                </div>
+              )}
+
+              <div className="border-t border-gray-100 pt-6" />
+
               <h3 className="text-2xl font-bold mb-2">{t('raw_material_proof')}</h3>
               <div className="bg-blue-50 border border-blue-100 text-blue-800 px-4 py-3 rounded-xl mb-6 text-sm flex gap-2 items-start">
                 <Sparkles className="shrink-0 mt-0.5" size={16} />

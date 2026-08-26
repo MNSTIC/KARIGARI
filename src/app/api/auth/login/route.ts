@@ -12,25 +12,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Missing email or password' }, { status: 400 });
     }
 
-    // Special case for Super Admin universal ID
-    if (email === 'superadmin@karigari.com' && password === 'password123') {
-      const token = jwt.sign(
-        { userId: 'super-admin-001', role: 'ADMIN', isSuperAdmin: true },
-        process.env.JWT_SECRET || 'fallback-secret',
-        { expiresIn: '7d' }
-      );
-      const cookieStore = await cookies();
-      cookieStore.set('auth-token', token, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60
-      });
-      return NextResponse.json({ success: true, user: { id: 'super-admin-001', name: 'Super Admin', role: 'ADMIN', isSuperAdmin: true } });
-    }
+    const normalizedEmail = email.toLowerCase().trim();
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    // There is exactly one admin role. The demo admin (superadmin@karigari.com)
+    // is a normal seeded ADMIN row and authenticates through the same path as
+    // everyone else — the token payload is always just { userId, role }.
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (!user) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }

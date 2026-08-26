@@ -24,7 +24,8 @@ model User {
   artisanProfile ArtisanProfile?
   craftItems     CraftItem[]
   schemeApplications SchemeApplication[]
-  
+  notifications  Notification[]
+
   // Admin fields
   patchBankBalance Int @default(5000)
   patchBankIssued  Int @default(0)
@@ -73,6 +74,8 @@ model CraftItem {
   marketPriceMin      Float?
   marketPriceMax      Float?
   standardMarketPrice Float?
+  /** The price the artisan chose to list at. Null on rows captured before price-setting existed. */
+  askingPrice         Float?
   creditScore         Float?
   status              String   @default("Pending")
   advancePaid         Float    @default(0)
@@ -88,12 +91,22 @@ model CraftItem {
   giTagApplied         String?
   isListedOnMarketplace Boolean @default(false)
 
+  // Anti-exploitation pricing guardian (new_admin.md Tier 1.1)
+  pricingFlag         Boolean  @default(false)
+  flagReason          String?
+
+  // Digital-inclusion telemetry (new_admin.md Tier 2.1)
+  catalogMethod       String?  // "VOICE" | "MANUAL"
+  voiceLanguage       String?  // "Odia" | "Hindi" | "Telugu" | "English"
+  audioUrl            String?  // optional; null for legacy rows
+
   auditLogs           AuditLog[]
 
   @@index([artisanId])
   @@index([patchId])
   @@index([status])
   @@index([createdAt])
+  @@index([pricingFlag])
 }
 
 model AuditLog {
@@ -113,12 +126,54 @@ model SchemeApplication {
   id         String    @id @default(uuid())
   userId     String
   user       User      @relation(fields: [userId], references: [id])
+  /// Stable key from src/lib/schemes.ts (SchemeKey). Replaces fuzzy name matching.
+  schemeKey  String?
   schemeName String
   status     String    @default("ELIGIBLE")
   appliedAt  DateTime?
   notes      String?
   createdAt  DateTime  @default(now())
-  
+
   @@index([userId])
+  @@index([userId, schemeKey])
 }
 
+
+/// Buyer-posted bulk requirement. Public board: buyers have no account in this
+/// app yet, so a demand carries a free-text `buyerName` instead of a userId.
+model Demand {
+  id              String   @id @default(uuid())
+  craftType       String
+  quantity        Int
+  targetPriceMin  Float?
+  targetPriceMax  Float?
+  location        String?
+  festival        String?
+  buyerName       String?
+  notes           String?
+  status          String   @default("OPEN") // OPEN | MATCHED | FULFILLED
+  createdAt       DateTime @default(now())
+
+  @@index([craftType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// In-app alert for one artisan. Written by the insights engine when a matching
+/// demand lands or a relevant festival is near; read by the header bell and
+/// replayed by the WhatsApp/SMS simulation.
+model Notification {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  type            String   // DEMAND_ALERT | FESTIVAL | SCHEME | SYSTEM
+  title           String
+  message         String
+  read            Boolean  @default(false)
+  relatedDemandId String?
+  channel         String?  // WHATSAPP | SMS | IN_APP
+  createdAt       DateTime @default(now())
+
+  @@index([userId, read])
+  @@index([createdAt])
+}

@@ -5,9 +5,37 @@ import Image from "next/image";
 import { CheckCircle2, ShieldCheck, Clock, MapPin, Scissors, Tag, Info, Mic } from "lucide-react";
 import Link from "next/link";
 import { VerificationCamera } from "@/components/VerificationCamera";
+import { formatRupees, getListingPrice } from "@/lib/pricing";
+
+/**
+ * Pinned locale AND time zone. `toLocaleDateString()` with neither renders in
+ * the server's zone during SSR and the visitor's on hydration, which was
+ * throwing "Hydration failed because the server rendered text..." on every
+ * passport load. IST is also the right zone to show an Indian artisan.
+ */
+const STAMP_FORMAT: Intl.DateTimeFormatOptions = {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'Asia/Kolkata',
+};
+
+function formatStamp(value: string | Date): string {
+  return `${new Date(value).toLocaleString('en-IN', STAMP_FORMAT)} IST`;
+}
 
 export function VerificationClient({ item, patchId }: { item: any, patchId: string }) {
   const [isPurchased, setIsPurchased] = useState(item.status === 'SOLD_FINAL' || item.status === 'SOLD_MIDDLEMAN');
+
+  // Money on the passport is only ever money that moved. An advance exists once
+  // the artisan has claimed it after verification; before that it is ₹0, not the
+  // AI valuation and not a placeholder.
+  const advancePaid = Number(item.advancePaid) || 0;
+  const finalPayout = Number(item.finalPayoutQueued) || 0;
+  const artisanReceived = advancePaid + finalPayout;
+  const listingPrice = getListingPrice(item);
 
   const artisanName = item.artisan?.name || "Unknown Artisan";
   const artisanProfile = item.artisan?.artisanProfile;
@@ -40,6 +68,7 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
               src={item.images?.[0] || "/ikat_saree.jpg"} 
               alt={item.craftType} 
               fill 
+              sizes="(max-width: 768px) 100vw, 640px"
               className="object-cover" 
               priority
             />
@@ -85,7 +114,7 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
             {/* Artisan Profile Block */}
             <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center">
               <div className="w-24 h-24 rounded-full overflow-hidden mb-4 border-4 border-primary/20 relative">
-                <Image src={photoUrl} alt={artisanName} fill className="object-cover" />
+                <Image src={photoUrl} alt={artisanName} fill sizes="96px" className="object-cover" />
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-1">Crafted by {artisanName}</h3>
               <p className="text-sm text-gray-500 mb-4 px-2">{artisanBio}</p>
@@ -111,19 +140,30 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
               <div className="space-y-4">
                 <div className="flex justify-between items-center pb-4 border-b border-gray-100">
                   <span className="text-gray-600 font-medium">Fair Wage Floor</span>
-                  <span className="font-bold text-gray-400 line-through decoration-gray-400">₹{(item.fairWageFloor || 5000).toLocaleString()}</span>
+                  <span className="font-bold text-gray-600">{formatRupees(item.fairWageFloor)}</span>
+                </div>
+                <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+                  <span className="text-gray-600 font-medium">Artisan&apos;s Listed Price</span>
+                  <span className="font-bold text-gray-900">{formatRupees(listingPrice)}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-gray-900 font-bold">Artisan Received</span>
                   <div className="text-right">
-                    <span className="font-bold text-2xl text-primary">₹{(item.advancePaid || item.fairWageFloor || 5000).toLocaleString()}</span>
+                    <span className="font-bold text-2xl text-primary">{formatRupees(artisanReceived)}</span>
+                    {finalPayout > 0 && (
+                      <span className="block text-xs text-gray-500 mt-1">
+                        {formatRupees(advancePaid)} advance + {formatRupees(finalPayout)} final payout
+                      </span>
+                    )}
                   </div>
                 </div>
-                
+
                 <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-start gap-3">
                   <Info size={18} className="text-green-600 shrink-0 mt-0.5" />
                   <p className="text-sm text-green-800 leading-tight">
-                    This artisan received an immediate fair wage advance. Your purchase has unlocked the remaining profits for them.
+                    {artisanReceived > 0
+                      ? "This artisan received an immediate fair wage advance. Your purchase has unlocked the remaining profits for them."
+                      : "No payout has been disbursed on this item yet. The artisan is paid the fair wage floor as an advance the moment they claim it."}
                   </p>
                 </div>
               </div>
@@ -183,7 +223,7 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
                       )}
                     </div>
                     <time className="text-xs font-medium text-blue-500 mb-2 block">
-                      {new Date(log.createdAt).toLocaleDateString()} at {new Date(log.createdAt).toLocaleTimeString()}
+                      {formatStamp(log.createdAt)}
                     </time>
                     <p className="text-xs text-gray-600">
                       {log.comments || `State updated to ${log.newState?.status || 'Unknown'}`}
