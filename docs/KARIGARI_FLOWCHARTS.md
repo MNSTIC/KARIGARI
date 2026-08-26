@@ -1,235 +1,256 @@
-# KARIGARI — Comprehensive System Flowcharts
 
-This document provides the complete visual architecture for the KARIGARI platform, including the new "10/10 SIH" resilience layers (Offline Sync, Toll-Free IVR, WhatsApp Fallback, and ONDC Cluster Pooling).
+# KARIGARI — Master System Flowcharts
+
+> **Note:** These flowcharts are strictly modeled after the exact state transitions and architectural boundaries defined in the official WORKFLOW.md, incorporating the core Next.js routing, AI logic, and the Advanced SIH resilience layers.
 
 ---
 
-## 1. The Grand Architecture (Overall System Flow)
+## 1. The Overall Master Architecture
 
-This flowchart illustrates how all the actors, fallback systems, AI agents, and external integrations (ONDC, DigiLocker, Razorpay) connect at a high level.
+This high-level flowchart shows the interconnected flow of data from the initial rural upload, through government oversight, and ultimately to the final buyer and ONDC wholesale markets.
 
 ```mermaid
 graph TD
   classDef fe fill:#EAF0EA,stroke:#3D624F,color:#16211B;
   classDef be fill:#FBEDE7,stroke:#8F412F,color:#3A1E16;
+  classDef db fill:#ECE6DC,stroke:#8A7B63,color:#2A2418;
   classDef ai fill:#E3E9EF,stroke:#4D5D6C,color:#1C2733;
-  classDef gov fill:#ECE6DC,stroke:#8A7B63,color:#2A2418;
   classDef ext fill:#F6DBD3,stroke:#B14B39,color:#5A1E12;
 
-  subgraph "Artisan Touchpoints (Inclusion Layer)"
+  subgraph "Capture & Onboarding (Inclusion Layer)"
     PWA["Karigari PWA (Smartphone)"]:::fe
     SYNC["Offline IndexedDB Sync"]:::fe
-    SMS["WhatsApp / SMS Fallback (Feature Phone)"]:::fe
-    IVR["Toll-Free AI IVR (No Phone/Basic)"]:::fe
+    IVR["1800-KARIGARI Toll-Free AI IVR"]:::fe
+    SMS["WhatsApp / SMS (Feature Phone)"]:::fe
   end
 
-  subgraph "Backend Core & AI (Next.js)"
-    API["Core API & State Machine"]:::be
-    GEM["Gemini AI (Vision, Voice, Pricing)"]:::ai
+  subgraph "Core Backend (Next.js API)"
+    API["State Machine & Routes"]:::be
+    GEM["Gemini (Vision, Pricing, Voice)"]:::ai
     BHASH["Bhashini (Vernacular Voicebot)"]:::ai
-    DB[("Prisma + PostgreSQL")]:::be
+    DB[("Prisma DB + Audit Ledger")]:::db
   end
 
-  subgraph "Admin & Government Oversight"
-    FAC["Field Facilitator (QR Minting)"]:::gov
-    NODAL["Ministry Nodal Dashboard (Risk Radar)"]:::gov
+  subgraph "Admin & Ministry"
+    FAC["Facilitator (QR Minting & Field CRM)"]:::be
+    NODAL["Nodal Officer (Analytics & Risk Radar)"]:::be
   end
 
-  subgraph "Downstream Markets & Buyers"
-    ONDC["ONDC Beckn Adapter (B2B Bulk)"]:::ext
-    BUYER["End Buyer (Scans Physical QR)"]:::ext
+  subgraph "Market & Buyers"
+    ONDC["ONDC Beckn BPP (Cluster Pooling)"]:::ext
+    BUYER["End Buyer (QR Verification)"]:::ext
+    DEMAND["Public Demand Board"]:::ext
   end
 
-  PWA -->|Online| API
-  PWA -.->|Offline| SYNC
+  PWA -->|Online Capture| API
+  PWA -.->|No Network| SYNC
   SYNC -.->|4G Restored| API
-  SMS -->|Twilio/Meta Webhook| API
   IVR -->|Audio| BHASH
   BHASH -->|Transcript| API
+  DEMAND -->|Fan-out| API
+  API -->|Triggers Webhook| SMS
+  SMS -->|Replies '1' to Sell| API
 
   API <--> GEM
   API <--> DB
 
   DB <--> FAC
-  DB -->|Macro Data| NODAL
-
-  DB -->|Cluster Pooling| ONDC
-  BUYER -->|Scan Passport| API
+  DB -->|Macro Aggregates| NODAL
+  DB -->|B2B Bulk Listings| ONDC
+  BUYER -->|Scan Passport QR| API
 ```
 
 ---
 
-## 2. Artisan Workflow (End-to-End)
+## 2. Artisan End-to-End Workflow
 
-This flowchart tracks the exact journey of an individual artisan, from onboarding to getting paid, including the edge cases.
+This chart tracks an artisan's exact path through the UI (/artisan/dashboard), incorporating the 6-step capture, pricing guards, handoff, and the new offline/telecom fallbacks.
 
 ```mermaid
 graph TD
-  classDef default fill:#f9f9f9,stroke:#333,stroke-width:2px;
-  classDef action fill:#d4e6f1,stroke:#2980b9;
-  classDef ai fill:#e8daef,stroke:#8e44ad;
-  classDef flag fill:#fadbd8,stroke:#c0392b;
-  classDef success fill:#d5f5e3,stroke:#27ae60;
+  classDef ui fill:#EAF0EA,stroke:#3D624F,color:#16211B;
+  classDef api fill:#FBEDE7,stroke:#8F412F,color:#3A1E16;
+  classDef db fill:#ECE6DC,stroke:#8A7B63,color:#2A2418;
+  classDef flag fill:#F6DBD3,stroke:#B14B39,color:#5A1E12;
 
-  START(["Start: Artisan Logs In"]) --> DASH["Artisan Dashboard"]
+  START["Login /artisan/dashboard"]:::ui --> DASH["Dashboard & Insights"]:::ui
   
-  DASH --> CAPTURE["Initiate Cataloging"]:::action
+  DASH --> CAPTURE["CaptureModal (6 Steps)"]:::ui
   
-  CAPTURE --> VOICECAPTURE["Step 1: Voice Dictation (Local Language)"]
-  VOICECAPTURE -->|API Call| GEM_STT["Gemini AI: Extracts Craft, Labor Days, Material Cost"]:::ai
+  CAPTURE --> STT["POST /api/items/voice-parse"]:::api
+  STT --> VIS["POST /api/items/vision-verify"]:::api
+  VIS --> PRICE["estimateCraftValuation() - Fair Wage Floor"]:::api
+  PRICE --> ASKING["Artisan Sets Asking Price"]:::ui
   
-  GEM_STT --> PHOTOCAPTURE["Step 2: Upload/Take Photo"]
-  PHOTOCAPTURE -->|API Call| GEM_VIS["Gemini AI: Authenticates Craft + Generates English Copy"]:::ai
+  ASKING --> CAP_API["POST /api/items/capture"]:::api
+  CAP_API --> SYNC{"Is device online?"}
+  SYNC -->|No| IDB[("Save to IndexedDB (Offline Sync)")]:::db
+  SYNC -->|Yes| BENCH{"Asking Price < 70% of Floor?"}
   
-  GEM_VIS --> VALUATION["Step 3: AI Fair Wage Calculation"]:::ai
-  VALUATION --> PRICING["Artisan enters Asking Price"]
+  BENCH -->|Yes| FLAG[("Save Item (pricingFlag=true)")]:::flag
+  BENCH -->|No| PENDING[("Status: PENDING_VERIFICATION")]:::db
+  IDB -.->|Auto-flush on 4G| BENCH
   
-  PRICING --> GUARD{"Is Asking Price < 70% of Fair Wage?"}
-  GUARD -->|Yes| FLAG["Save Item (pricingFlag = true)"]:::flag
-  GUARD -->|No| PENDING["Save Item (PENDING_VERIFICATION)"]
+  PENDING -.-> VER["Admin Mints QR Patch (VERIFIED)"]:::api
   
-  FLAG --> FAC_INTERVENTION["Facilitator Investigates (Calls Artisan)"]:::action
-  FAC_INTERVENTION -->|Overridden| PENDING
+  VER --> XC["CrossCheckModal (Scan Attached Tag)"]:::ui
+  XC --> TAG[("Status: TAG_ATTACHED")]:::db
   
-  PENDING -.->|Waiting| VERIFIED["Admin Mints QR Patch (Status: VERIFIED)"]
+  TAG --> HAND["AgentHandoffModal (Delivery OTP)"]:::ui
+  HAND --> DAPPLY["POST /api/disbursement/apply"]:::api
+  DAPPLY --> ROUTE{"Chosen Route"}
   
-  VERIFIED --> XC["Cross-Check Modal: Artisan confirms QR match"]:::action
-  XC --> TAGGED["Status: TAG_ATTACHED"]
+  ROUTE -->|KARIGARI_ADVANCE| ADV[("ADVANCE_PAID (Escrow)")]:::db
+  ROUTE -->|MIDDLEMAN| MID[("SOLD_MIDDLEMAN")]:::db
+  ROUTE -->|COOP_AUCTION| AUC[("LISTED_AUCTION")]:::db
   
-  TAGGED --> HANDOFF["Agent Handoff Modal (Give item to Delivery)"]:::action
-  HANDOFF --> OTP["Input 4-Digit Agent OTP"]
-  
-  OTP --> ADV["Advance Paid (40% UPI Escrow)"]:::success
+  %% Fallbacks injected directly to status
+  IVR_CALL["Toll-Free AI IVR Call"] -.->|Creates Item| PENDING
+  WA_REPLY["WhatsApp Reply '1'"] -.->|Bypasses UI| ADV
 ```
 
 ---
 
-## 3. Admin Workflow (Facilitator & Nodal)
+## 3. Admin Workflow (Facilitator vs Nodal)
 
-The Admin panel is split into two distinct views depending on the task: Field Operations (Facilitator) vs Government Oversight (Nodal).
-
-```mermaid
-graph LR
-  classDef fac fill:#d1f2eb,stroke:#117a65;
-  classDef nod fill:#fcf3cf,stroke:#b7950b;
-  
-  ADMIN(["Admin Login"]) --> SHELL{"Select View"}
-
-  SHELL -->|Field Operations| FACILITATOR["Facilitator View"]:::fac
-  SHELL -->|Oversight| NODAL["Nodal View"]:::nod
-
-  %% Facilitator Flows
-  FACILITATOR --> QUEUE["View Pending Verifications Queue"]
-  QUEUE --> VERIFY_BATCH["Verify Batch & Mint QRs"]
-  VERIFY_BATCH --> DEBIT["Debit Admin Patch Bank"]
-  
-  FACILITATOR --> FLAG_QUEUE["View Pricing Flags"]
-  FLAG_QUEUE --> CALL["Call Artisan to confirm price"]
-  CALL --> OVERRIDE["Approve Override or Keep Flagged"]
-  
-  FACILITATOR --> ASSIST["Assisted Onboarding (No Smartphone)"]
-  ASSIST --> UPLOAD_BEHALF["Upload on behalf of Artisan"]
-
-  %% Nodal Flows
-  NODAL --> METRICS["View Macro Impact Metrics"]
-  METRICS --> WAGE_UPLIFT["Fair Wage Uplift %"]
-  METRICS --> VOICE_ADOPT["Voice Adoption vs Manual %"]
-  
-  NODAL --> RISK_RADAR["Predictive Risk Radar"]
-  RISK_RADAR --> ALERT{"Cluster Exploitation Detected?"}
-  ALERT -->|Yes| RED_FLAG["Flash RED: Middleman Activity Likely"]
-  
-  NODAL --> LEDGER["Immutable Audit Trace (Ledger)"]
-  LEDGER --> EXPORT["Export Compliance CSV"]
-```
-
----
-
-## 4. Buyer Authentication & Market Flow
-
-This is the flow executed when a buyer scans the physical product, ensuring it's not a counterfeit.
+The system splits admin tasks strictly by operational scope: Field actions with PII (Facilitator) vs Government macro-oversight without PII (Nodal).
 
 ```mermaid
 graph TD
-  classDef buyer fill:#f0e68c,stroke:#b8860b;
-  classDef ai fill:#e8daef,stroke:#8e44ad;
-  classDef db fill:#d5f5e3,stroke:#27ae60;
-  classDef flag fill:#fadbd8,stroke:#c0392b;
+  classDef ui fill:#EAF0EA,stroke:#3D624F,color:#16211B;
+  classDef api fill:#FBEDE7,stroke:#8F412F,color:#3A1E16;
+  classDef db fill:#ECE6DC,stroke:#8A7B63,color:#2A2418;
 
-  SCAN(["Buyer Scans Physical QR Code"]) --> BROWSER["Opens Public Web Passport (No App Needed)"]:::buyer
-  BROWSER --> PASSPORT["View Story, Artisan Name, and Fair-Wage Proof"]
+  ADMIN["Admin Login (role=ADMIN)"]:::ui --> SHELL{"Select View"}
   
-  PASSPORT --> PROMPT["Prompt: 'Verify Authenticity to release final payout'"]
-  PROMPT --> CAM["Buyer Takes Live Photo of the Weave"]:::buyer
+  SHELL --> FAC["/admin/facilitator (Field Operations)"]:::ui
+  SHELL --> NOD["/admin/nodal (Government Oversight)"]:::ui
+
+  %% Facilitator
+  FAC --> FQ["GET /api/admin/facilitator-queue"]:::api
+  FQ --> VERIFY["POST /admin/verify-batch"]:::api
+  VERIFY --> MINT[("Mint PatchId & Debit Bank")]:::db
   
-  CAM --> API["POST /api/verify-authenticity"]
-  API --> GEM["Gemini Vision: Compare Live Photo vs Original DB Photo"]:::ai
+  FQ --> FLAG_RES["PATCH /admin/resolve-flag"]:::api
+  FLAG_RES --> INVESTIGATE["Call Artisan (Unmasked PII)"]:::ui
+  INVESTIGATE --> OVERRIDE[("APPROVE_OVERRIDE (Clears Flag)")]:::db
   
-  GEM --> MATCH{"Similarity Score >= 75%?"}
+  FAC --> AOB["POST /admin/capture-on-behalf"]:::api
+  AOB --> AOB_DB[("Assisted Upload for No-Phone Artisan")]:::db
+
+  %% Nodal
+  NOD --> NA["GET /api/admin/nodal-analytics"]:::api
+  NA --> METRICS["View Macro Impact (Wage Uplift, Voice Adoption)"]:::ui
   
-  MATCH -->|Yes (Authentic)| SUCCESS["Status: SOLD_FINAL"]:::db
-  SUCCESS --> PAYOUT["Trigger Razorpay API: Final Payout to Artisan"]:::db
+  NOD --> AT["GET /api/admin/audit-trace"]:::api
+  AT --> LEDGER[("View Hash-Ledger Provenance")]:::db
   
-  MATCH -->|No (Counterfeit/Blurry)| GRACE{"Attempts < 10 & Time < 5 mins?"}
-  GRACE -->|Yes| RETRY["Soft Reject: Ask buyer to try different angle"]
-  GRACE -->|No| PERM_FLAG["Status: FLAGGED (Counterfeit Suspected)"]:::flag
-  PERM_FLAG --> HEALTH["Artisan Health Score Deducted (-15)"]:::flag
+  NOD --> EXP["GET /api/admin/export-compliance"]:::api
+  EXP --> CSV["Download Compliance CSV"]:::ui
+```
+
+---
+
+## 4. Buyer Authentication Workflow
+
+The exact sequence when a consumer scans a physical QR code (Public route, no authentication required).
+
+```mermaid
+graph TD
+  classDef ui fill:#EAF0EA,stroke:#3D624F,color:#16211B;
+  classDef api fill:#FBEDE7,stroke:#8F412F,color:#3A1E16;
+  classDef db fill:#ECE6DC,stroke:#8A7B63,color:#2A2418;
+  classDef flag fill:#F6DBD3,stroke:#B14B39,color:#5A1E12;
+  classDef ai fill:#E3E9EF,stroke:#4D5D6C,color:#1C2733;
+
+  SCAN["Scan QR Code"]:::ui --> VGET["GET /api/verify/patchId"]:::api
+  VGET --> CLIENT["VerificationClient (Server Component)"]:::ui
+  
+  CLIENT --> VIEW["View Artisan Story & Fair Wage Proof"]:::ui
+  VIEW --> CAM["VerificationCamera (Capture 1-3 Photos)"]:::ui
+  
+  CAM --> VAUTH["POST /api/verify-authenticity"]:::api
+  VAUTH --> GEM["Gemini Vision Comparison"]:::ai
+  
+  GEM --> MATCH{"similarityScore >= 75 AND isAuthentic?"}
+  
+  MATCH -->|Yes| SOLD[("Status: SOLD_FINAL & Reset Counters")]:::db
+  SOLD --> REVEAL["Reveal Success & Trigger Final Payout"]:::ui
+  
+  MATCH -->|No| GRACE{"Time < 5m AND Tries < 10?"}
+  GRACE -->|Yes| SOFT["Soft Reject: 'Try a different angle'"]:::api
+  SOFT --> CAM
+  
+  GRACE -->|No| PERM[("Status: FLAGGED (Counterfeit)")]:::flag
+  PERM --> HEALTH[("Artisan healthScore -15")]:::flag
 ```
 
 ---
 
 ## 5. The Interconnected Modal State Machine
 
-This diagram shows how the individual UI Modals are linked sequentially based on the `CraftItem.status`.
+Every modal in the UI strictly maps to a single CraftItem status transition.
 
 ```mermaid
 stateDiagram-v2
-  %% State Machine of Modals
-  [*] --> CaptureModal: User clicks "Catalog Item"
+  [*] --> CaptureModal: Uploads Item
   
-  CaptureModal --> PENDING_VERIFICATION: Submit
+  CaptureModal --> PENDING_VERIFICATION: POST /api/items/capture
   
-  PENDING_VERIFICATION --> VERIFIED: Admin Action
+  PENDING_VERIFICATION --> VERIFIED: Admin verify-batch (Mints QR)
   
-  VERIFIED --> CrossCheckModal: Artisan clicks "Attach Tag"
+  VERIFIED --> CrossCheckModal: Artisan scans physical QR
   
-  CrossCheckModal --> TAG_ATTACHED: Confirms Physical Match
+  CrossCheckModal --> TAG_ATTACHED: POST /api/artisan/cross-check
   
-  TAG_ATTACHED --> AgentHandoffModal: Artisan clicks "Hand to Agent"
+  TAG_ATTACHED --> AgentHandoffModal: Enters Agent OTP
   
-  AgentHandoffModal --> ADVANCE_PAID: Enters Agent OTP + Chooses Route
+  AgentHandoffModal --> ADVANCE_PAID: Route = KARIGARI_ADVANCE
+  AgentHandoffModal --> SOLD_MIDDLEMAN: Route = MIDDLEMAN
+  AgentHandoffModal --> LISTED_AUCTION: Route = COOP_AUCTION
   
-  ADVANCE_PAID --> BuyerScannerModal: Buyer Scans (Public)
+  ADVANCE_PAID --> SOLD_FINAL: Buyer QR Authenticity Pass
+  LISTED_AUCTION --> SOLD_FINAL: Simulated Admin Sale
   
-  BuyerScannerModal --> SOLD_FINAL: Match Success
-  BuyerScannerModal --> FLAGGED: Match Failed (Counterfeit)
+  ADVANCE_PAID --> FLAGGED: Buyer scan fails (Grace expired)
+  SOLD_FINAL --> FLAGGED: Buyer scan fails (Grace expired)
   
-  FLAGGED --> DisputeModal: Artisan clicks "Dispute Flag"
-  DisputeModal --> APPLIED_FOR_REVIEW: Admin takes over
+  FLAGGED --> DisputeModal: Artisan disputes counterfeit
+  DisputeModal --> APPLIED_FOR_REVIEW: POST /api/artisan/request-review
+  APPLIED_FOR_REVIEW --> SOLD_FINAL: Admin clears dispute
 ```
 
 ---
 
-## 6. ONDC B2B Cluster Pooling Flow (Advanced)
+## 6. ONDC B2B Cluster Pooling & Demand Notification
 
-How individual artisans serve massive B2B wholesale orders.
+How individual items are aggregated for massive wholesale orders, and how demand filters down.
 
 ```mermaid
 graph LR
-  classDef sys fill:#aed6f1,stroke:#2874a6;
-  
-  A1["Artisan 1 (Saree)"] --> POOL["AI Clustering Engine"]:::sys
-  A2["Artisan 2 (Saree)"] --> POOL
-  A3["Artisan 3 (Saree)"] --> POOL
-  
-  POOL --> BPP["ONDC Beckn Adapter (BPP)"]:::sys
-  BPP --> LISTING["Bulk Listing: 3 Sarees"]
-  
-  LISTING --> BUYER_APP["Paytm / Mystore (Buyer App)"]
-  BUYER_APP --> PURCHASE["Boutique Buys Bulk"]
-  
-  PURCHASE --> ESCROW["Escrow Splitter"]:::sys
-  ESCROW -->|Payment 1| A1
-  ESCROW -->|Payment 2| A2
-  ESCROW -->|Payment 3| A3
+  classDef api fill:#FBEDE7,stroke:#8F412F,color:#3A1E16;
+  classDef db fill:#ECE6DC,stroke:#8A7B63,color:#2A2418;
+  classDef ext fill:#F6DBD3,stroke:#B14B39,color:#5A1E12;
+
+  subgraph "Notification Engine"
+    DEMAND["POST /api/demand (Buyer Posts)"]:::api
+    DEMAND --> RANK["craftMatchScore Ranking"]:::api
+    RANK --> NROWS[("Notification: DEMAND_ALERT")]:::db
+    NROWS --> SMS["WhatsApp / SMS Fallback (if no internet)"]:::ext
+  end
+
+  subgraph "Cluster Pooling (BPP)"
+    A1["Artisan 1 (Ikat Saree)"]:::db --> BPP["ONDC Beckn Adapter (/api/ondc/catalog)"]:::api
+    A2["Artisan 2 (Ikat Saree)"]:::db --> BPP
+    A3["Artisan 3 (Ikat Saree)"]:::db --> BPP
+    
+    BPP --> AGGREGATE["Dynamic Bulk B2B Listing (Qty: 3)"]:::ext
+    AGGREGATE --> BAPP["Buyer App (Paytm / Mystore)"]:::ext
+    
+    BAPP --> PAY["Purchase Bulk"]:::ext
+    PAY --> SPLIT["Escrow Splitter"]:::api
+    SPLIT -.->|Advance| A1
+    SPLIT -.->|Advance| A2
+    SPLIT -.->|Advance| A3
+  end
 ```
