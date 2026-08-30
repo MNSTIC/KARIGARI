@@ -13,6 +13,104 @@ import { generateContentWithFallback } from '@/lib/gemini';
 /** Same latency-first order as the other capture-flow routes. */
 const CAPTURE_MODELS = ['gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.1-flash-lite'];
 
+/**
+ * Groq is tried before Gemini for text structuring, and is the only option for
+ * audio. On a rural 3G connection the round-trip time is what decides whether
+ * the capture flow feels usable, and Groq answers in a fraction of the time.
+ *
+ * Both ids are Groq *production* models. The upstream implementation used
+ * `qwen/qwen3.8-27b`, which Groq classifies as Preview — "not for production,
+ * may be discontinued at short notice" — so it is deliberately not used here.
+ */
+const GROQ_CHAT_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_WHISPER_MODEL = 'whisper-large-v3';
+const GROQ_BASE = 'https://api.groq.com/openai/v1';
+
+function groqKey(): string | null {
+  const key = process.env.GROQ_API_KEY?.trim();
+  return key ? key : null;
+}
+
+/**
+ * Transcribe recorded audio with Groq Whisper.
+ *
+ * This is what lets an artisan speak Odia or Telugu into the app at all: the
+ * browser's own SpeechRecognition barely supports those languages, while
+ * Whisper handles them server-side and works in any browser.
+ *
+ * Returns null when Groq is unconfigured or the call fails, so callers can fall
+ * back to whatever text they already have rather than losing the capture.
+ */
+export async function transcribeAudio(audio: Blob): Promise<string | null> {
+  const key = groqKey();
+  if (!key) {
+    console.warn('[voiceParse] GROQ_API_KEY not set — cannot transcribe audio');
+    return null;
+  }
+
+  try {
+    const form = new FormData();
+    form.append('file', audio, 'recording.webm');
+    form.append('model', GROQ_WHISPER_MODEL);
+    form.append('response_format', 'json');
+
+    const res = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}` },
+      body: form,
+    });
+
+    if (!res.ok) {
+      console.warn('[voiceParse] Groq Whisper failed:', (await res.text()).slice(0, 300));
+      return null;
+    }
+
+    const data = await res.json();
+    const text = typeof data?.text === 'string' ? data.text.trim() : '';
+    return text || null;
+  } catch (e) {
+    console.warn('[voiceParse] Groq Whisper error:', (e as Error)?.message);
+    return null;
+  }
+}
+
+/** Structure a transcript with Groq. Returns null so the caller can try Gemini. */
+async function parseWithGroq(transcript: string): Promise<Record<string, unknown> | null> {
+  const key = groqKey();
+  if (!key) return null;
+
+  try {
+    const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: GROQ_CHAT_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a JSON-only API. You output raw, valid JSON with no markdown formatting.',
+          },
+          { role: 'user', content: buildPrompt(transcript) },
+        ],
+        temperature: 0.1,
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    if (!res.ok) {
+      console.warn('[voiceParse] Groq chat failed:', (await res.text()).slice(0, 300));
+      return null;
+    }
+
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content;
+    return typeof raw === 'string' ? JSON.parse(raw.trim()) : null;
+  } catch (e) {
+    console.warn('[voiceParse] Groq chat error:', (e as Error)?.message);
+    return null;
+  }
+}
+
 export interface ParsedCraftSpeech {
   sourceLanguage: string;
   originalTranscript: string;
@@ -20,8 +118,10 @@ export interface ParsedCraftSpeech {
   craftType: string;
   laborDays: number;
   rawMaterialCost: number;
-  /** False when Gemini was unreachable and the numbers below are placeholders. */
+  /** False when every model was unreachable and the numbers are placeholders. */
   aiParsed: boolean;
+  /** Which provider answered: 'groq', 'gemini', or 'rules' on full fallback. */
+  provider: string;
 }
 
 /** Used when the model cannot be reached; deliberately conservative. */
@@ -54,6 +154,26 @@ function toPositiveNumber(value: unknown, fallback: number): number {
 }
 
 /**
+ * Normalise whichever provider answered into the one shape callers expect.
+ *
+ * `spoken` always wins for `originalTranscript`: models paraphrase, drop, or
+ * translate the echo, and those words end up on the public product passport as
+ * the artisan's own account of their craft.
+ */
+function shape(parsed: Record<string, unknown>, spoken: string, provider: string): ParsedCraftSpeech {
+  return {
+    sourceLanguage: String(parsed.sourceLanguage || 'Unknown'),
+    originalTranscript: spoken || String(parsed.originalTranscript || ''),
+    englishDescription: String(parsed.englishDescription || '').trim() || spoken,
+    craftType: String(parsed.craftType || '').trim() || FALLBACK_CRAFT_TYPE,
+    laborDays: toPositiveNumber(parsed.laborDays, FALLBACK_LABOR_DAYS),
+    rawMaterialCost: toPositiveNumber(parsed.rawMaterialCost, FALLBACK_MATERIAL_COST),
+    aiParsed: true,
+    provider,
+  };
+}
+
+/**
  * Parse a spoken craft description into draft fields.
  *
  * Never throws and never returns an empty description: when Gemini is
@@ -64,6 +184,12 @@ function toPositiveNumber(value: unknown, fallback: number): number {
  */
 export async function parseCraftSpeech(transcript: string): Promise<ParsedCraftSpeech> {
   const spoken = (transcript ?? '').trim();
+
+  // Groq first: same output shape, a fraction of the latency.
+  const groq = await parseWithGroq(spoken);
+  if (groq) {
+    return shape(groq, spoken, 'groq');
+  }
 
   try {
     const response = await generateContentWithFallback(
@@ -79,17 +205,7 @@ export async function parseCraftSpeech(transcript: string): Promise<ParsedCraftS
       raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
     );
 
-    return {
-      sourceLanguage: String(parsed.sourceLanguage || 'Unknown'),
-      // The model is asked to echo the transcript; prefer what was actually
-      // said if it paraphrases or drops it.
-      originalTranscript: spoken || String(parsed.originalTranscript || ''),
-      englishDescription: String(parsed.englishDescription || '').trim() || spoken,
-      craftType: String(parsed.craftType || '').trim() || FALLBACK_CRAFT_TYPE,
-      laborDays: toPositiveNumber(parsed.laborDays, FALLBACK_LABOR_DAYS),
-      rawMaterialCost: toPositiveNumber(parsed.rawMaterialCost, FALLBACK_MATERIAL_COST),
-      aiParsed: true,
-    };
+    return shape(parsed, spoken, 'gemini');
   } catch (error) {
     console.warn('Craft speech parse fell back to rules:', (error as Error)?.message);
 
@@ -103,6 +219,7 @@ export async function parseCraftSpeech(transcript: string): Promise<ParsedCraftS
       laborDays: FALLBACK_LABOR_DAYS,
       rawMaterialCost: FALLBACK_MATERIAL_COST,
       aiParsed: false,
+      provider: 'rules',
     };
   }
 }

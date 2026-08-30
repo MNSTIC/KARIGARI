@@ -33,7 +33,8 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
   const [isProcessed, setIsProcessed] = useState(false);
   const [inputText, setInputText] = useState("");
   const [isProcessingAI, setIsProcessingAI] = useState(false);
-  const [recognitionInstance, setRecognitionInstance] = useState<any>(null);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
   
   // Chat History
   const [messages, setMessages] = useState<Message[]>([]);
@@ -211,71 +212,97 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
     }
   };
   
-  const toggleListening = () => {
+  /**
+   * Send a finished recording to Groq Whisper via /api/items/voice-parse.
+   *
+   * Replaces the browser's SpeechRecognition, which barely supports Odia or
+   * Telugu — the languages most of these artisans actually speak. Whisper runs
+   * server-side, so recognition quality no longer depends on the handset.
+   */
+  const processAudioWithGroq = async (audioBlob: Blob) => {
+    setMessages(prev => [...prev, { id: Date.now().toString(), role: "user", text: `🎙️ ${t('audio_recorded')}` }]);
+    setIsProcessingAI(true);
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setNotice({ tone: "warning", title: t('offline_title'), body: t('offline_audio_body') });
+      setIsProcessingAI(false);
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("file", audioBlob, "recording.webm");
+
+      const res = await fetch("/api/items/voice-parse", { method: "POST", body: formData });
+      const result = await res.json();
+
+      if (!res.ok || !result?.data) {
+        throw new Error(result?.error || "Failed to process audio");
+      }
+
+      setOriginalTranscript(result.data.originalTranscript || "");
+      setEnglishDescription(result.data.englishDescription);
+      setLaborDays(result.data.laborDays);
+      setRawMaterialCost(result.data.rawMaterialCost);
+      setSourceLanguage(result.data.sourceLanguage);
+      setCraftType(result.data.craftType);
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: "assistant",
+        text: `${t('ai_understood')} ${result.data.craftType} · ${result.data.laborDays} ${t('days')} · ₹${result.data.rawMaterialCost}`,
+      }]);
+      setIsProcessed(true);
+    } catch (err) {
+      console.error("Audio processing failed:", err);
+      // In-app banner, never a browser alert — and the typed path still works.
+      setNotice({
+        tone: "warning",
+        title: t('ai_processing_error'),
+        body: (err as Error)?.message || t('ai_processing_error_body'),
+      });
+    } finally {
+      setIsProcessingAI(false);
+    }
+  };
+
+  const toggleListening = async () => {
     if (isProcessed) return;
 
-    if (isListening && recognitionInstance) {
-      recognitionInstance.stop();
+    if (isListening && mediaRecorder) {
+      mediaRecorder.stop();
       setIsListening(false);
       return;
     }
-    
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setNotice({ tone: "warning", title: t('speech_unsupported'), body: t('speech_unsupported_body') });
-      return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(track => track.stop());
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        if (audioBlob.size > 0) await processAudioWithGroq(audioBlob);
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsListening(true);
+    } catch (err) {
+      console.error("Mic access denied or unavailable:", err);
+      setNotice({ tone: "warning", title: t('mic_error'), body: t('mic_error_body') });
     }
-
-    const recognition = new SpeechRecognition();
-    const langMap: Record<string, string> = {
-      en: 'en-IN',
-      hi: 'hi-IN',
-      or: 'or-IN',
-      te: 'te-IN'
-    };
-    recognition.lang = langMap[language] || 'hi-IN';
-    recognition.interimResults = true;
-    recognition.continuous = true;
-
-    let currentTranscript = inputText;
-    if (currentTranscript && !currentTranscript.endsWith(" ")) {
-      currentTranscript += " ";
-    }
-
-    recognition.onstart = () => setIsListening(true);
-    
-    recognition.onresult = (event: any) => {
-      let interim = "";
-      let final = "";
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          final += event.results[i][0].transcript + " ";
-        } else {
-          interim += event.results[i][0].transcript;
-        }
-      }
-      if (final) currentTranscript += final;
-      setInputText(currentTranscript + interim);
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech error:", event.error);
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    setRecognitionInstance(recognition);
-    recognition.start();
   };
 
   const processWithAI = async () => {
     if (!inputText.trim() || isProcessed) return;
     
-    if (isListening && recognitionInstance) {
-      recognitionInstance.stop();
+    if (isListening && mediaRecorder) {
+      mediaRecorder.stop();
       setIsListening(false);
     }
 
@@ -421,8 +448,8 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
       setPriceTouched(false);
       setInputText("");
       setMessages([]);
-      if (recognitionInstance) {
-        recognitionInstance.stop();
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
       }
     }, 500);
   };

@@ -5,7 +5,8 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   Globe, ChevronDown, TrendingUp, Package, HandCoins, Banknote,
-  LogOut, X, MapPin, Award, Camera, FileText, ArrowRightCircle, Clock, CheckCircle2
+  LogOut, X, MapPin, Award, Camera, FileText, ArrowRightCircle, Clock, CheckCircle2,
+  GraduationCap, Newspaper
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { CaptureModal } from "@/components/CaptureModal";
@@ -16,6 +17,7 @@ import { useLanguage } from "@/lib/translations";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { CompleteDraftModal } from "@/components/CompleteDraftModal";
+import { LearningAssistantModal } from "@/components/LearningAssistantModal";
 import { formatRupees, getListingPrice } from "@/lib/pricing";
 
 export default function ArtisanDashboard() {
@@ -27,6 +29,7 @@ export default function ArtisanDashboard() {
   const [isCrossCheckModalOpen, setIsCrossCheckModalOpen] = useState(false);
   const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+  const [isLearningModalOpen, setIsLearningModalOpen] = useState(false);
   /** The IVR voice draft the artisan is finishing, if any. */
   const [draftItem, setDraftItem] = useState<any>(null);
   const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
@@ -247,7 +250,52 @@ export default function ArtisanDashboard() {
               <ArrowRightCircle size={28} className="text-[#24332C] opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           </Link>
-          
+
+          {/* Action 4 (Raw Materials) */}
+          <Link href="/artisan/materials" className="rounded-3xl p-8 flex flex-col justify-between min-h-[160px] bg-white border border-gray-200 shadow-sm transition-all hover:-translate-y-1 hover:border-gray-300 hover:shadow-md group">
+            <div>
+              <div className="w-12 h-12 rounded-2xl bg-green-50 text-[#24332C] flex items-center justify-center mb-6">
+                <Package size={24} />
+              </div>
+              <div className="text-xl font-bold text-gray-900 mb-2">{t('raw_materials_title')}</div>
+              <div className="text-base text-gray-500 leading-relaxed">{t('raw_materials_subtitle')}</div>
+            </div>
+            <div className="flex justify-end mt-4">
+              <ArrowRightCircle size={28} className="text-[#24332C] opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          </Link>
+
+          {/* Action 5 (Learning AI) */}
+          <button
+            onClick={() => setIsLearningModalOpen(true)}
+            className="rounded-3xl p-8 flex flex-col justify-between min-h-[160px] bg-white border border-gray-200 shadow-sm transition-all hover:-translate-y-1 hover:border-gray-300 hover:shadow-md group text-left"
+          >
+            <div>
+              <div className="w-12 h-12 rounded-2xl bg-green-50 text-[#24332C] flex items-center justify-center mb-6">
+                <GraduationCap size={24} />
+              </div>
+              <div className="text-xl font-bold text-gray-900 mb-2">{t('learn_ai_title')}</div>
+              <div className="text-base text-gray-500 leading-relaxed">{t('learn_ai_subtitle')}</div>
+            </div>
+            <div className="flex justify-end mt-4">
+              <ArrowRightCircle size={28} className="text-[#24332C] opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          </button>
+
+          {/* Action 6 (Live News) */}
+          <Link href="/artisan/news" className="rounded-3xl p-8 flex flex-col justify-between min-h-[160px] bg-white border border-gray-200 shadow-sm transition-all hover:-translate-y-1 hover:border-gray-300 hover:shadow-md group">
+            <div>
+              <div className="w-12 h-12 rounded-2xl bg-green-50 text-[#24332C] flex items-center justify-center mb-6">
+                <Newspaper size={24} />
+              </div>
+              <div className="text-xl font-bold text-gray-900 mb-2">{t('live_news_title')}</div>
+              <div className="text-base text-gray-500 leading-relaxed">{t('live_news_subtitle')}</div>
+            </div>
+            <div className="flex justify-end mt-4">
+              <ArrowRightCircle size={28} className="text-[#24332C] opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          </Link>
+
         </div>
 
         {/* STATS */}
@@ -391,6 +439,11 @@ export default function ArtisanDashboard() {
         artisanData={{...dashboardData?.artisanProfile, name: dashboardData?.artisanName}} 
         onSaved={fetchDashboardData} 
       />
+      <LearningAssistantModal
+        isOpen={isLearningModalOpen}
+        onClose={() => setIsLearningModalOpen(false)}
+      />
+
       <CompleteDraftModal
         item={draftItem}
         onClose={() => setDraftItem(null)}
