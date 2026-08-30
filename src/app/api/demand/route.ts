@@ -101,13 +101,16 @@ export async function POST(req: Request) {
     // The whole point of the board: a posted demand reaches the artisans who
     // can actually fill it. Failing to notify must not fail the post itself.
     let notified = 0;
+    let smsSent = 0;
     try {
-      notified = await notifyArtisansForDemand(demand);
+      const fanout = await notifyArtisansForDemand(demand);
+      notified = fanout.created;
+      smsSent = fanout.smsSent;
     } catch (notifyError) {
       console.error('Demand notification fan-out failed:', notifyError);
     }
 
-    return NextResponse.json({ success: true, demand, notified });
+    return NextResponse.json({ success: true, demand, notified, smsSent });
   } catch (error) {
     console.error('Demand POST error:', error);
     return NextResponse.json({ error: 'Failed to post demand' }, { status: 500 });

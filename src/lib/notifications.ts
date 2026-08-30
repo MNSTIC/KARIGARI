@@ -9,6 +9,7 @@
 
 import { prisma } from '@/lib/prisma';
 import type { Festival } from '@/lib/festivals';
+import { buildDemandSms, sendSms, toE164 } from '@/lib/sms';
 
 /** Words too generic to identify a craft on their own. */
 const WEAK_TOKENS = new Set([
@@ -86,18 +87,30 @@ export function demandAlertMessage(demand: DemandLike): string {
   )}${when}. Reply YES to list your stock.`;
 }
 
+export interface DemandFanoutResult {
+  /** Notification rows written. */
+  created: number;
+  /** Of those, how many also went out as a real SMS. */
+  smsSent: number;
+}
+
 /**
- * Create a DEMAND_ALERT for every artisan whose craft matches this demand.
+ * Create a DEMAND_ALERT for every artisan whose craft matches this demand, and
+ * text the ones who have a mobile number on file.
  *
  * Idempotent: an artisan who already has a notification for this demand is
- * skipped, so re-posting or re-opening insights never double-alerts anyone.
- * Returns the number of rows actually written.
+ * skipped, so re-posting or re-opening insights never double-alerts anyone and
+ * never sends a second SMS.
+ *
+ * The SMS half is best-effort. It runs after the rows are committed and every
+ * failure is swallowed, because reaching an artisan is worth attempting but
+ * never worth failing the buyer's demand post over.
  */
 export async function notifyArtisansForDemand(
   demand: DemandLike,
-  opts: { channel?: string; maxRecipients?: number } = {}
-): Promise<number> {
-  const { channel = 'WHATSAPP', maxRecipients = 25 } = opts;
+  opts: { channel?: string; maxRecipients?: number; sendSms?: boolean } = {}
+): Promise<DemandFanoutResult> {
+  const { channel = 'WHATSAPP', maxRecipients = 25, sendSms: withSms = true } = opts;
 
   const profiles = await prisma.artisanProfile.findMany({
     select: { userId: true, craftType: true, clusterName: true, mobileNumber: true },
@@ -109,7 +122,7 @@ export async function notifyArtisansForDemand(
     .sort((a, b) => b.score - a.score)
     .slice(0, maxRecipients);
 
-  if (matched.length === 0) return 0;
+  if (matched.length === 0) return { created: 0, smsSent: 0 };
 
   const already = await prisma.notification.findMany({
     where: { relatedDemandId: demand.id, userId: { in: matched.map((m) => m.userId) } },
@@ -125,14 +138,51 @@ export async function notifyArtisansForDemand(
       title: `Demand spike: ${demand.craftType}`,
       message: demandAlertMessage(demand),
       relatedDemandId: demand.id,
-      // No message is actually sent anywhere — the channel records how the
-      // artisan would be reached, and drives the simulation's header.
+      // Provisional: an artisan with a number is expected to be reached on
+      // `channel`, and the row is corrected to 'SMS' below once one actually
+      // goes out. Without a number the only route is the in-app bell.
       channel: m.mobileNumber ? channel : 'IN_APP',
     }));
 
-  if (rows.length === 0) return 0;
+  if (rows.length === 0) return { created: 0, smsSent: 0 };
   const created = await prisma.notification.createMany({ data: rows });
-  return created.count;
+
+  if (!withSms) return { created: created.count, smsSent: 0 };
+
+  // Only the artisans who were newly notified on this call, so a re-post never
+  // texts someone twice.
+  const freshRecipients = matched.filter(
+    (m) => !alreadyIds.has(m.userId) && m.mobileNumber
+  );
+
+  const body = buildDemandSms({
+    buyerName: demand.buyerName,
+    quantity: demand.quantity,
+    craftType: demand.craftType,
+    location: demand.location,
+    priceLabel: priceBand(demand),
+  });
+
+  let smsSent = 0;
+  for (const recipient of freshRecipients) {
+    try {
+      const result = await sendSms(toE164(recipient.mobileNumber), body);
+      if (!('sid' in result)) continue;
+
+      smsSent += 1;
+      // Record the delivery against the row the artisan will see in the bell,
+      // so an SMS reply can be traced back to the alert that prompted it.
+      await prisma.notification.updateMany({
+        where: { userId: recipient.userId, relatedDemandId: demand.id },
+        data: { outboundSid: result.sid, channel: 'SMS' },
+      });
+    } catch (e) {
+      // Deliberately swallowed: see the note on this function.
+      console.warn('[sms] demand alert failed for', recipient.userId, (e as Error)?.message);
+    }
+  }
+
+  return { created: created.count, smsSent };
 }
 
 /**

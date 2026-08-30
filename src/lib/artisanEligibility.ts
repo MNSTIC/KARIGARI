@@ -16,6 +16,8 @@ export interface ArtisanEligibilitySnapshot {
   profileSummary: {
     craftType: string | null;
     location: string | null;
+    /** Not an eligibility input — carried so the auto-fill assistant can prefill it. */
+    mobileNumber: string | null;
     socialCategory: string | null;
     annualIncome: number | null;
     aadhaarLast4: string | null;
@@ -63,6 +65,7 @@ export async function loadEligibilitySnapshot(
     profileSummary: {
       craftType: ctx.craftType ?? null,
       location: p?.location ?? null,
+      mobileNumber: p?.mobileNumber ?? null,
       socialCategory: ctx.socialCategory ?? null,
       annualIncome: ctx.annualIncome ?? null,
       aadhaarLast4: ctx.aadhaarLast4 ?? null,

@@ -158,14 +158,25 @@ export function VoiceOnboarding({
 
   /** Shared response handling for both the transcript and the audio path. */
   const applyResponse = useCallback(
-    (data: { success?: boolean; reply?: string; transcript?: string | null; notice?: string; error?: string }) => {
+    (data: {
+      success?: boolean;
+      reply?: string;
+      transcript?: string | null;
+      notice?: string;
+      engine?: string;
+      error?: string;
+    }) => {
       setStatusMsg("");
       if (!data?.success || !data.reply) {
         setErrorMsg(data?.error || (t.failed[language] ?? t.failed.en));
         return;
       }
       if (data.transcript) setTranscript(data.transcript);
-      setNotice(data.notice ?? null);
+      // A notice belongs on screen only when there is no real answer behind it.
+      // The route already withholds it once the rules engine has answered; this
+      // keeps a "the AI is busy" strip from ever rendering next to a good reply.
+      const hasRealAnswer = Boolean(data.reply) && data.engine !== "fallback";
+      setNotice(hasRealAnswer ? null : data.notice ?? null);
       setResponseMsg(data.reply);
       speakText(data.reply);
     },

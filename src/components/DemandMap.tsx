@@ -109,18 +109,37 @@ function FitBounds({ home, demands }: { home: HomeMarker | null; demands: Demand
   );
 
   useEffect(() => {
-    const points: [number, number][] = demands.map((d) => [d.lat, d.lon]);
-    if (home) points.push([home.lat, home.lon]);
+    const container = map.getContainer();
 
-    if (points.length === 0) {
-      map.setView(INDIA_CENTER, 4);
-      return;
-    }
-    if (points.length === 1) {
-      map.setView(points[0], 6);
-      return;
-    }
-    map.fitBounds(L.latLngBounds(points).pad(0.2), { animate: false });
+    const fit = () => {
+      // Leaflet caches its viewport size. This component arrives through a
+      // dynamic import, so the map can initialise while its box is still 0px
+      // wide — every zoom it derives from that measurement collapses to 0 (the
+      // whole world). Re-measure first, and skip entirely while the box has no
+      // size, so a hidden container never overwrites a good view.
+      if (!container.clientWidth || !container.clientHeight) return;
+      map.invalidateSize();
+
+      const points: [number, number][] = demands.map((d) => [d.lat, d.lon]);
+      if (home) points.push([home.lat, home.lon]);
+
+      if (points.length === 0) {
+        map.setView(INDIA_CENTER, 4);
+        return;
+      }
+      if (points.length === 1) {
+        map.setView(points[0], 6);
+        return;
+      }
+      map.fitBounds(L.latLngBounds(points).pad(0.2), { animate: false });
+    };
+
+    // A ResizeObserver rather than a one-shot call: it fires immediately with
+    // the current size and again whenever the box changes, which covers the
+    // 0px-at-mount case, a pane being revealed, and ordinary window resizes.
+    const observer = new ResizeObserver(fit);
+    observer.observe(container);
+    return () => observer.disconnect();
     // `signature` encodes every coordinate; the map instance never changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, signature]);

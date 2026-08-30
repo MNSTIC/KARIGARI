@@ -215,8 +215,12 @@ export async function POST(req: Request) {
       reason: kind,
       transcript: rules?.transcript || null,
       reply: rules ? buildRulesReply(rules) : notice,
-      // Shown, never spoken: the spoken text above is the useful answer.
-      notice,
+      // Shown, never spoken. Only surfaced when there is no real answer: when
+      // the rules engine answered from the live scheme catalogue that reply is
+      // complete and correct, and telling the artisan to "try again in a
+      // minute" would be misleading — without a valid Gemini key every retry
+      // lands right back here.
+      notice: rules ? undefined : notice,
       language: languageName,
       engine: rules ? 'rules' : 'fallback',
     });

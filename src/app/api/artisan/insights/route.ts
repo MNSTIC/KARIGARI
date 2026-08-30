@@ -114,7 +114,7 @@ export async function GET() {
     let notificationsCreated = 0;
     try {
       for (const demand of matching.slice(0, 5)) {
-        notificationsCreated += await notifyArtisansForDemand(demand);
+        notificationsCreated += (await notifyArtisansForDemand(demand)).created;
       }
       if (festival && craftType) {
         const wrote = await notifyArtisanOfFestival(decoded.userId, festival, craftType);
@@ -252,6 +252,9 @@ Rules: if there is no matching demand and no near festival, say so honestly and 
         totalQuantity,
         openCount: openDemands.length,
         topDemands: matching.slice(0, 5),
+        // Every matching id, so the map can colour a pin as "your craft" using
+        // this same server-side matcher instead of re-implementing it client-side.
+        matchingIds: matching.map((d) => d.id),
       },
       ownSupply: listedCount,
       priceBand: hasBand ? { floor: bandFloor, ceiling: bandCeiling } : null,

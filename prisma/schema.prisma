@@ -96,9 +96,12 @@ model CraftItem {
   flagReason          String?
 
   // Digital-inclusion telemetry (new_admin.md Tier 2.1)
-  catalogMethod       String?  // "VOICE" | "MANUAL"
+  catalogMethod       String?  // "VOICE" | "MANUAL" | "IVR"
   voiceLanguage       String?  // "Odia" | "Hindi" | "Telugu" | "English"
   audioUrl            String?  // optional; null for legacy rows
+  /// Twilio CallSid of the toll-free IVR call that created this draft.
+  /// Null for every item captured inside the app.
+  ivrCallSid          String?
 
   auditLogs           AuditLog[]
 
@@ -172,6 +175,11 @@ model Notification {
   read            Boolean  @default(false)
   relatedDemandId String?
   channel         String?  // WHATSAPP | SMS | IN_APP
+  /// Twilio Message SID when this alert actually went out as an SMS.
+  outboundSid     String?
+  /// Set when the artisan replied "1" to the SMS, without opening the app.
+  accepted        Boolean  @default(false)
+  acceptedAt      DateTime?
   createdAt       DateTime @default(now())
 
   @@index([userId, read])

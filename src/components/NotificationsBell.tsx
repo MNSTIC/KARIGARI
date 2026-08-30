@@ -20,6 +20,8 @@ export interface ArtisanNotification {
   read: boolean;
   relatedDemandId: string | null;
   channel: string | null;
+  /** True when the artisan accepted this demand by replying to the SMS. */
+  accepted?: boolean;
   createdAt: string;
 }
 
@@ -203,11 +205,20 @@ export function NotificationsBell({
                       </span>
                     </div>
                     <p className="text-xs text-gray-600 leading-relaxed mt-0.5">{n.message}</p>
-                    {n.channel && (
-                      <span className="inline-block mt-1.5 text-[9px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
-                        {n.channel === "IN_APP" ? t("in_app_alert") : n.channel}
-                      </span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      {n.channel && (
+                        <span className="inline-block text-[9px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
+                          {n.channel === "IN_APP" ? t("in_app_alert") : n.channel}
+                        </span>
+                      )}
+                      {/* Answered by SMS, so the reply is visible next time they
+                          do open the app. */}
+                      {n.accepted && (
+                        <span className="inline-block text-[9px] font-bold uppercase tracking-wider text-primary bg-[var(--color-mint)] border border-[var(--color-sage)]/50 px-1.5 py-0.5 rounded">
+                          {t("accepted_by_sms")}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </button>
