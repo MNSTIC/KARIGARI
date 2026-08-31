@@ -42,6 +42,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Forbidden. You do not own this item.' }, { status: 403 });
     }
 
+    // An item already under non-custodial escrow has its `advancePaid` written
+    // by the escrow engine. Choosing a disbursement route again would overwrite
+    // a real settlement, so it is refused rather than silently clobbered.
+    if (item.escrowStatus) {
+      return NextResponse.json(
+        {
+          error:
+            'This piece is already sold under escrow. Its advance is released automatically on dispatch, direct to your UPI.',
+        },
+        { status: 409 }
+      );
+    }
+
     let newStatus = 'PENDING_DISBURSEMENT';
     let advancePaid = 0;
 

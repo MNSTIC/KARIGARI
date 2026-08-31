@@ -72,6 +72,21 @@ export async function POST(req: Request) {
 
     const item = await prisma.craftItem.findUnique({ where: { id: itemId } });
     if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 });
+
+    // GOLDEN RULE: an item that went through non-custodial escrow is settled
+    // programmatically, direct to the artisan's own VPA. No admin may release,
+    // re-release or close out that money. This guard exists so the legacy
+    // cooperative-disbursement path can never reach an escrow-settled row.
+    if (item.escrowStatus) {
+      return NextResponse.json(
+        {
+          error:
+            'This item settles through non-custodial escrow, direct to the artisan VPA. Admins have zero financial authority over it.',
+        },
+        { status: 403 }
+      );
+    }
+
     if (item.status !== 'SOLD_FINAL' || item.finalPayoutQueued <= 0) {
       return NextResponse.json({ error: 'Item not eligible for payout' }, { status: 400 });
     }

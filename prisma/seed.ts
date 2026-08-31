@@ -45,6 +45,8 @@ type ArtisanSeed = {
   giTagCertified: boolean;
   giTagName: string | null;
   socialCategory?: string;
+  /** Drives the GeM Womaniya (women-owned) 3% sub-target. */
+  gender: string;
   annualIncome: number;
   aadhaarLast4: string;
   photoUrl: string;
@@ -120,6 +122,7 @@ async function main() {
       giTagCertified: true,
       giTagName: 'Pochampally Ikat',
       socialCategory: 'OBC',
+      gender: 'FEMALE',
       annualIncome: 180000,
       aadhaarLast4: '4523',
       photoUrl: '/female_artisan.jpg',
@@ -140,6 +143,7 @@ async function main() {
       giTagCertified: true,
       giTagName: 'Sambalpuri Bandha',
       socialCategory: 'SC',
+      gender: 'FEMALE',
       annualIncome: 96000,
       aadhaarLast4: '7781',
       photoUrl: '/female_artisan.jpg',
@@ -160,6 +164,7 @@ async function main() {
       giTagCertified: false,
       giTagName: null,
       socialCategory: 'ST',
+      gender: 'MALE',
       annualIncome: 84000,
       aadhaarLast4: '3390',
       photoUrl: '/ikat_saree.jpg',
@@ -180,6 +185,7 @@ async function main() {
       giTagCertified: true,
       giTagName: 'Banaras Brocades and Sarees',
       socialCategory: 'OBC',
+      gender: 'FEMALE',
       annualIncome: 210000,
       aadhaarLast4: '9012',
       photoUrl: '/female_artisan.jpg',
@@ -200,6 +206,7 @@ async function main() {
       giTagCertified: false,
       giTagName: null,
       socialCategory: 'SC',
+      gender: 'MALE',
       annualIncome: 72000,
       aadhaarLast4: '6644',
       photoUrl: '/ikat_saree.jpg',
@@ -225,6 +232,7 @@ async function main() {
       giTagCertified: false,
       giTagName: null,
       socialCategory: undefined,
+      gender: 'MALE',
       annualIncome: 150000,
       aadhaarLast4: '2287',
       photoUrl: '/female_artisan.jpg',
@@ -258,6 +266,7 @@ async function main() {
             giTagCertified: a.giTagCertified,
             giTagName: a.giTagName,
             socialCategory: a.socialCategory,
+            gender: a.gender,
             annualIncome: a.annualIncome,
             aadhaarLast4: a.aadhaarLast4,
             photoUrl: a.photoUrl,

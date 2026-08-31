@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ShieldCheck, User, MapPin, Briefcase, Info } from "lucide-react";
+import { ShieldCheck, User, MapPin, Briefcase, Info, UserRound } from "lucide-react";
 import { CITY_OPTIONS, locateCity } from "@/lib/indiaGeo";
+import { GENDERS, GENDER_LABELS } from "@/lib/gender";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -22,6 +23,7 @@ export default function RegisterPage() {
     aadhaarLast4: "",
     annualIncome: "",
     clusterName: "",
+    gender: "",
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -174,6 +176,28 @@ export default function RegisterPage() {
                     <option value="Dhokra">Dhokra Metal Craft</option>
                     <option value="Pattachitra">Pattachitra Painting</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                    <UserRound size={14} /> Gender
+                  </label>
+                  <select
+                    name="gender"
+                    required
+                    value={formData.gender}
+                    onChange={handleChange}
+                    className="block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm bg-white"
+                  >
+                    <option value="" disabled>Select gender</option>
+                    {GENDERS.map((g) => (
+                      <option key={g} value={g}>{GENDER_LABELS[g]}</option>
+                    ))}
+                  </select>
+                  {/* Says why it is asked, so it does not read as idle data collection. */}
+                  <p className="text-xs text-gray-500 mt-1">
+                    Used to check women-only scheme eligibility, such as GeM Womaniya.
+                  </p>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">

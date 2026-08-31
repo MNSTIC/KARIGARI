@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { X, Save, Upload, User, Mic, MapPin, Info } from "lucide-react";
 import { CITY_OPTIONS, locateCity } from "@/lib/indiaGeo";
 import { useLanguage, Language } from "@/lib/translations";
+import { GENDERS, GENDER_LABELS } from "@/lib/gender";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,7 @@ export function ProfileEditorModal({ isOpen, onClose, artisanData, onSaved }: Pr
   const [mobileNumber, setMobileNumber] = useState(artisanData?.mobileNumber || "");
   const [aadhaarLast4, setAadhaarLast4] = useState(artisanData?.aadhaarLast4 || "");
   const [socialCategory, setSocialCategory] = useState(artisanData?.socialCategory || "");
+  const [gender, setGender] = useState(artisanData?.gender || "");
   const [annualIncome, setAnnualIncome] = useState(
     artisanData?.annualIncome === null || artisanData?.annualIncome === undefined ? "" : String(artisanData.annualIncome)
   );
@@ -41,6 +43,7 @@ export function ProfileEditorModal({ isOpen, onClose, artisanData, onSaved }: Pr
       setMobileNumber(artisanData.mobileNumber || "");
       setAadhaarLast4(artisanData.aadhaarLast4 || "");
       setSocialCategory(artisanData.socialCategory || "");
+      setGender(artisanData.gender || "");
       setAnnualIncome(
         artisanData.annualIncome === null || artisanData.annualIncome === undefined ? "" : String(artisanData.annualIncome)
       );
@@ -176,6 +179,7 @@ export function ProfileEditorModal({ isOpen, onClose, artisanData, onSaved }: Pr
           mobileNumber,
           aadhaarLast4,
           socialCategory: socialCategory === "" ? null : socialCategory,
+          gender: gender === "" ? null : gender,
           annualIncome: parsedIncome !== null && Number.isFinite(parsedIncome) ? parsedIncome : null
         })
       });
@@ -290,6 +294,23 @@ export function ProfileEditorModal({ isOpen, onClose, artisanData, onSaved }: Pr
             </select>
             <p className="text-xs text-gray-500 mt-1.5">
               Used to check NSFDC / NBCFDC eligibility. Never shared with buyers.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">Gender</label>
+            <select
+              value={gender}
+              onChange={(e) => setGender(e.target.value)}
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
+            >
+              <option value="">Select gender</option>
+              {GENDERS.map((g) => (
+                <option key={g} value={g}>{GENDER_LABELS[g]}</option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1.5">
+              Used to check women-only schemes such as GeM Womaniya. Never shared with buyers.
             </p>
           </div>
 

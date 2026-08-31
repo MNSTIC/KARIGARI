@@ -50,6 +50,10 @@ const LISTING_FIELDS = {
   askingPrice: true,
   salePrice: true,
   isListedOnMarketplace: true,
+  // Syndication Hub reads these to render which channels an item went out on.
+  isOndcLive: true,
+  syndicatedChannels: true,
+  syndicatedAt: true,
   createdAt: true,
 } as const;
 

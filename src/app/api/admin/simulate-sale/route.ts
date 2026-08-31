@@ -39,6 +39,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Item not found' }, { status: 404 });
     }
 
+    // GOLDEN RULE: once escrow holds this item, its ledger belongs to the
+    // escrow engine alone (/api/payments/settle-escrow, fired by dispatch and
+    // delivery). An admin simulating a sale must not overwrite a real
+    // settlement, so the escrow rows are off limits here.
+    if (item.escrowStatus) {
+      return NextResponse.json(
+        {
+          error:
+            'This item is under non-custodial escrow. Its settlement is triggered by dispatch/delivery, not by an admin.',
+        },
+        { status: 403 }
+      );
+    }
+
     if (item.status !== 'ADVANCE_PAID' && item.status !== 'LISTED_AUCTION') {
       return NextResponse.json({ error: 'Item is not eligible for sale simulation.' }, { status: 400 });
     }

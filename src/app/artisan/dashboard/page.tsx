@@ -19,6 +19,7 @@ import { NotificationsBell } from "@/components/NotificationsBell";
 import { CompleteDraftModal } from "@/components/CompleteDraftModal";
 import { LearningAssistantModal } from "@/components/LearningAssistantModal";
 import { formatRupees, getListingPrice } from "@/lib/pricing";
+import { StatCard } from "@/components/ui/StatCard";
 
 export default function ArtisanDashboard() {
   const router = useRouter();
@@ -331,6 +332,61 @@ export default function ArtisanDashboard() {
             <div className="text-3xl font-bold text-gray-900 mt-3">₹{dashboardData?.totalEarnings?.toLocaleString() || '0'}</div>
             <div className="text-xs text-green-600 font-bold mt-2">+{dashboardData?.trends?.earnings?.replace('+','') || '0%'}</div>
           </div>
+        </div>
+
+
+        {/* LIVE EARNINGS & DIRECT UPI SETTLEMENT TRACKER
+            Read-only. No admin or facilitator can release, hold or redirect any
+            of these amounts: both tranches are written by the escrow engine on
+            a dispatch/delivery trigger, straight to the artisan's own VPA. */}
+        <div className="text-xs font-bold tracking-wider uppercase text-gray-400 mt-10 mb-4 px-2">
+          Live Earnings &amp; Direct UPI Settlement Tracker
+        </div>
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 sm:p-6 shadow-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatCard
+              label="Total Gross Sales"
+              value={formatRupees(dashboardData?.totalGrossSales ?? 0)}
+              icon={<TrendingUp size={18} />}
+              accentColor="teal"
+            />
+            <StatCard
+              label="40% Instant Advances Received"
+              value={formatRupees(dashboardData?.advancesReceived ?? 0)}
+              icon={<Banknote size={18} />}
+              accentColor="blue"
+            />
+            <StatCard
+              label="Final Settlements Cleared"
+              value={formatRupees(dashboardData?.finalSettlementsCleared ?? 0)}
+              icon={<HandCoins size={18} />}
+              accentColor="brown"
+            />
+          </div>
+
+          {dashboardData?.upiId ? (
+            <div className="mt-5 flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-[var(--color-sage)] bg-[var(--color-mint)] px-4 py-3">
+              <span className="text-sm font-bold text-primary">
+                🟢 Direct to VPA: {dashboardData.upiId} — Zero Middleman Intervention
+              </span>
+              <span className="sm:ml-auto text-[11px] font-bold text-primary/70 whitespace-nowrap">
+                Programmatic settlement (test)
+              </span>
+            </div>
+          ) : (
+            <button
+              onClick={() => setIsProfileEditorOpen(true)}
+              className="mt-5 w-full text-left rounded-xl border border-dashed border-[var(--color-sage)] bg-[var(--color-mint)]/40 px-4 py-3 text-sm font-bold text-primary hover:bg-[var(--color-mint)] transition-colors"
+            >
+              Add your UPI ID so settlements can reach you directly — tap to add it to your profile.
+            </button>
+          )}
+
+          <p className="text-[11px] text-gray-500 italic mt-4 leading-relaxed">
+            Prototype: Stripe runs in TEST mode and real UPI payout rails are not wired, so each
+            tranche is recorded as a programmatic settlement (test) — direct to your VPA, zero
+            middleman. The escrow states and the audit trail are real; the bank credit is simulated.
+          </p>
         </div>
 
         {/* LISTINGS */}

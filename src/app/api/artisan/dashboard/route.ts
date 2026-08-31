@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
+import { STAGE1_ADVANCE_PAID_40, STAGE2_SETTLED_89 } from '@/lib/escrow';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +41,10 @@ export async function GET(req: Request) {
       pastWeekCaptures,
       pastWeekAdvancedItems,
       pastWeekSold,
-      pastWeekQueued
+      pastWeekQueued,
+      grossSales,
+      escrowAdvances,
+      escrowSettlements
     ] = await Promise.all([
       prisma.user.findUnique({ 
         where: { id: artisanId }, 
@@ -61,7 +65,23 @@ export async function GET(req: Request) {
       prisma.craftItem.count({ where: { artisanId, createdAt: { gte: oneWeekAgo } } }),
       prisma.craftItem.findMany({ where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] }, createdAt: { gte: oneWeekAgo } }, select: { advancePaid: true } }),
       prisma.craftItem.count({ where: { artisanId, status: { in: ['SOLD_FINAL', 'SOLD_MIDDLEMAN'] }, createdAt: { gte: oneWeekAgo } } }),
-      prisma.craftItem.aggregate({ _sum: { finalPayoutQueued: true }, where: { artisanId, status: 'SOLD_FINAL', createdAt: { gte: oneWeekAgo } } })
+      prisma.craftItem.aggregate({ _sum: { finalPayoutQueued: true }, where: { artisanId, status: 'SOLD_FINAL', createdAt: { gte: oneWeekAgo } } }),
+      // --- Non-custodial escrow ledger -------------------------------------
+      // Read-only aggregates. Nothing here can move money: the two tranches are
+      // written solely by /api/payments/settle-escrow on a dispatch/delivery
+      // trigger, straight to the artisan's own VPA.
+      prisma.craftItem.aggregate({
+        _sum: { salePrice: true },
+        where: { artisanId, salePrice: { not: null } }
+      }),
+      prisma.craftItem.aggregate({
+        _sum: { advancePaid: true },
+        where: { artisanId, escrowStatus: { in: [STAGE1_ADVANCE_PAID_40, STAGE2_SETTLED_89] } }
+      }),
+      prisma.craftItem.aggregate({
+        _sum: { finalPayoutQueued: true },
+        where: { artisanId, escrowStatus: STAGE2_SETTLED_89 }
+      })
     ]);
 
     if (!user) {
@@ -90,6 +110,12 @@ export async function GET(req: Request) {
         itemsSold,
         totalEarnings,
         healthScore: user?.artisanProfile?.healthScore ?? 100,
+        // Live earnings + direct-UPI settlement tracker. `upiId` is the only
+        // payout destination the escrow engine ever writes to.
+        totalGrossSales: grossSales._sum.salePrice || 0,
+        advancesReceived: escrowAdvances._sum.advancePaid || 0,
+        finalSettlementsCleared: escrowSettlements._sum.finalPayoutQueued || 0,
+        upiId: user?.artisanProfile?.upiId ?? null,
         accountStatus: user?.accountStatus ?? 'ACTIVE',
         recentCaptures,
         trends: {

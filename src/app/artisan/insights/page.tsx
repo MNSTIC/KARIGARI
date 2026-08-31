@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { ArrowLeft, TrendingUp, MapPin, Package, Sparkles, Info, X } from "lucide-react";
+import { ArrowLeft, TrendingUp, MapPin, Package, Sparkles, Info, X, Building2, Download } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
 import { NotificationsBell, type ArtisanNotification } from "@/components/NotificationsBell";
+import { GovExportModal } from "@/components/GovExportModal";
 import { WhatsAppSimulation, type SimulationDemand } from "@/components/WhatsAppSimulation";
 import type { DemandMarker, HomeMarker } from "@/components/DemandMap";
 import { distanceKm, locateCity } from "@/lib/indiaGeo";
@@ -88,6 +89,9 @@ export default function InsightsPage() {
   const [loadedAt, setLoadedAt] = useState(0);
   /** The offline-fallback demo plays in a modal, opened from the banner below. */
   const [isWhatsappSimOpen, setIsWhatsappSimOpen] = useState(false);
+  /** Government-catalog export (GeM CSV/JSON + this artisan's Beckn payload). */
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [artisanId, setArtisanId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +127,22 @@ export default function InsightsPage() {
       }
     })();
 
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const data = await res.json();
+        if (!cancelled && data?.userId) setArtisanId(data.userId);
+      } catch {
+        // Non-fatal: the export falls back to the unscoped public catalog.
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -370,6 +390,24 @@ export default function InsightsPage() {
           )}
         </section>
 
+        {/* ---------------- Government catalog export ---------------- */}
+        <section className="bg-card p-6 rounded-2xl border border-gray-100 shadow-card">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="text-lg font-serif font-bold text-primary flex items-center gap-2 mb-1">
+                <Building2 size={18} /> {t("gov_export_title")}
+              </h3>
+              <p className="text-sm text-gray-500 leading-relaxed">{t("gov_export_subtitle")}</p>
+            </div>
+            <button
+              onClick={() => setIsExportOpen(true)}
+              className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-3 rounded-xl font-bold shadow-sm transition-colors shrink-0"
+            >
+              <Download size={16} /> {t("gov_export_cta")}
+            </button>
+          </div>
+        </section>
+
         {/* ---------------- SMS auto-pilot ---------------- */}
         <section className="bg-card p-6 rounded-2xl border border-gray-100 shadow-card">
           <div className="flex items-center justify-between gap-3 mb-4">
@@ -411,6 +449,12 @@ export default function InsightsPage() {
           <p className="text-sm text-gray-500 text-center">{t("insights_unavailable")}</p>
         )}
       </main>
+
+      <GovExportModal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        artisanId={artisanId}
+      />
 
       {isWhatsappSimOpen && (
         <div

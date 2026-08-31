@@ -42,11 +42,18 @@ model ArtisanProfile {
   cooperativeId   String?
   photoUrl        String?
   upiId           String?
+  /// Optional payout account captured alongside the VPA. Never used to hold
+  /// funds: settlement is always programmatic and direct to the artisan.
+  bankAccountNumber String?
   description     String?
   tags            String[]
   healthScore     Float    @default(100)
 
   socialCategory  String?
+  /// FEMALE | MALE | OTHER. Drives the Womaniya (3%) GeM purchase preference,
+  /// which is open to women-owned enterprises only. Nullable so profiles that
+  /// predate the field are not silently treated as one gender.
+  gender          String?
   annualIncome    Float?
   aadhaarLast4    String?
   clusterName     String?
@@ -90,6 +97,21 @@ model CraftItem {
   aiSuggestedCategory  String?
   giTagApplied         String?
   isListedOnMarketplace Boolean @default(false)
+
+  // Zero-ID multi-platform syndication. The artisan owns the listing outright;
+  // there is no external seller account to reconcile against.
+  isOndcLive           Boolean  @default(false)
+  syndicatedChannels   String[]           // ONDC_PAYTM | ONDC_MAGICPIN | GEM | AMAZON_KARIGAR
+  syndicatedAt         DateTime?
+
+  // Non-custodial escrow. No admin or facilitator ever writes these: they are
+  // set by /api/payments/create-checkout (hold) and /api/payments/settle-escrow
+  // (programmatic release on dispatch / delivery).
+  stripeSessionId        String?
+  escrowStatus           String?  // ESCROW_HELD | STAGE1_ADVANCE_PAID_40 | STAGE2_SETTLED_89
+  advanceAmount          Float?   // 40% of gross, computed at checkout
+  finalSettlementAmount  Float?   // final direct-to-artisan tranche (~49.36% of gross)
+  artisanUpiDestination  String?  // snapshot of the artisan's own VPA at checkout
 
   // Anti-exploitation pricing guardian (new_admin.md Tier 1.1)
   pricingFlag         Boolean  @default(false)

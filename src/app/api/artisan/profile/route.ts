@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { GENDERS, normalizeGender } from '@/lib/gender';
 import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 
@@ -91,6 +92,25 @@ export async function PUT(req: Request) {
       socialCategory = parsed.value;
     }
 
+    // Same absent-vs-null discipline as socialCategory: a partial save must not
+    // silently erase a gender the artisan already recorded.
+    let gender: string | null | undefined;
+    if (Object.prototype.hasOwnProperty.call(body ?? {}, 'gender')) {
+      const raw = body.gender;
+      if (raw === null || raw === '') {
+        gender = null;
+      } else {
+        const parsed = normalizeGender(raw);
+        if (!parsed) {
+          return NextResponse.json(
+            { success: false, error: `gender must be null or one of ${GENDERS.join(', ')}` },
+            { status: 400 }
+          );
+        }
+        gender = parsed;
+      }
+    }
+
     let location: string | undefined;
     if (Object.prototype.hasOwnProperty.call(body ?? {}, 'location')) {
       const parsed = parseLocation(body.location);
@@ -127,6 +147,7 @@ export async function PUT(req: Request) {
         mobileNumber,
         aadhaarLast4,
         socialCategory,
+        gender,
         annualIncome,
         location
       },
@@ -143,6 +164,7 @@ export async function PUT(req: Request) {
         mobileNumber,
         aadhaarLast4,
         socialCategory,
+        gender,
         annualIncome
       }
     });

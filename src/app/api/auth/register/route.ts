@@ -3,11 +3,12 @@ import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
+import { normalizeGender } from '@/lib/gender';
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { name, email, password, role, craftType, location, experienceYears, aadhaarLast4, annualIncome, clusterName } = body;
+    const { name, email, password, role, craftType, location, experienceYears, aadhaarLast4, annualIncome, clusterName, gender } = body;
 
     // Validation
     if (!name || !email || !password || !role) {
@@ -16,6 +17,16 @@ export async function POST(req: Request) {
     const normalizedEmail = email.toLowerCase().trim();
     if (role === 'ARTISAN' && (!aadhaarLast4 || !annualIncome)) {
       return NextResponse.json({ error: 'Aadhaar Last 4 and Annual Income are required for artisans' }, { status: 400 });
+    }
+
+    // Required from here on: without it the app cannot tell an artisan whether
+    // they qualify for the women-only Womaniya sub-target on GeM.
+    const normalizedGender = normalizeGender(gender);
+    if (role === 'ARTISAN' && !normalizedGender) {
+      return NextResponse.json(
+        { error: 'Please select a gender. It is used to check women-only scheme eligibility.' },
+        { status: 400 }
+      );
     }
 
     const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
@@ -40,6 +51,7 @@ export async function POST(req: Request) {
               aadhaarLast4: aadhaarLast4,
               annualIncome: Number(annualIncome) || 0,
               clusterName: clusterName || 'Independent',
+              gender: normalizedGender,
             }
           }
         })

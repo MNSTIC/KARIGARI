@@ -9,28 +9,34 @@ export default function LandingPage() {
       {/* Navigation */}
       <nav className="fixed w-full z-50 bg-white/80 backdrop-blur-md border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-20">
-            <KarigariLogo variant="dark" showWordmark={true} size={32} />
+          {/* gap + shrink-0: on a phone the wordmark used to run straight into
+              "Login" and push the register pill off the right edge. */}
+          <div className="flex justify-between items-center h-20 gap-3">
+            <div className="shrink-0">
+              <KarigariLogo variant="dark" showWordmark={true} size={32} />
+            </div>
             
             <div className="hidden md:flex space-x-8 items-center">
               <Link href="#" className="text-gray-600 hover:text-primary transition-colors font-medium">Home</Link>
               <Link href="#" className="text-gray-600 hover:text-primary transition-colors font-medium">How it Works</Link>
+              <Link href="/marketplace" className="text-gray-600 hover:text-primary transition-colors font-medium">Marketplace</Link>
               <Link href="/login" className="text-gray-600 hover:text-primary transition-colors font-medium">For Artisans</Link>
               <Link href="/login" className="text-gray-600 hover:text-primary transition-colors font-medium">For Admins</Link>
             </div>
 
-            <div className="flex items-center gap-4">
-              <Link 
+            <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+              <Link
                 href="/login"
-                className="text-primary font-medium hover:text-primary-dark transition-colors"
+                className="text-primary font-medium hover:text-primary-dark transition-colors whitespace-nowrap"
               >
                 Login
               </Link>
-              <Link 
+              <Link
                 href="/register"
-                className="bg-primary hover:bg-primary-dark text-white px-6 py-2.5 rounded-full font-medium transition-all shadow-soft hover:shadow-lg transform hover:-translate-y-0.5"
+                className="bg-primary hover:bg-primary-dark text-white text-sm sm:text-base px-4 sm:px-6 py-2 sm:py-2.5 rounded-full font-medium whitespace-nowrap transition-all shadow-soft hover:shadow-lg transform hover:-translate-y-0.5"
               >
-                Register as Artisan
+                <span className="sm:hidden">Register</span>
+                <span className="hidden sm:inline">Register as Artisan</span>
               </Link>
             </div>
           </div>
@@ -43,12 +49,7 @@ export default function LandingPage() {
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-8 items-center">
             
             {/* Left side text */}
-            <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-green-50 border border-green-100 text-green-700 text-sm font-medium mb-6 animate-fade-in-up">
-                <ShieldCheck size={16} />
-                <span>AI-Powered Provenance & Fair Pay</span>
-              </div>
-              
+            <div className="max-w-xl">
               <h1 className="text-5xl lg:text-7xl font-serif font-extrabold text-gray-900 leading-[1.1] tracking-tight mb-6 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
                 Fair pay.<br/>
                 <span className="text-primary">Proven craft.</span><br/>
@@ -59,13 +60,31 @@ export default function LandingPage() {
                 KARIGARI is a decision engine that predicts fair value, verifies authenticity and enables same-day cash advances for artisans.
               </p>
               
-              <div className="flex flex-col sm:flex-row gap-4 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
-                <Link href="/login" className="bg-primary hover:bg-primary-dark text-white px-8 py-4 rounded-full font-semibold text-lg transition-all shadow-soft flex items-center justify-center gap-2 group">
-                  For Artisans
-                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                </Link>
-                <Link href="/login" className="bg-white hover:bg-gray-50 text-gray-800 border-2 border-gray-200 px-8 py-4 rounded-full font-semibold text-lg transition-all shadow-soft flex items-center justify-center">
-                  For Admins
+              {/* Two CTAs, not three: admin sign-in is an internal door and sits
+                  below as a quiet link, so the hero reads consumer -> artisan. */}
+              <div className="animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
+                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                  <Link
+                    href="/marketplace"
+                    className="bg-primary hover:bg-primary-dark text-white px-8 py-4 rounded-full font-semibold text-lg whitespace-nowrap transition-all shadow-soft hover:shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2 group"
+                  >
+                    Explore Marketplace
+                    <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                  </Link>
+                  <Link
+                    href="/login"
+                    className="bg-white hover:bg-gray-50 text-gray-800 border-2 border-gray-200 hover:border-gray-300 px-8 py-4 rounded-full font-semibold text-lg whitespace-nowrap transition-all shadow-soft flex items-center justify-center"
+                  >
+                    For Artisans
+                  </Link>
+                </div>
+
+                <Link
+                  href="/login"
+                  className="inline-flex items-center gap-1.5 mt-5 text-sm font-medium text-gray-500 hover:text-primary transition-colors"
+                >
+                  Admin &amp; facilitator sign-in
+                  <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
             </div>
@@ -74,53 +93,58 @@ export default function LandingPage() {
             <div className="relative lg:h-[600px] w-full flex items-center justify-center animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
               {/* Background decorative blob */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-gradient-to-tr from-primary/10 to-transparent rounded-full blur-3xl -z-10" />
-              
-              <div className="relative w-full max-w-lg aspect-[4/5] rounded-3xl overflow-hidden shadow-2xl ring-1 ring-black/5">
-                <Image
-                  src="/female_artisan.jpg"
-                  alt="Female Indian artisan weaving an Ikat Silk Saree"
-                  fill
-                  className="object-cover hover:scale-105 transition-transform duration-1000"
-                  priority
-                />
-              </div>
 
-              {/* Floating Glassmorphism Card */}
-              <div className="absolute -bottom-6 -left-6 lg:bottom-12 lg:-left-12 bg-white/70 backdrop-blur-xl border border-white/40 p-6 rounded-2xl shadow-xl w-80 transform transition-transform hover:-translate-y-2">
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="font-bold text-gray-900">Ikat Silk Saree</h3>
-                    <p className="text-sm text-gray-500">Pochampally</p>
-                  </div>
-                  <div className="bg-green-100 text-green-700 px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1">
-                    <CheckCircle2 size={12} />
-                    Verified
-                  </div>
+              {/* The photo and its card share one positioning context. Anchoring
+                  the card to the column instead let it drift left across the
+                  headline copy, because the column is wider than the photo. */}
+              <div className="relative w-full max-w-lg">
+                <div className="relative w-full aspect-[4/5] rounded-3xl overflow-hidden shadow-2xl ring-1 ring-black/5">
+                  <Image
+                    src="/female_artisan.jpg"
+                    alt="Female Indian artisan weaving an Ikat Silk Saree"
+                    fill
+                    className="object-cover hover:scale-105 transition-transform duration-1000"
+                    priority
+                  />
                 </div>
-                
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500">Fair Wage Floor</span>
-                    <span className="font-bold text-gray-900">₹7,100</span>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-gray-500">Market Price Band</span>
-                    <span className="font-bold text-gray-900">₹8,800 - ₹11,200</span>
-                  </div>
-                  
-                  <div className="pt-3 mt-3 border-t border-gray-200/50">
-                    <div className="flex items-center gap-2">
-                      <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                        <div className="bg-green-500 h-2 rounded-full w-[85%]"></div>
-                      </div>
-                      <span className="text-xs font-bold text-green-600 whitespace-nowrap">Score: Low (A)</span>
+
+                {/* Floating Glassmorphism Card */}
+                <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:-bottom-6 sm:-left-6 lg:bottom-10 lg:-left-10 bg-white/80 backdrop-blur-xl border border-white/50 p-5 sm:p-6 rounded-2xl shadow-xl w-[17rem] sm:w-80 transform transition-transform hover:-translate-y-2">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h3 className="font-bold text-gray-900">Ikat Silk Saree</h3>
+                      <p className="text-sm text-gray-500">Pochampally</p>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">Credit Risk Assessment</p>
+                    <div className="bg-green-100 text-green-700 px-2 py-1 rounded-md text-xs font-bold flex items-center gap-1">
+                      <CheckCircle2 size={12} />
+                      Verified
+                    </div>
+                  </div>
+                
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-500">Fair Wage Floor</span>
+                      <span className="font-bold text-gray-900">₹7,100</span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-500">Market Price Band</span>
+                      <span className="font-bold text-gray-900">₹8,800 - ₹11,200</span>
+                    </div>
+                  
+                    <div className="pt-3 mt-3 border-t border-gray-200/50">
+                      <div className="flex items-center gap-2">
+                        <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                          <div className="bg-green-500 h-2 rounded-full w-[85%]"></div>
+                        </div>
+                        <span className="text-xs font-bold text-green-600 whitespace-nowrap">Score: Low (A)</span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">Credit Risk Assessment</p>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-            
+
           </div>
         </div>
       </main>
