@@ -1,80 +1,766 @@
+/**
+ * KARIGARI demo seed.
+ *
+ * DESTRUCTIVE: wipes every table in FK-safe order and rebuilds the whole demo
+ * from scratch. Run only against a database you are willing to lose.
+ *
+ *     npm run seed
+ *
+ * The goal here is data that stands up to being clicked through. Every item
+ * carries a real photograph of its actual craft (sourced by
+ * `scripts/build-seed-images.ts`), self-consistent economics derived from the
+ * same `estimateCraftValuation` the live capture flow uses, an audit chain that
+ * matches the status it is in, and — where the item has passed the physical
+ * patch gate — a verification photo with a genuinely decodable QR encoding that
+ * item's own patch id.
+ *
+ * Items are spread across the whole lifecycle on purpose, so the facilitator
+ * queue, nodal analytics, the marketplace, the passport and the earnings
+ * tracker are all populated at once rather than one screen looking alive and
+ * the rest empty.
+ */
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
+import { estimateCraftValuation } from '../src/lib/pricing';
+import { buildSeedImages, buildVerifiedImage } from '../scripts/build-seed-images';
 
 const connectionString = process.env.DATABASE_URL!;
 const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
+const BASE_URL = (process.env.PUBLIC_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
+
 const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY);
+/** Minutes after a base time, for ordering an audit chain within one day. */
+const plusMinutes = (base: Date, minutes: number) => new Date(base.getTime() + minutes * 60 * 1000);
 
-/** Same rule as src/lib/pricing.ts — accepted price more than 30% below the AI fair floor. */
-const FAIR_WAGE_TOLERANCE = 0.7;
-
-function flagFor(fairWageFloor: number, salePrice: number | null) {
-  if (salePrice === null || !fairWageFloor) return { pricingFlag: false, flagReason: null };
-  if (salePrice >= fairWageFloor * FAIR_WAGE_TOLERANCE) return { pricingFlag: false, flagReason: null };
-  const pctBelow = Math.round(((fairWageFloor - salePrice) / fairWageFloor) * 100);
-  return {
-    pricingFlag: true,
-    flagReason: `Accepted price ${pctBelow}% below AI fair wage floor`,
-  };
+/** Same shape the admin approval route mints. */
+function makePatchId(seed: number): string {
+  const stamp = (Date.now() + seed * 7919).toString(36).toUpperCase();
+  return `PATCH-${stamp}-${String(1000 + ((seed * 3571) % 9000))}`;
 }
 
-/**
- * Explicit shape for the artisan seeds so the array element type does not get
- * narrowed off the first entry. `socialCategory` is optional on purpose: an
- * artisan who has never declared it must reach the eligibility engine as
- * undefined so NSFDC/NBCFDC resolve to INFO_NEEDED rather than INELIGIBLE.
- */
-type ArtisanSeed = {
+const round = (n: number) => Math.round(n);
+
+/* -------------------------------------------------------------------------- */
+/*  Artisans                                                                   */
+/* -------------------------------------------------------------------------- */
+
+interface ArtisanSeed {
   key: string;
   name: string;
   email: string;
   craftType: string;
+  craftSlug: string;
   location: string;
   clusterName: string;
   mobileNumber: string;
+  upiId: string;
+  bankAccountNumber: string;
+  aadhaarLast4: string;
   experienceYears: number;
+  cooperativeId: string;
   description: string;
   tags: string[];
-  healthScore: number;
-  upiId: string;
-  giTagCertified: boolean;
-  giTagName: string | null;
-  socialCategory?: string;
-  /** Drives the GeM Womaniya (women-owned) 3% sub-target. */
+  socialCategory: string;
   gender: string;
   annualIncome: number;
-  aadhaarLast4: string;
-  photoUrl: string;
+  healthScore: number;
+  giTagCertified: boolean;
+  giTagName: string | null;
+  /** Language the artisan actually speaks, used for descriptionOriginal. */
+  language: 'Odia' | 'Hindi' | 'Telugu' | 'Gujarati' | 'English';
+}
+
+const ARTISANS: ArtisanSeed[] = [
+  {
+    key: 'lakshmi',
+    name: 'Lakshmi Devi Meher',
+    email: 'lakshmi@karigari.com',
+    craftType: 'Sambalpuri Ikat Silk Saree',
+    craftSlug: 'sambalpuri',
+    location: 'Bargarh, Odisha',
+    clusterName: 'Bargarh Handloom Weavers Cooperative',
+    mobileNumber: '9438201157',
+    upiId: 'lakshmimeher@okhdfcbank',
+    bankAccountNumber: 'XXXXXXXX4471',
+    aadhaarLast4: '4471',
+    experienceYears: 22,
+    cooperativeId: 'COOP-OD-BGH-014',
+    description:
+      'I have been tying and dyeing Sambalpuri ikat since I was fourteen, the way my mother taught me. Every saree takes me three weeks on the pit loom.',
+    tags: ['Ikat', 'Silk', 'Handloom', 'GI Tag', 'SHG Member'],
+    socialCategory: 'ST',
+    gender: 'FEMALE',
+    annualIncome: 246000,
+    healthScore: 96,
+    giTagCertified: true,
+    giTagName: 'Sambalpuri Ikat',
+    language: 'Odia',
+  },
+  {
+    key: 'raghunath',
+    name: 'Raghunath Maharana',
+    email: 'raghunath@karigari.com',
+    craftType: 'Pattachitra Painting',
+    craftSlug: 'pattachitra',
+    location: 'Raghurajpur, Odisha',
+    clusterName: 'Raghurajpur Heritage Crafts Village',
+    mobileNumber: '9337114820',
+    upiId: 'raghunathm@okaxis',
+    bankAccountNumber: 'XXXXXXXX8802',
+    aadhaarLast4: '8802',
+    experienceYears: 31,
+    cooperativeId: 'COOP-OD-PUR-007',
+    description:
+      'Third-generation chitrakar. I grind my own stone colours and paint on tussar-cloth canvas prepared with tamarind seed paste.',
+    tags: ['Pattachitra', 'Natural Pigment', 'Folk Art', 'GI Tag', 'Master Craftsman'],
+    socialCategory: 'OBC',
+    gender: 'MALE',
+    annualIncome: 388000,
+    healthScore: 92,
+    giTagCertified: true,
+    giTagName: 'Odisha Pattachitra',
+    language: 'Odia',
+  },
+  {
+    key: 'anitha',
+    name: 'Anitha Reddy',
+    email: 'anitha@karigari.com',
+    craftType: 'Pochampally Ikat',
+    craftSlug: 'pochampally',
+    location: 'Bhoodan Pochampally, Telangana',
+    clusterName: 'Pochampally Weavers Cooperative Society',
+    mobileNumber: '9848337265',
+    upiId: 'anithareddy@ybl',
+    bankAccountNumber: 'XXXXXXXX1936',
+    aadhaarLast4: '1936',
+    experienceYears: 14,
+    cooperativeId: 'COOP-TS-PCH-021',
+    description:
+      'I run a women-led weaving unit with eleven members. We specialise in double-ikat silk with the traditional telia rumal motifs.',
+    tags: ['Ikat', 'Double Ikat', 'Silk', 'GI Tag', 'Women Led'],
+    socialCategory: 'GEN',
+    gender: 'FEMALE',
+    annualIncome: 612000,
+    healthScore: 88,
+    giTagCertified: true,
+    giTagName: 'Pochampally Ikat',
+    language: 'Telugu',
+  },
+  {
+    key: 'imran',
+    name: 'Imran Khokhar',
+    email: 'imran@karigari.com',
+    craftType: 'Jaipur Blue Pottery',
+    craftSlug: 'blue-pottery',
+    location: 'Jaipur, Rajasthan',
+    clusterName: 'Sanganer Blue Pottery Kiln Cluster',
+    mobileNumber: '9784562013',
+    upiId: 'imrankhokhar@okhdfcbank',
+    bankAccountNumber: 'XXXXXXXX6650',
+    aadhaarLast4: '6650',
+    experienceYears: 18,
+    cooperativeId: 'COOP-RJ-JPR-033',
+    description:
+      'We make blue pottery the old way — quartz powder, fuller earth and gum, no clay at all. Each piece is fired once at low heat.',
+    tags: ['Blue Pottery', 'Quartz', 'Glazed', 'MSME Registered'],
+    socialCategory: 'OBC',
+    gender: 'MALE',
+    annualIncome: 455000,
+    healthScore: 81,
+    giTagCertified: false,
+    giTagName: null,
+    language: 'Hindi',
+  },
+  {
+    key: 'budhram',
+    name: 'Budhram Vishwakarma',
+    email: 'budhram@karigari.com',
+    craftType: 'Dhokra Brass Figurine',
+    craftSlug: 'dhokra',
+    location: 'Kondagaon, Chhattisgarh',
+    clusterName: 'Bastar Dhokra Shilp Samiti',
+    mobileNumber: '9424109738',
+    upiId: 'budhramv@ybl',
+    bankAccountNumber: 'XXXXXXXX2287',
+    aadhaarLast4: '2287',
+    experienceYears: 26,
+    cooperativeId: 'COOP-CG-KGN-005',
+    description:
+      'I cast in the lost-wax method my community has used for generations. Each figure is one solid pour — the mould is broken to free it, so no two are alike.',
+    tags: ['Dhokra', 'Lost Wax', 'Brass', 'GI Tag', 'Tribal Craft'],
+    socialCategory: 'ST',
+    gender: 'MALE',
+    annualIncome: 198000,
+    healthScore: 74,
+    giTagCertified: true,
+    giTagName: 'Bastar Dhokra',
+    language: 'Hindi',
+  },
+  {
+    key: 'jethiben',
+    name: 'Jethiben Rabari',
+    email: 'jethiben@karigari.com',
+    craftType: 'Kutch Mirror Embroidery',
+    craftSlug: 'kutch-embroidery',
+    location: 'Bhuj, Kutch, Gujarat',
+    clusterName: 'Bhuj Rabari Embroidery Mahila Mandal',
+    mobileNumber: '9825471306',
+    upiId: 'jethibenr@okaxis',
+    bankAccountNumber: 'XXXXXXXX9014',
+    aadhaarLast4: '9014',
+    experienceYears: 29,
+    cooperativeId: 'COOP-GJ-BHJ-018',
+    description:
+      'Rabari abhla-bharat work — mirror and chain stitch. I stitch by daylight only; the mirrors have to catch the sun to be set straight.',
+    tags: ['Embroidery', 'Mirror Work', 'Abhla Bharat', 'GI Tag', 'Women Artisan'],
+    socialCategory: 'SC',
+    gender: 'FEMALE',
+    annualIncome: 173000,
+    healthScore: 79,
+    giTagCertified: true,
+    giTagName: 'Kutch Embroidery',
+    language: 'Gujarati',
+  },
+];
+
+/* -------------------------------------------------------------------------- */
+/*  Items                                                                      */
+/* -------------------------------------------------------------------------- */
+
+type Stage =
+  | 'PENDING_VERIFICATION'
+  | 'VERIFIED'
+  | 'SELLABLE'
+  | 'LISTED'
+  | 'SOLD';
+
+interface ItemSeed {
+  title: string;
+  descriptionEnglish: string;
+  descriptionOriginal: string;
+  aiGeneratedListing: string;
+  aiSuggestedCategory: string;
+  tags: string[];
+  laborDays: number;
+  rawMaterialCost: number;
+  stage: Stage;
+  catalogMethod: 'VOICE' | 'MANUAL' | 'IVR';
+  createdDaysAgo: number;
+  /** Index into the craft's image set, so an artisan's items differ visually. */
+  imageIndex: number;
+  /** Optional second photo for the gallery. */
+  secondImageIndex?: number;
+}
+
+/** Per-artisan catalogue. Five items each, covering every lifecycle stage. */
+const ITEMS: Record<string, ItemSeed[]> = {
+  lakshmi: [
+    {
+      title: 'Sambalpuri Ikat Silk Saree — Bandha Phula',
+      descriptionEnglish:
+        'Handwoven double-ikat silk saree in deep maroon with the traditional bandha phula (tied flower) motif and a contrast temple border.',
+      descriptionOriginal: 'ଗାଢ଼ ମରୁନ ରଙ୍ଗର ବନ୍ଧା ଫୁଲ ନକ୍ସାର ସମ୍ବଲପୁରୀ ପଟ ଶାଢ଼ୀ।',
+      aiGeneratedListing:
+        'A deep maroon Sambalpuri ikat silk saree, its bandha phula motif tied and dyed thread by thread before a single pick is woven. Twenty-one days on a pit loom in Bargarh, finished with a contrast temple border.',
+      aiSuggestedCategory: 'Handloom Sarees',
+      tags: ['Sambalpuri', 'Ikat', 'Silk', 'Maroon'],
+      laborDays: 21,
+      rawMaterialCost: 6800,
+      stage: 'SOLD',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 52,
+      imageIndex: 0,
+      secondImageIndex: 1,
+    },
+    {
+      title: 'Sambalpuri Cotton Saree — Pasapali Check',
+      descriptionEnglish:
+        'Handwoven cotton saree in the pasapali chessboard pattern, black and off-white, with a fine ikat border.',
+      descriptionOriginal: 'କଳା ଓ ଧଳା ପାଶାପାଲି ନକ୍ସାର ସୂତା ଶାଢ଼ୀ।',
+      aiGeneratedListing:
+        'The pasapali chessboard in black and off-white cotton — a Bargarh classic. Light enough for daily wear, with a fine ikat border tied on the same loom.',
+      aiSuggestedCategory: 'Handloom Sarees',
+      tags: ['Sambalpuri', 'Cotton', 'Pasapali'],
+      laborDays: 12,
+      rawMaterialCost: 2400,
+      stage: 'LISTED',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 34,
+      imageIndex: 1,
+    },
+    {
+      title: 'Sambalpuri Silk Dupatta — Indigo',
+      descriptionEnglish:
+        'Indigo-dyed silk dupatta with a repeating conch motif, tied and dyed in natural indigo before weaving.',
+      descriptionOriginal: 'ନୀଳ ରଙ୍ଗର ଶଙ୍ଖ ନକ୍ସା ଥିବା ପଟ ଓଢ଼ଣା।',
+      aiGeneratedListing:
+        'An indigo silk dupatta carrying the conch motif, dyed in natural indigo before the warp went on the loom. Light, and the colour deepens with washing.',
+      aiSuggestedCategory: 'Dupattas & Stoles',
+      tags: ['Sambalpuri', 'Silk', 'Indigo', 'Natural Dye'],
+      laborDays: 8,
+      rawMaterialCost: 2100,
+      stage: 'SELLABLE',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 18,
+      imageIndex: 2,
+    },
+    {
+      title: 'Sambalpuri Ikat Silk Saree — Saptapar',
+      descriptionEnglish:
+        'Seven-colour ikat silk saree, the saptapar palette, with a wide pallu carrying a fish and lotus motif.',
+      descriptionOriginal: 'ସାତ ରଙ୍ଗର ସପ୍ତପାର ପଟ ଶାଢ଼ୀ, ମାଛ ଓ ପଦ୍ମ ନକ୍ସା।',
+      aiGeneratedListing:
+        'Seven colours tied into one warp — the saptapar palette, with a wide pallu of fish and lotus. Twenty-six days of work, and the motif lines up on both faces.',
+      aiSuggestedCategory: 'Handloom Sarees',
+      tags: ['Sambalpuri', 'Ikat', 'Silk', 'Saptapar'],
+      laborDays: 26,
+      rawMaterialCost: 8200,
+      stage: 'VERIFIED',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 9,
+      imageIndex: 0,
+    },
+    {
+      title: 'Sambalpuri Cotton Stole — Bichitrapuri',
+      descriptionEnglish:
+        'Cotton stole in the bichitrapuri weave, rust and cream, finished with hand-twisted tassels.',
+      descriptionOriginal: 'ବିଚିତ୍ରପୁରୀ ବୁଣା ସୂତା ଷ୍ଟୋଲ।',
+      aiGeneratedListing:
+        'A bichitrapuri cotton stole in rust and cream, tassels twisted by hand at both ends.',
+      aiSuggestedCategory: 'Dupattas & Stoles',
+      tags: ['Sambalpuri', 'Cotton', 'Bichitrapuri'],
+      laborDays: 5,
+      rawMaterialCost: 900,
+      stage: 'PENDING_VERIFICATION',
+      catalogMethod: 'IVR',
+      createdDaysAgo: 3,
+      imageIndex: 1,
+    },
+  ],
+
+  raghunath: [
+    {
+      title: 'Pattachitra — Krishna Leela on Tussar',
+      descriptionEnglish:
+        'Traditional Pattachitra of the Krishna Leela painted with stone and shell pigments on tamarind-treated tussar cloth.',
+      descriptionOriginal: 'ତୁସର କପଡ଼ା ଉପରେ ପଥର ରଙ୍ଗରେ ଅଙ୍କିତ କୃଷ୍ଣ ଲୀଳା ପଟଚିତ୍ର।',
+      aiGeneratedListing:
+        'Krishna Leela in the Raghurajpur idiom — hingula red, haritala yellow and lamp-black, all ground by hand, on tussar cloth stiffened with tamarind seed paste. Thirty-four days of work.',
+      aiSuggestedCategory: 'Paintings & Wall Art',
+      tags: ['Pattachitra', 'Krishna', 'Natural Pigment', 'Tussar'],
+      laborDays: 34,
+      rawMaterialCost: 4200,
+      stage: 'SOLD',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 47,
+      imageIndex: 0,
+      secondImageIndex: 2,
+    },
+    {
+      title: 'Pattachitra — Jagannath Trinity',
+      descriptionEnglish:
+        'The Jagannath, Balabhadra and Subhadra trinity in the classical Pattachitra border, painted on palm-leaf-backed canvas.',
+      descriptionOriginal: 'ଜଗନ୍ନାଥ, ବଳଭଦ୍ର ଓ ସୁଭଦ୍ରାଙ୍କ ପଟଚିତ୍ର।',
+      aiGeneratedListing:
+        'The trinity of Puri, painted in the classical Pattachitra border with a fine white outline drawn in a single unbroken stroke.',
+      aiSuggestedCategory: 'Paintings & Wall Art',
+      tags: ['Pattachitra', 'Jagannath', 'Folk Art'],
+      laborDays: 19,
+      rawMaterialCost: 2600,
+      stage: 'LISTED',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 29,
+      imageIndex: 1,
+    },
+    {
+      title: 'Palm Leaf Etching — Gita Govinda Panel',
+      descriptionEnglish:
+        'Talapatra palm-leaf etching of a Gita Govinda verse, incised with an iron stylus and rubbed with lamp-black.',
+      descriptionOriginal: 'ତାଳପତ୍ର ଉପରେ ଗୀତଗୋବିନ୍ଦର ଖୋଦେଇ।',
+      aiGeneratedListing:
+        'A Gita Govinda verse cut into dried palm leaf with an iron stylus, then rubbed with lamp-black so the lines come up. The panel folds like a concertina.',
+      aiSuggestedCategory: 'Paintings & Wall Art',
+      tags: ['Palm Leaf', 'Talapatra', 'Etching'],
+      laborDays: 15,
+      rawMaterialCost: 1400,
+      stage: 'SELLABLE',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 21,
+      imageIndex: 2,
+    },
+    {
+      title: 'Pattachitra — Dasavatara Scroll',
+      descriptionEnglish:
+        'A long-form Dasavatara scroll showing all ten avatars in sequence, painted in the traditional register format.',
+      descriptionOriginal: 'ଦଶାବତାର ପଟଚିତ୍ର ଗୁଣ୍ଡିଆ।',
+      aiGeneratedListing:
+        'Ten avatars in ten registers, read top to bottom the way a chitrakar would recite them.',
+      aiSuggestedCategory: 'Paintings & Wall Art',
+      tags: ['Pattachitra', 'Dasavatara', 'Scroll'],
+      laborDays: 41,
+      rawMaterialCost: 5100,
+      stage: 'VERIFIED',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 11,
+      imageIndex: 0,
+    },
+    {
+      title: 'Pattachitra Coaster Set — Elephant Motif',
+      descriptionEnglish:
+        'Set of four coated palm-leaf coasters, each hand-painted with the Pattachitra elephant motif.',
+      descriptionOriginal: 'ହାତୀ ନକ୍ସାର ଚାରିଟି ପଟଚିତ୍ର କୋଷ୍ଟର।',
+      aiGeneratedListing: 'Four coasters, each with the Pattachitra elephant painted by hand and sealed.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Pattachitra', 'Coasters', 'Gift'],
+      laborDays: 4,
+      rawMaterialCost: 700,
+      stage: 'PENDING_VERIFICATION',
+      catalogMethod: 'IVR',
+      createdDaysAgo: 2,
+      imageIndex: 1,
+    },
+  ],
+
+  anitha: [
+    {
+      title: 'Pochampally Double Ikat Silk Saree — Telia Rumal',
+      descriptionEnglish:
+        'Double-ikat silk saree in the telia rumal geometry, both warp and weft tied and dyed before weaving.',
+      descriptionOriginal: 'తెలియా రుమాల్ డిజైన్‌లో డబుల్ ఇకత్ పట్టు చీర.',
+      aiGeneratedListing:
+        'True double ikat — warp and weft both tied before a single pick is thrown, so the telia rumal geometry resolves only as the cloth grows. Twenty-eight days.',
+      aiSuggestedCategory: 'Handloom Sarees',
+      tags: ['Pochampally', 'Double Ikat', 'Silk', 'Telia Rumal'],
+      laborDays: 28,
+      rawMaterialCost: 9400,
+      stage: 'SOLD',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 41,
+      imageIndex: 0,
+      secondImageIndex: 1,
+    },
+    {
+      title: 'Pochampally Ikat Silk Saree — Chowka Border',
+      descriptionEnglish:
+        'Silk ikat saree in teal with a chowka square border and a contrasting mustard pallu.',
+      descriptionOriginal: 'చౌకా బార్డర్‌తో టీల్ రంగు ఇకత్ పట్టు చీర.',
+      aiGeneratedListing:
+        'Teal ikat silk with the chowka square border, finished with a mustard pallu that lifts the whole drape.',
+      aiSuggestedCategory: 'Handloom Sarees',
+      tags: ['Pochampally', 'Ikat', 'Silk', 'Teal'],
+      laborDays: 17,
+      rawMaterialCost: 5600,
+      stage: 'LISTED',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 26,
+      imageIndex: 1,
+    },
+    {
+      title: 'Pochampally Ikat Cotton Yardage — 5m',
+      descriptionEnglish:
+        'Five metres of ikat cotton yardage in indigo and white, suitable for shirting or light furnishing.',
+      descriptionOriginal: 'ఐదు మీటర్ల ఇండిగో ఇకత్ కాటన్ వస్త్రం.',
+      aiGeneratedListing:
+        'Five metres of indigo-and-white ikat cotton, woven as continuous yardage — cuts well for shirting or a light curtain.',
+      aiSuggestedCategory: 'Fabric & Yardage',
+      tags: ['Pochampally', 'Ikat', 'Cotton', 'Yardage'],
+      laborDays: 9,
+      rawMaterialCost: 2200,
+      stage: 'SELLABLE',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 15,
+      imageIndex: 2,
+    },
+    {
+      title: 'Pochampally Ikat Silk Dupatta — Rust',
+      descriptionEnglish: 'Rust silk ikat dupatta with a fine diamond repeat and a plain selvedge.',
+      descriptionOriginal: 'తుప్పు రంగు ఇకత్ పట్టు దుపట్టా.',
+      aiGeneratedListing: 'A rust silk dupatta with a fine diamond repeat, plain selvedge, no border.',
+      aiSuggestedCategory: 'Dupattas & Stoles',
+      tags: ['Pochampally', 'Ikat', 'Silk', 'Dupatta'],
+      laborDays: 7,
+      rawMaterialCost: 2800,
+      stage: 'VERIFIED',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 7,
+      imageIndex: 0,
+    },
+    {
+      title: 'Pochampally Ikat Cushion Cover Pair',
+      descriptionEnglish: 'Pair of ikat cotton cushion covers, 16 inch, with concealed zip.',
+      descriptionOriginal: 'రెండు ఇకత్ కాటన్ కుషన్ కవర్లు.',
+      aiGeneratedListing: 'A pair of 16-inch ikat cotton cushion covers, concealed zip, woven from loom-end yardage.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Pochampally', 'Ikat', 'Cushion'],
+      laborDays: 3,
+      rawMaterialCost: 750,
+      stage: 'PENDING_VERIFICATION',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 4,
+      imageIndex: 2,
+    },
+  ],
+
+  imran: [
+    {
+      title: 'Blue Pottery Vase — Persian Floral, 10 inch',
+      descriptionEnglish:
+        'Quartz-body blue pottery vase with cobalt Persian floral work under a clear glaze, fired once at low heat.',
+      descriptionOriginal: 'फ़ारसी फूलों की नक़्क़ाशी वाला दस इंच का ब्लू पॉटरी फूलदान।',
+      aiGeneratedListing:
+        'No clay at all — quartz powder, fuller earth and gum, shaped in a mould and painted in cobalt oxide before a single low firing. The Persian floral runs unbroken around the body.',
+      aiSuggestedCategory: 'Pottery & Ceramics',
+      tags: ['Blue Pottery', 'Quartz', 'Cobalt', 'Vase'],
+      laborDays: 11,
+      rawMaterialCost: 1900,
+      stage: 'SOLD',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 38,
+      imageIndex: 0,
+      secondImageIndex: 1,
+    },
+    {
+      title: 'Blue Pottery Serving Bowl Set of 4',
+      descriptionEnglish:
+        'Four glazed quartz-body bowls in turquoise with white floral sprigs, food-safe glaze.',
+      descriptionOriginal: 'फ़िरोज़ी रंग के चार ब्लू पॉटरी कटोरे।',
+      aiGeneratedListing:
+        'Four turquoise bowls with white floral sprigs, glazed food-safe. Quartz body, so they ring when tapped.',
+      aiSuggestedCategory: 'Pottery & Ceramics',
+      tags: ['Blue Pottery', 'Bowls', 'Turquoise'],
+      laborDays: 8,
+      rawMaterialCost: 1500,
+      stage: 'LISTED',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 24,
+      imageIndex: 1,
+    },
+    {
+      title: 'Blue Pottery Door Knob Set of 6',
+      descriptionEnglish: 'Six hand-painted quartz door knobs with brass fittings, mixed floral patterns.',
+      descriptionOriginal: 'छह हाथ से बने ब्लू पॉटरी दरवाज़े के हैंडल।',
+      aiGeneratedListing: 'Six hand-painted knobs, brass fittings included, no two patterns the same.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Blue Pottery', 'Knobs', 'Brass'],
+      laborDays: 5,
+      rawMaterialCost: 1100,
+      stage: 'SELLABLE',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 13,
+      imageIndex: 2,
+    },
+    {
+      title: 'Blue Pottery Wall Plate — 12 inch',
+      descriptionEnglish: 'Twelve-inch decorative wall plate with a cobalt medallion and scalloped rim.',
+      descriptionOriginal: 'बारह इंच की सजावटी ब्लू पॉटरी दीवार प्लेट।',
+      aiGeneratedListing: 'A twelve-inch wall plate, cobalt medallion at the centre, scalloped rim.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Blue Pottery', 'Wall Plate'],
+      laborDays: 6,
+      rawMaterialCost: 1250,
+      stage: 'VERIFIED',
+      catalogMethod: 'IVR',
+      createdDaysAgo: 8,
+      imageIndex: 0,
+    },
+    {
+      title: 'Blue Pottery Soap Dish',
+      descriptionEnglish: 'Small glazed soap dish with drainage ridges, turquoise on white.',
+      descriptionOriginal: 'फ़िरोज़ी रंग की छोटी साबुनदानी।',
+      aiGeneratedListing: 'A small turquoise soap dish with drainage ridges cut into the base.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Blue Pottery', 'Bath'],
+      laborDays: 2,
+      rawMaterialCost: 400,
+      stage: 'PENDING_VERIFICATION',
+      catalogMethod: 'IVR',
+      createdDaysAgo: 1,
+      imageIndex: 1,
+    },
+  ],
+
+  budhram: [
+    {
+      title: 'Dhokra Brass Nandi — 9 inch',
+      descriptionEnglish:
+        'Lost-wax cast brass Nandi with the characteristic Dhokra thread-work surface, single solid pour.',
+      descriptionOriginal: 'ढोकरा विधि से बना नौ इंच का पीतल का नंदी।',
+      aiGeneratedListing:
+        'Wax thread wound by hand over a clay core, packed in mud, and the metal poured in one go. The mould is broken to free the figure, so this Nandi is the only one of its kind.',
+      aiSuggestedCategory: 'Metal Craft',
+      tags: ['Dhokra', 'Brass', 'Lost Wax', 'Nandi'],
+      laborDays: 16,
+      rawMaterialCost: 3400,
+      stage: 'SOLD',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 44,
+      imageIndex: 0,
+      secondImageIndex: 2,
+    },
+    {
+      title: 'Dhokra Tribal Musician Figurine',
+      descriptionEnglish:
+        'Standing tribal musician with a dhol, cast in brass by the lost-wax method, natural patina.',
+      descriptionOriginal: 'ढोल बजाते आदिवासी की ढोकरा पीतल मूर्ति।',
+      aiGeneratedListing:
+        'A standing musician with his dhol, cast in brass and left with its natural patina rather than polished.',
+      aiSuggestedCategory: 'Metal Craft',
+      tags: ['Dhokra', 'Brass', 'Figurine', 'Tribal'],
+      laborDays: 12,
+      rawMaterialCost: 2600,
+      stage: 'LISTED',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 31,
+      imageIndex: 1,
+    },
+    {
+      title: 'Dhokra Brass Elephant — 6 inch',
+      descriptionEnglish: 'Six-inch brass elephant with howdah, lost-wax cast, thread-work texture throughout.',
+      descriptionOriginal: 'छह इंच का ढोकरा पीतल हाथी।',
+      aiGeneratedListing: 'A six-inch elephant with howdah, the wax threads still legible across the whole surface.',
+      aiSuggestedCategory: 'Metal Craft',
+      tags: ['Dhokra', 'Brass', 'Elephant'],
+      laborDays: 9,
+      rawMaterialCost: 2100,
+      stage: 'SELLABLE',
+      catalogMethod: 'IVR',
+      createdDaysAgo: 17,
+      imageIndex: 2,
+    },
+    {
+      title: 'Dhokra Measuring Bowl (Paili)',
+      descriptionEnglish:
+        'Traditional paili grain-measure bowl in cast brass, a Bastar household form.',
+      descriptionOriginal: 'बस्तर की पारंपरिक पैली नापने वाली पीतल कटोरी।',
+      aiGeneratedListing: 'The paili grain measure, cast in brass — a working household form, not an ornament.',
+      aiSuggestedCategory: 'Metal Craft',
+      tags: ['Dhokra', 'Brass', 'Paili'],
+      laborDays: 7,
+      rawMaterialCost: 1800,
+      stage: 'VERIFIED',
+      catalogMethod: 'IVR',
+      createdDaysAgo: 6,
+      imageIndex: 0,
+    },
+    {
+      title: 'Dhokra Wall Hook Pair',
+      descriptionEnglish: 'Pair of cast brass wall hooks with peacock heads, mounting screws included.',
+      descriptionOriginal: 'मोर के सिर वाले दो पीतल के हुक।',
+      aiGeneratedListing: 'Two cast brass hooks with peacock heads, screws included.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Dhokra', 'Brass', 'Hooks'],
+      laborDays: 3,
+      rawMaterialCost: 900,
+      stage: 'PENDING_VERIFICATION',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 5,
+      imageIndex: 1,
+    },
+  ],
+
+  jethiben: [
+    {
+      title: 'Kutch Mirror Work Wall Hanging — Chakla',
+      descriptionEnglish:
+        'Square chakla wall hanging in Rabari abhla-bharat, hand-set mirrors on indigo cotton with chain and herringbone stitch.',
+      descriptionOriginal: 'રાબારી આભલા ભરતકામનું ચોરસ ચાકળા દીવાલ સુશોભન.',
+      aiGeneratedListing:
+        'A square chakla worked in Rabari abhla-bharat — every mirror set by hand with a ring of chain stitch, on indigo cotton. Twenty-three days of daylight work.',
+      aiSuggestedCategory: 'Textile Art',
+      tags: ['Kutch', 'Mirror Work', 'Embroidery', 'Chakla'],
+      laborDays: 23,
+      rawMaterialCost: 3100,
+      stage: 'SOLD',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 49,
+      imageIndex: 0,
+      secondImageIndex: 1,
+    },
+    {
+      title: 'Kutch Embroidered Cotton Blouse Piece',
+      descriptionEnglish:
+        'Blouse-length cotton panel with mirror and chain stitch along the yoke and sleeves.',
+      descriptionOriginal: 'આભલા અને સાંકળી ટાંકાવાળું બ્લાઉઝ કાપડ.',
+      aiGeneratedListing:
+        'A blouse-length panel with mirror and chain stitch across the yoke and both sleeves, ready to cut and tailor.',
+      aiSuggestedCategory: 'Fabric & Yardage',
+      tags: ['Kutch', 'Mirror Work', 'Cotton'],
+      laborDays: 10,
+      rawMaterialCost: 1600,
+      stage: 'LISTED',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 27,
+      imageIndex: 1,
+    },
+    {
+      title: 'Kutch Embroidered Toran Door Hanging',
+      descriptionEnglish:
+        'Traditional toran door hanging with five pendant flaps, mirror work and cowrie shell edging.',
+      descriptionOriginal: 'પાંચ પટ્ટીવાળું આભલા ભરતકામનું તોરણ.',
+      aiGeneratedListing:
+        'A five-flap toran for a doorway, mirrors through the body and cowrie shells along the lower edge.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Kutch', 'Toran', 'Mirror Work', 'Cowrie'],
+      laborDays: 14,
+      rawMaterialCost: 2000,
+      stage: 'SELLABLE',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 19,
+      imageIndex: 2,
+    },
+    {
+      title: 'Kutch Mirror Work Cushion Cover',
+      descriptionEnglish: 'Sixteen-inch cushion cover with a central mirror rosette on black cotton.',
+      descriptionOriginal: 'કાળા કાપડ પર આભલાનું કુશન કવર.',
+      aiGeneratedListing: 'A sixteen-inch cover with a mirror rosette at the centre, worked on black cotton.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Kutch', 'Cushion', 'Mirror Work'],
+      laborDays: 6,
+      rawMaterialCost: 850,
+      stage: 'VERIFIED',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 10,
+      imageIndex: 0,
+    },
+    {
+      title: 'Kutch Embroidered Potli Bag',
+      descriptionEnglish: 'Drawstring potli bag in maroon cotton with mirror and interlacing stitch.',
+      descriptionOriginal: 'મરૂન કાપડની આભલાવાળી પોટલી થેલી.',
+      aiGeneratedListing: 'A drawstring potli in maroon cotton, mirrors set into an interlacing stitch.',
+      aiSuggestedCategory: 'Bags & Accessories',
+      tags: ['Kutch', 'Potli', 'Mirror Work'],
+      laborDays: 4,
+      rawMaterialCost: 600,
+      stage: 'PENDING_VERIFICATION',
+      catalogMethod: 'IVR',
+      createdDaysAgo: 2,
+      imageIndex: 2,
+    },
+  ],
 };
 
-type SeedItem = {
-  key: string;
-  artisan: string;
-  craftType: string;
-  catalogMethod: 'VOICE' | 'MANUAL';
-  voiceLanguage: string;
-  descriptionOriginal: string;
-  descriptionEnglish: string;
-  aiGeneratedListing: string;
-  rawMaterialCost: number;
-  laborDays: number;
-  fairWageFloor: number;
-  salePrice: number | null;
-  advancePaid: number;
-  status: string;
-  patchId: string | null;
-  createdDaysAgo: number;
-  tags: string[];
+const LANGUAGE_CODE: Record<ArtisanSeed['language'], string> = {
+  Odia: 'Odia',
+  Hindi: 'Hindi',
+  Telugu: 'Telugu',
+  Gujarati: 'Gujarati',
+  English: 'English',
 };
+
+/* -------------------------------------------------------------------------- */
 
 async function main() {
-  console.log('Seeding KARIGARI database...');
+  console.log('Seeding KARIGARI database...\n');
 
+  const images = await buildSeedImages(3, ARTISANS.length);
+  console.log('');
+
+  // FK-safe wipe, unchanged order.
   await prisma.auditLog.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.demand.deleteMany();
@@ -82,892 +768,377 @@ async function main() {
   await prisma.craftItem.deleteMany();
   await prisma.artisanProfile.deleteMany();
   await prisma.user.deleteMany();
+  console.log('Existing data cleared.');
 
   const passwordHash = await bcrypt.hash('password123', 10);
 
-  // ---------------------------------------------------------------------
-  // 1. The single admin. One ADMIN role opens both admin dashboards.
-  // ---------------------------------------------------------------------
   const admin = await prisma.user.create({
     data: {
       id: 'cooperative-admin-001',
       name: 'Cooperative Admin',
-      email: 'superadmin@karigari.com',
+      email: 'admin@karigari.com',
       passwordHash,
       role: 'ADMIN',
       accountStatus: 'ACTIVE',
-      patchBankBalance: 4873,
-      patchBankIssued: 127,
+      patchBankBalance: 4841,
+      patchBankIssued: 159,
     },
   });
-  console.log('Admin created:', admin.email);
 
-  // ---------------------------------------------------------------------
-  // 2. Artisans across three clusters (real mobile numbers + income baselines)
-  // ---------------------------------------------------------------------
-  const artisanSeeds: ArtisanSeed[] = [
-    {
-      key: 'lakshmi',
-      name: 'Lakshmi Devi',
-      email: 'lakshmi@karigari.com',
-      craftType: 'Pochampally Ikat',
-      location: 'Pochampally, Telangana',
-      clusterName: 'Pochampally Weavers Cooperative',
-      mobileNumber: '9876543210',
-      experienceYears: 15,
-      description: 'Master weaver specializing in double-ikat silk sarees.',
-      tags: ['Ikat', 'Silk', 'Handloom', 'GI Tag'],
-      healthScore: 95,
-      upiId: 'lakshmi@upi',
-      giTagCertified: true,
-      giTagName: 'Pochampally Ikat',
-      socialCategory: 'OBC',
-      gender: 'FEMALE',
-      annualIncome: 180000,
-      aadhaarLast4: '4523',
-      photoUrl: '/female_artisan.jpg',
-    },
-    {
-      key: 'sunita',
-      name: 'Sunita Meher',
-      email: 'sunita@karigari.com',
-      craftType: 'Sambalpuri Bandha',
-      location: 'Bargarh, Odisha',
-      clusterName: 'Bargarh Handloom Cluster',
-      mobileNumber: '9437221190',
-      experienceYears: 22,
-      description: 'Third-generation tie-and-dye Bandha weaver.',
-      tags: ['Sambalpuri', 'Bandha', 'Cotton'],
-      healthScore: 72,
-      upiId: 'sunita@upi',
-      giTagCertified: true,
-      giTagName: 'Sambalpuri Bandha',
-      socialCategory: 'SC',
-      gender: 'FEMALE',
-      annualIncome: 96000,
-      aadhaarLast4: '7781',
-      photoUrl: '/female_artisan.jpg',
-    },
-    {
-      key: 'ramesh',
-      name: 'Ramesh Bhoi',
-      email: 'ramesh@karigari.com',
-      craftType: 'Sonepuri Silk',
-      location: 'Sonepur, Odisha',
-      clusterName: 'Bargarh Handloom Cluster',
-      mobileNumber: '9438110245',
-      experienceYears: 9,
-      description: 'Weaves Sonepuri silk sarees on a pit loom with his family.',
-      tags: ['Sonepuri', 'Silk', 'Handloom'],
-      healthScore: 64,
-      upiId: 'ramesh@upi',
-      giTagCertified: false,
-      giTagName: null,
-      socialCategory: 'ST',
-      gender: 'MALE',
-      annualIncome: 84000,
-      aadhaarLast4: '3390',
-      photoUrl: '/ikat_saree.jpg',
-    },
-    {
-      key: 'anita',
-      name: 'Anita Devi',
-      email: 'anita@karigari.com',
-      craftType: 'Banarasi Silk',
-      location: 'Varanasi, Uttar Pradesh',
-      clusterName: 'Varanasi Silk Cluster',
-      mobileNumber: '9125553301',
-      experienceYears: 18,
-      description: 'Zari brocade specialist working with real silver thread.',
-      tags: ['Banarasi', 'Silk', 'Zari'],
-      healthScore: 88,
-      upiId: 'anita@upi',
-      giTagCertified: true,
-      giTagName: 'Banaras Brocades and Sarees',
-      socialCategory: 'OBC',
-      gender: 'FEMALE',
-      annualIncome: 210000,
-      aadhaarLast4: '9012',
-      photoUrl: '/female_artisan.jpg',
-    },
-    {
-      key: 'mohan',
-      name: 'Mohan Prajapati',
-      email: 'mohan@karigari.com',
-      craftType: 'Khurja Pottery',
-      location: 'Khurja, Uttar Pradesh',
-      clusterName: 'Khurja Pottery Cluster',
-      mobileNumber: '9719004488',
-      experienceYears: 27,
-      description: 'Terracotta and blue-pottery potter, no smartphone of his own.',
-      tags: ['Terracotta', 'Pottery', 'Blue Pottery'],
-      healthScore: 58,
-      upiId: 'mohan@upi',
-      giTagCertified: false,
-      giTagName: null,
-      socialCategory: 'SC',
-      gender: 'MALE',
-      annualIncome: 72000,
-      aadhaarLast4: '6644',
-      photoUrl: '/ikat_saree.jpg',
-    },
-    {
-      // Filigree maps onto the Goldsmith (Sonar) notified trade, so Devi is the
-      // one artisan the PM Vishwakarma trade rule can actually pass. Her social
-      // category is deliberately unset and she is seeded with NO craft items:
-      // that combination demonstrates the INFO_NEEDED branch (NSFDC/NBCFDC) and
-      // the ONDC "verify & list at least one product first" blocker on one card.
-      key: 'devi',
-      name: 'Devi Prasad',
-      email: 'devi@karigari.com',
-      craftType: 'Cuttack Silver Filigree',
-      location: 'Cuttack, Odisha',
-      clusterName: 'Cuttack Filigree Cluster',
-      mobileNumber: '9812340077',
-      experienceYears: 9,
-      description: 'Silver filigree (tarakasi) artisan working in fine drawn wire.',
-      tags: ['Filigree', 'Silver', 'Tarakasi'],
-      healthScore: 90,
-      upiId: 'devi@upi',
-      giTagCertified: false,
-      giTagName: null,
-      socialCategory: undefined,
-      gender: 'MALE',
-      annualIncome: 150000,
-      aadhaarLast4: '2287',
-      photoUrl: '/female_artisan.jpg',
-    },
-  ];
+  const counts: Record<string, number> = {};
+  let listed = 0;
+  let sold = 0;
+  let verifiedImages = 0;
+  let patchSeed = 1;
 
-  const artisans: Record<string, { id: string; name: string }> = {};
+  const credentials: { email: string; craft: string; items: number }[] = [];
 
-  for (const a of artisanSeeds) {
+  for (let a = 0; a < ARTISANS.length; a += 1) {
+    const artisan = ARTISANS[a];
+
     const user = await prisma.user.create({
       data: {
-        // Stable id: re-seeding must not invalidate a browser session that is
-        // already signed in as this artisan.
-        id: `artisan-${a.key}`,
-        name: a.name,
-        email: a.email,
+        name: artisan.name,
+        email: artisan.email,
         passwordHash,
         role: 'ARTISAN',
         accountStatus: 'ACTIVE',
+        createdAt: daysAgo(90 - a * 4),
         artisanProfile: {
           create: {
-            craftType: a.craftType,
-            location: a.location,
-            clusterName: a.clusterName,
-            mobileNumber: a.mobileNumber,
-            experienceYears: a.experienceYears,
-            description: a.description,
-            tags: a.tags,
-            healthScore: a.healthScore,
-            upiId: a.upiId,
-            giTagCertified: a.giTagCertified,
-            giTagName: a.giTagName,
-            socialCategory: a.socialCategory,
-            gender: a.gender,
-            annualIncome: a.annualIncome,
-            aadhaarLast4: a.aadhaarLast4,
-            photoUrl: a.photoUrl,
+            craftType: artisan.craftType,
+            location: artisan.location,
+            clusterName: artisan.clusterName,
+            mobileNumber: artisan.mobileNumber,
+            upiId: artisan.upiId,
+            bankAccountNumber: artisan.bankAccountNumber,
+            aadhaarLast4: artisan.aadhaarLast4,
+            experienceYears: artisan.experienceYears,
+            cooperativeId: artisan.cooperativeId,
+            description: artisan.description,
+            tags: artisan.tags,
+            socialCategory: artisan.socialCategory,
+            gender: artisan.gender,
+            annualIncome: artisan.annualIncome,
+            healthScore: artisan.healthScore,
+            giTagCertified: artisan.giTagCertified,
+            giTagName: artisan.giTagName,
+            photoUrl: images.people[a],
           },
         },
       },
     });
-    artisans[a.key] = { id: user.id, name: user.name };
-  }
-  const clusterCount = new Set(artisanSeeds.map((a) => a.clusterName)).size;
-  console.log(`${artisanSeeds.length} artisans created across ${clusterCount} clusters`);
-  console.log('--- ARTISAN ACCOUNTS (password: password123) ---');
-  for (const a of artisanSeeds) {
-    console.log(`- ${a.email} (${a.craftType})`);
-  }
-  console.log('------------------------------------------------');
 
-  // ---------------------------------------------------------------------
-  // 3. Craft items. descriptionOriginal is the raw regional transcript,
-  //    descriptionEnglish is the AI translation — Voice QA compares them.
-  // ---------------------------------------------------------------------
-  const itemSeeds: SeedItem[] = [
-    // --- Lakshmi (Telugu) ---
-    {
-      key: 'lak-001',
-      artisan: 'lakshmi',
-      craftType: 'Pochampally Ikat Silk Saree',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Telugu',
-      descriptionOriginal:
-        'ఈ చీరను స్వచ్ఛమైన మల్బరీ పట్టుతో డబుల్ ఇకత్ పద్ధతిలో చేతితో నేశాను. పద్దెనిమిది రోజులు పట్టింది, పట్టు నూలుకు రెండు వేల ఐదు వందల రూపాయలు ఖర్చు అయ్యింది.',
-      descriptionEnglish:
-        'Hand-woven double-ikat saree in pure mulberry silk. Took eighteen days of loom work; the silk yarn cost two thousand five hundred rupees.',
-      aiGeneratedListing:
-        'Authentic Pochampally Ikat Silk Saree, GI-tagged and hand-woven over 18 days using the traditional double-ikat resist-dye technique. Pure mulberry silk with a fast-dye geometric motif.',
-      rawMaterialCost: 2500,
-      laborDays: 18,
-      fairWageFloor: 5200,
-      salePrice: 1500, // <-- exploited: 71% below the AI fair wage floor
-      advancePaid: 1200,
-      status: 'SOLD_FINAL',
-      patchId: 'PATCH-LAK-001',
-      createdDaysAgo: 12,
-      tags: ['Ikat', 'Silk', 'Saree'],
-    },
-    {
-      key: 'lak-002',
-      artisan: 'lakshmi',
-      craftType: 'Cotton Ikat Dupatta',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Telugu',
-      descriptionOriginal:
-        'ఇది మెత్తని నూలుతో చేసిన దుపట్టా, సాంప్రదాయ ఇకత్ డిజైన్‌తో. మూడు రోజులు పట్టింది, నూలుకు ఎనిమిది వందల రూపాయలు అయ్యింది.',
-      descriptionEnglish:
-        'Soft cotton dupatta carrying classic ikat motifs. Three days on the loom; eight hundred rupees of cotton yarn.',
-      aiGeneratedListing:
-        'Breathable handloom Cotton Ikat Dupatta with classic Pochampally motifs. Light enough for daily wear, dyed with colour-fast natural pigments.',
-      rawMaterialCost: 800,
-      laborDays: 3,
-      fairWageFloor: 1980,
-      salePrice: null,
-      advancePaid: 0,
-      status: 'PENDING_VERIFICATION',
-      patchId: null,
-      createdDaysAgo: 2,
-      tags: ['Ikat', 'Cotton', 'Dupatta'],
-    },
-    {
-      key: 'lak-003',
-      artisan: 'lakshmi',
-      craftType: 'Double Ikat Silk Yardage',
-      catalogMethod: 'MANUAL',
-      voiceLanguage: 'English',
-      descriptionOriginal:
-        'Five metres of double ikat silk yardage, warp and weft both resist-dyed before weaving.',
-      descriptionEnglish:
-        'Five metres of double ikat silk yardage, warp and weft both resist-dyed before weaving.',
-      aiGeneratedListing:
-        'Five metres of premium double-ikat silk yardage. Both warp and weft are resist-dyed before weaving, giving the motif identical clarity on either face.',
-      rawMaterialCost: 3400,
-      laborDays: 22,
-      fairWageFloor: 6800,
-      salePrice: 8400,
-      advancePaid: 3400,
-      status: 'SOLD_FINAL',
-      patchId: 'PATCH-LAK-003',
-      createdDaysAgo: 25,
-      tags: ['Ikat', 'Silk', 'Yardage'],
-    },
+    const craftPhotos = images.crafts[artisan.craftSlug];
+    const itemSeeds = ITEMS[artisan.key];
 
-    // --- Sunita (Odia) ---
-    {
-      key: 'sun-001',
-      artisan: 'sunita',
-      craftType: 'Sambalpuri Bandha Saree',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Odia',
-      descriptionOriginal:
-        'ଏହି ଶାଢ଼ୀଟି ଶୁଦ୍ଧ ସମ୍ବଲପୁରୀ ବନ୍ଧ କଳାରେ ହାତରେ ବୁଣା ହୋଇଛି। ପନ୍ଦର ଦିନ ଲାଗିଛି ଏବଂ ସୂତା ପାଇଁ ଦୁଇ ହଜାର ଟଙ୍କା ଖର୍ଚ୍ଚ ହୋଇଛି।',
-      descriptionEnglish:
-        'Hand-woven in the pure Sambalpuri Bandha tie-and-dye tradition. Fifteen days of work and two thousand rupees of yarn.',
-      aiGeneratedListing:
-        'GI-tagged Sambalpuri Bandha Saree, tie-dyed thread by thread before weaving. Fifteen days of loom work by a third-generation Bargarh weaver.',
-      rawMaterialCost: 2000,
-      laborDays: 15,
-      fairWageFloor: 4400,
-      salePrice: 5600,
-      advancePaid: 2200,
-      status: 'SOLD_FINAL',
-      patchId: 'PATCH-SUN-001',
-      createdDaysAgo: 20,
-      tags: ['Sambalpuri', 'Bandha', 'Saree'],
-    },
-    {
-      key: 'sun-002',
-      artisan: 'sunita',
-      craftType: 'Sambalpuri Cotton Stole',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Odia',
-      descriptionOriginal:
-        'ଏହା ଏକ ହାଲୁକା ସୂତା ଷ୍ଟୋଲ୍, ପାରମ୍ପରିକ ପାଶାପାଲି ଡିଜାଇନ୍ ସହିତ। ଚାରି ଦିନ ଲାଗିଛି।',
-      descriptionEnglish:
-        'A light cotton stole with the traditional Pasapali chequer design. Four days of work.',
-      aiGeneratedListing:
-        'Lightweight Sambalpuri cotton stole in the traditional Pasapali chequerboard pattern. Soft, breathable and hand-finished.',
-      rawMaterialCost: 550,
-      laborDays: 4,
-      fairWageFloor: 1450,
-      salePrice: null,
-      advancePaid: 0,
-      status: 'PENDING_VERIFICATION',
-      patchId: null,
-      createdDaysAgo: 1,
-      tags: ['Sambalpuri', 'Cotton', 'Stole'],
-    },
-    {
-      key: 'sun-003',
-      artisan: 'sunita',
-      craftType: 'Bandha Bed Cover',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Odia',
-      descriptionOriginal:
-        'ଡବଲ୍ ବେଡ୍ ପାଇଁ ବନ୍ଧ କଳାର ଚାଦର। ଆଠ ଦିନ ଲାଗିଛି ଏବଂ ସୂତା ପାଇଁ ଏଗାର ଶହ ଟଙ୍କା ଖର୍ଚ୍ଚ ହୋଇଛି।',
-      descriptionEnglish:
-        'A Bandha tie-and-dye bed cover for a double bed. Eight days of work and eleven hundred rupees of yarn.',
-      aiGeneratedListing:
-        'Double-bed Sambalpuri Bandha bed cover, tie-dyed and hand-woven over eight days. Heavy cotton that softens with every wash.',
-      rawMaterialCost: 1100,
-      laborDays: 8,
-      fairWageFloor: 3200,
-      salePrice: null,
-      advancePaid: 1600,
-      status: 'ADVANCE_PAID',
-      patchId: 'PATCH-SUN-003',
-      createdDaysAgo: 6,
-      tags: ['Sambalpuri', 'Bandha', 'Home'],
-    },
+    for (let i = 0; i < itemSeeds.length; i += 1) {
+      const seed = itemSeeds[i];
+      const created = daysAgo(seed.createdDaysAgo);
 
-    // --- Ramesh (Odia) ---
-    {
-      key: 'ram-001',
-      artisan: 'ramesh',
-      craftType: 'Sonepuri Silk Saree',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Odia',
-      descriptionOriginal:
-        'ସୋନପୁରୀ ପଟ୍ଟ ଶାଢ଼ୀ, ପାରମ୍ପରିକ ବନ୍ଧ ନମୁନା ସହିତ ହାତରେ ବୁଣା। ଷୋହଳ ଦିନ ଲାଗିଛି।',
-      descriptionEnglish:
-        'Sonepuri silk saree, hand-woven with traditional Bandha motifs. Sixteen days of work.',
-      aiGeneratedListing:
-        'Handloom Sonepuri Silk Saree woven on a pit loom over sixteen days, carrying traditional Bandha motifs in natural dyes.',
-      rawMaterialCost: 2400,
-      laborDays: 16,
-      fairWageFloor: 5000,
-      salePrice: 3050, // <-- flagged: 39% below the AI fair wage floor
-      advancePaid: 1500,
-      status: 'SOLD_FINAL',
-      patchId: 'PATCH-RAM-001',
-      createdDaysAgo: 9,
-      tags: ['Sonepuri', 'Silk', 'Saree'],
-    },
-    {
-      key: 'ram-002',
-      artisan: 'ramesh',
-      craftType: 'Cotton Gamucha Set',
-      catalogMethod: 'MANUAL',
-      voiceLanguage: 'English',
-      descriptionOriginal: 'Set of four handwoven cotton gamuchas with red border.',
-      descriptionEnglish: 'Set of four handwoven cotton gamuchas with red border.',
-      aiGeneratedListing:
-        'Set of four hand-woven Odia cotton gamuchas with the classic red border. Quick-drying, absorbent, and made entirely on a handloom.',
-      rawMaterialCost: 320,
-      laborDays: 2,
-      fairWageFloor: 900,
-      salePrice: null,
-      advancePaid: 0,
-      status: 'VERIFIED',
-      patchId: 'PATCH-RAM-002',
-      createdDaysAgo: 4,
-      tags: ['Cotton', 'Gamucha'],
-    },
+      // Same helper the live capture flow runs, so the seeded band is the band
+      // the app would actually have quoted for these inputs.
+      const valuation = estimateCraftValuation(
+        artisan.craftType,
+        seed.laborDays,
+        seed.rawMaterialCost
+      );
+      // Asking price sits just inside the upper half of the band.
+      const askingPrice = round(
+        valuation.marketPriceMin + (valuation.marketPriceMax - valuation.marketPriceMin) * 0.55
+      );
 
-    // --- Anita (Hindi) ---
-    {
-      key: 'ani-001',
-      artisan: 'anita',
-      craftType: 'Banarasi Silk Saree',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Hindi',
-      descriptionOriginal:
-        'यह बनारसी रेशमी साड़ी असली चाँदी की ज़री से हाथ से बुनी गई है। इसमें बाईस दिन लगे और कच्चे माल पर चार हज़ार रुपये खर्च हुए।',
-      descriptionEnglish:
-        'This Banarasi silk saree is hand-woven with real silver zari. It took twenty-two days and four thousand rupees of raw material.',
-      aiGeneratedListing:
-        'Hand-woven Banarasi Silk Saree with genuine silver zari brocade. Twenty-two days on the loom in the GI-tagged Varanasi tradition.',
-      rawMaterialCost: 4000,
-      laborDays: 22,
-      fairWageFloor: 9200,
-      salePrice: 12500,
-      advancePaid: 4600,
-      status: 'SOLD_FINAL',
-      patchId: 'PATCH-ANI-001',
-      createdDaysAgo: 18,
-      tags: ['Banarasi', 'Silk', 'Zari'],
-    },
-    {
-      key: 'ani-002',
-      artisan: 'anita',
-      craftType: 'Banarasi Brocade Dupatta',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Hindi',
-      descriptionOriginal:
-        'यह दुपट्टा शुद्ध कातान रेशम पर ज़री की बूटियों के साथ बुना है। सात दिन लगे।',
-      descriptionEnglish:
-        'This dupatta is woven on pure katan silk with zari buti motifs. It took seven days.',
-      aiGeneratedListing:
-        'Pure katan silk Banarasi dupatta scattered with hand-woven zari buti motifs. Seven days of loom work, finished with a hand-knotted fringe.',
-      rawMaterialCost: 1500,
-      laborDays: 7,
-      fairWageFloor: 3600,
-      salePrice: null,
-      advancePaid: 0,
-      status: 'PENDING_VERIFICATION',
-      patchId: null,
-      createdDaysAgo: 1,
-      tags: ['Banarasi', 'Silk', 'Dupatta'],
-    },
-    {
-      key: 'ani-003',
-      artisan: 'anita',
-      craftType: 'Zari Border Yardage',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Hindi',
-      descriptionOriginal:
-        'तीन मीटर ज़री बॉर्डर वाला कपड़ा, नौ दिन में तैयार हुआ। धागे पर अठारह सौ रुपये लगे।',
-      descriptionEnglish:
-        'Three metres of zari-bordered fabric, finished in nine days. Eighteen hundred rupees spent on thread.',
-      aiGeneratedListing:
-        'Three metres of Banarasi yardage with a woven zari border, ready to be tailored into a lehenga or kurta set.',
-      rawMaterialCost: 1800,
-      laborDays: 9,
-      fairWageFloor: 4100,
-      salePrice: null,
-      advancePaid: 2000,
-      status: 'ADVANCE_PAID',
-      patchId: 'PATCH-ANI-003',
-      createdDaysAgo: 5,
-      tags: ['Banarasi', 'Zari', 'Yardage'],
-    },
+      const gallery = [craftPhotos[seed.imageIndex % craftPhotos.length]];
+      if (seed.secondImageIndex !== undefined) {
+        gallery.push(craftPhotos[seed.secondImageIndex % craftPhotos.length]);
+      }
 
-    // --- Mohan (Hindi) ---
-    {
-      key: 'moh-001',
-      artisan: 'mohan',
-      craftType: 'Khurja Terracotta Planter Set',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Hindi',
-      descriptionOriginal:
-        'चाक पर बने छह टेराकोटा गमले, हाथ से रंगे हुए। पाँच दिन लगे और मिट्टी पर छह सौ रुपये खर्च हुए।',
-      descriptionEnglish:
-        'Six terracotta planters thrown on the wheel and hand-painted. Five days of work and six hundred rupees of clay.',
-      aiGeneratedListing:
-        'Set of six wheel-thrown Khurja terracotta planters, hand-painted and kiln-fired. Porous walls keep roots healthy.',
-      rawMaterialCost: 600,
-      laborDays: 5,
-      fairWageFloor: 1800,
-      salePrice: 2400,
-      advancePaid: 900,
-      status: 'SOLD_FINAL',
-      patchId: 'PATCH-MOH-001',
-      createdDaysAgo: 15,
-      tags: ['Terracotta', 'Pottery', 'Home'],
-    },
-    {
-      key: 'moh-002',
-      artisan: 'mohan',
-      craftType: 'Blue Pottery Dinner Set',
-      catalogMethod: 'VOICE',
-      voiceLanguage: 'Hindi',
-      descriptionOriginal:
-        'नीली पॉटरी का खाने का सेट, आठ टुकड़े। सात दिन लगे, कच्चे माल पर नौ सौ रुपये खर्च हुए।',
-      descriptionEnglish:
-        'Blue pottery dinner set of eight pieces. Seven days of work, nine hundred rupees of raw material.',
-      aiGeneratedListing:
-        'Eight-piece Khurja blue pottery dinner set, glazed by hand in cobalt and turquoise. Food-safe and dishwasher-friendly.',
-      rawMaterialCost: 900,
-      laborDays: 7,
-      fairWageFloor: 2600,
-      salePrice: null,
-      advancePaid: 0,
-      status: 'PENDING_VERIFICATION',
-      patchId: null,
-      createdDaysAgo: 3,
-      tags: ['Blue Pottery', 'Dinnerware'],
-    },
-    {
-      key: 'moh-003',
-      artisan: 'mohan',
-      craftType: 'Terracotta Wall Mural',
-      catalogMethod: 'MANUAL',
-      voiceLanguage: 'English',
-      descriptionOriginal: 'Large terracotta wall mural panel, hand-carved village scene.',
-      descriptionEnglish: 'Large terracotta wall mural panel, hand-carved village scene.',
-      aiGeneratedListing:
-        'Large hand-carved terracotta wall mural depicting a village scene. Kiln-fired in a single piece and sealed for indoor display.',
-      rawMaterialCost: 1200,
-      laborDays: 11,
-      fairWageFloor: 3400,
-      salePrice: null,
-      advancePaid: 0,
-      status: 'VERIFIED',
-      patchId: 'PATCH-MOH-002',
-      createdDaysAgo: 8,
-      tags: ['Terracotta', 'Mural', 'Decor'],
-    },
-  ];
+      const hasPatch = seed.stage !== 'PENDING_VERIFICATION';
+      const patchId = hasPatch ? makePatchId(patchSeed++) : null;
+      const qrVerified = seed.stage === 'SELLABLE' || seed.stage === 'LISTED' || seed.stage === 'SOLD';
 
-  const createdItems: Record<string, { id: string; createdAt: Date }> = {};
+      // A real, decodable QR over the real product photo — the same artefact
+      // /api/items/attach-verify would have accepted.
+      let qrVerifiedImageUrl: string | null = null;
+      if (qrVerified && patchId) {
+        try {
+          qrVerifiedImageUrl = await buildVerifiedImage(gallery[0], patchId, BASE_URL);
+          verifiedImages += 1;
+        } catch (error) {
+          console.warn(`  QR composite failed for ${patchId}:`, (error as Error).message);
+        }
+      }
 
-  for (const s of itemSeeds) {
-    const { pricingFlag, flagReason } = flagFor(s.fairWageFloor, s.salePrice);
-    const createdAt = daysAgo(s.createdDaysAgo);
-    const isSettled = s.status === 'SOLD_FINAL';
+      const isListed = seed.stage === 'LISTED' || seed.stage === 'SOLD';
+      const isSold = seed.stage === 'SOLD';
 
-    const item = await prisma.craftItem.create({
-      data: {
-        artisanId: artisans[s.artisan].id,
-        assignedAdminId: s.status === 'PENDING_VERIFICATION' ? null : admin.id,
-        patchId: s.patchId,
-        craftType: s.craftType,
-        descriptionOriginal: s.descriptionOriginal,
-        descriptionEnglish: s.descriptionEnglish,
-        aiGeneratedListing: s.aiGeneratedListing,
-        aiSuggestedCategory: s.tags[0],
-        tags: s.tags,
-        images: ['/ikat_saree.jpg'],
-        rawMaterialCost: s.rawMaterialCost,
-        laborDays: s.laborDays,
-        fairWageFloor: s.fairWageFloor,
-        standardMarketPrice: Math.round(s.fairWageFloor * 1.4),
-        marketPriceMin: Math.round(s.fairWageFloor * 1.2),
-        marketPriceMax: Math.round(s.fairWageFloor * 1.6),
-        fairnessScore: pricingFlag ? 42 : 95,
-        creditScore: 85.5,
-        status: s.status,
-        advancePaid: s.advancePaid,
-        finalPayoutQueued: isSettled ? Math.max(0, (s.salePrice ?? 0) - s.advancePaid) : 0,
-        salePrice: s.salePrice,
-        isListedOnMarketplace: s.status !== 'PENDING_VERIFICATION',
-        catalogMethod: s.catalogMethod,
-        voiceLanguage: s.voiceLanguage,
-        audioUrl: null, // no audio blob is persisted yet — the QA player degrades gracefully
-        pricingFlag,
-        flagReason,
-        createdAt,
-      },
-    });
+      const salePrice = isSold ? askingPrice : null;
+      const advanceAmount = isSold ? round(askingPrice * 0.4) : null;
+      const finalSettlementAmount = isSold ? round(askingPrice * 0.4936) : null;
 
-    createdItems[s.key] = { id: item.id, createdAt };
+      const status =
+        seed.stage === 'SOLD'
+          ? 'SOLD_FINAL'
+          : seed.stage === 'LISTED'
+            ? 'SELLABLE'
+            : seed.stage;
 
-    // ------- Immutable hash-chain: Created -> Verified -> Sold -------
-    const chain: { action: string; actorRole: string; comments: string; offsetDays: number }[] = [
-      {
-        action: s.catalogMethod === 'VOICE' ? 'VOICE_CATALOG_CREATED' : 'UPLOAD_CREATED',
-        actorRole: 'ARTISAN',
-        comments:
-          s.catalogMethod === 'VOICE'
-            ? `Artisan catalogued ${s.craftType} by voice in ${s.voiceLanguage}. AI translated the transcript and estimated a fair wage floor of Rs ${s.fairWageFloor.toLocaleString('en-IN')}.`
-            : `Artisan typed the listing for ${s.craftType}. AI estimated a fair wage floor of Rs ${s.fairWageFloor.toLocaleString('en-IN')}.`,
-        offsetDays: 0,
-      },
-    ];
-
-    if (s.status !== 'PENDING_VERIFICATION') {
-      chain.push({
-        action: 'ADMIN_VERIFIED',
-        actorRole: 'ADMIN',
-        comments: `Admin verified the AI valuation and attached Patch ID: ${s.patchId}.`,
-        offsetDays: 0.5,
-      });
-    }
-    if (s.advancePaid > 0) {
-      chain.push({
-        action: 'ADVANCE_DISBURSED',
-        actorRole: 'ADMIN',
-        comments: `Same-day advance of Rs ${s.advancePaid.toLocaleString('en-IN')} disbursed to the artisan's UPI.`,
-        offsetDays: 1,
-      });
-    }
-    if (isSettled) {
-      chain.push({
-        action: 'UPI_PAYMENT_PROCESSED',
-        actorRole: 'ADMIN',
-        comments: `Sale settled at Rs ${(s.salePrice ?? 0).toLocaleString('en-IN')}. Final payout of Rs ${Math.max(0, (s.salePrice ?? 0) - s.advancePaid).toLocaleString('en-IN')} released to the artisan.`,
-        offsetDays: 2,
-      });
-    }
-    if (pricingFlag) {
-      chain.push({
-        action: 'PRICING_FLAG_RAISED',
-        actorRole: 'SYSTEM',
-        comments: `${flagReason}. Held for facilitator review under the anti-exploitation policy.`,
-        offsetDays: 2.1,
-      });
-    }
-
-    for (const step of chain) {
-      await prisma.auditLog.create({
+      const item = await prisma.craftItem.create({
         data: {
-          craftItemId: item.id,
-          actorId: step.actorRole === 'ARTISAN' ? artisans[s.artisan].id : admin.id,
-          actorRole: step.actorRole,
-          action: step.action,
-          comments: step.comments,
-          createdAt: new Date(createdAt.getTime() + step.offsetDays * DAY),
+          artisanId: user.id,
+          craftType: seed.title,
+          descriptionOriginal: seed.descriptionOriginal,
+          descriptionEnglish: seed.descriptionEnglish,
+          aiGeneratedListing: seed.aiGeneratedListing,
+          aiSuggestedCategory: seed.aiSuggestedCategory,
+          tags: seed.tags,
+          images: gallery,
+          laborDays: seed.laborDays,
+          rawMaterialCost: seed.rawMaterialCost,
+          fairWageFloor: round(valuation.fairWageFloor),
+          marketPriceMin: round(valuation.marketPriceMin),
+          marketPriceMax: round(valuation.marketPriceMax),
+          standardMarketPrice: round(valuation.standardMarketPrice),
+          askingPrice,
+          salePrice,
+          creditScore: 640 + ((a * 37 + i * 19) % 180),
+          status,
+          patchId,
+          assignedAdminId: hasPatch ? admin.id : null,
+          giTagApplied: artisan.giTagCertified ? artisan.giTagName : null,
+          catalogMethod: seed.catalogMethod,
+          voiceLanguage: seed.catalogMethod === 'MANUAL' ? null : LANGUAGE_CODE[artisan.language],
+
+          qrVerified,
+          qrVerifiedImageUrl,
+          qrVerifiedAt: qrVerified ? plusMinutes(created, 2880) : null,
+
+          isListedOnMarketplace: isListed,
+          isOndcLive: isListed,
+          syndicatedChannels: isListed
+            ? ['KARIGARI_ONDC', 'ONDC_PAYTM_MAGICPIN', 'GEM_B2G']
+            : [],
+          syndicatedAt: isListed ? plusMinutes(created, 4320) : null,
+
+          escrowStatus: isSold ? 'STAGE2_SETTLED_89' : null,
+          stripeSessionId: isSold ? `cs_test_${patchId?.slice(6, 18).toLowerCase()}` : null,
+          advanceAmount,
+          finalSettlementAmount,
+          artisanUpiDestination: isSold ? artisan.upiId : null,
+          advancePaid: isSold ? advanceAmount! : 0,
+          finalPayoutQueued: isSold ? finalSettlementAmount! : 0,
+
+          createdAt: created,
         },
       });
+
+      counts[status] = (counts[status] ?? 0) + 1;
+      if (isListed) listed += 1;
+      if (isSold) sold += 1;
+
+      /* ---- Audit chain: only the steps this item has actually reached ---- */
+      const trail: {
+        action: string;
+        actorId: string | null;
+        actorRole: string;
+        comments: string;
+        at: Date;
+      }[] = [
+        {
+          action: 'ITEM_CAPTURED',
+          actorId: user.id,
+          actorRole: 'ARTISAN',
+          comments: `Captured via ${seed.catalogMethod}. Artisan described the piece in ${artisan.language}.`,
+          at: created,
+        },
+      ];
+
+      if (hasPatch) {
+        trail.push({
+          action: 'ADMIN_VERIFIED',
+          actorId: admin.id,
+          actorRole: 'ADMIN',
+          comments: `Admin verified AI math and issued Patch ID: ${patchId}. The artisan must now attach the physical QR patch and re-photograph the piece before it can be listed.`,
+          at: plusMinutes(created, 1440),
+        });
+      }
+
+      if (qrVerified) {
+        trail.push({
+          action: 'QR_PATCH_VERIFIED',
+          actorId: user.id,
+          actorRole: 'ARTISAN',
+          comments:
+            'Physical QR patch + product image AI-matched to original; item is now sellable.',
+          at: plusMinutes(created, 2880),
+        });
+      }
+
+      if (isListed) {
+        trail.push({
+          action: 'MULTI_CHANNEL_SYNDICATE',
+          actorId: user.id,
+          actorRole: 'ARTISAN',
+          comments:
+            'Artisan published this listing to every connected channel from their own account. Broadcast-ready payload; no external seller id involved.',
+          at: plusMinutes(created, 4320),
+        });
+      }
+
+      if (isSold) {
+        trail.push(
+          {
+            action: 'ESCROW_HELD',
+            actorId: 'STRIPE_CHECKOUT',
+            actorRole: 'SYSTEM',
+            comments:
+              'Buyer opened a Stripe TEST checkout session. Funds are held in escrow; the artisan VPA on file is locked in as the payout destination. No admin can release or redirect this.',
+            at: plusMinutes(created, 5760),
+          },
+          {
+            action: 'DIRECT_ARTISAN_ADVANCE_PAID',
+            actorId: 'SMART_ESCROW_ENGINE',
+            actorRole: 'SYSTEM',
+            comments:
+              'Stage 1 (40% fair-wage advance) released programmatically on dispatch, direct to the artisan VPA. Test-mode settlement record — no admin approved or touched this.',
+            at: plusMinutes(created, 7200),
+          },
+          {
+            action: 'DIRECT_ARTISAN_FINAL_SETTLEMENT',
+            actorId: 'SMART_ESCROW_ENGINE',
+            actorRole: 'SYSTEM',
+            comments:
+              'Stage 2 final settlement released programmatically on delivery, direct to the artisan VPA. Total to artisan: 89.36% of gross. Test-mode settlement record — no admin approved or touched this.',
+            at: plusMinutes(created, 10080),
+          }
+        );
+      }
+
+      await prisma.auditLog.createMany({
+        data: trail.map((entry) => ({
+          craftItemId: item.id,
+          actorId: entry.actorId,
+          actorRole: entry.actorRole,
+          action: entry.action,
+          comments: entry.comments,
+          createdAt: entry.at,
+        })),
+      });
     }
+
+    credentials.push({
+      email: artisan.email,
+      craft: artisan.craftType,
+      items: itemSeeds.length,
+    });
+    console.log(`  ${artisan.name} — ${itemSeeds.length} items`);
   }
-  console.log(`${itemSeeds.length} craft items seeded with full audit chains`);
 
-  const flagged = itemSeeds.filter((s) => flagFor(s.fairWageFloor, s.salePrice).pricingFlag);
-  console.log(`   ${flagged.length} pricing flags raised: ${flagged.map((f) => f.craftType).join(', ')}`);
+  /* ---- Scheme applications ------------------------------------------- */
+  const artisanUsers = await prisma.user.findMany({
+    where: { role: 'ARTISAN' },
+    select: { id: true, email: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const byEmail = new Map(artisanUsers.map((u) => [u.email, u.id]));
 
-  // ---------------------------------------------------------------------
-  // 4. Scheme applications (artisan-side dashboards read these)
-  // ---------------------------------------------------------------------
-  //
-  // These rows are the artisan's *tracking* record of an application they made
-  // through the official channel — KARIGARI never submits anything to a
-  // government system. Every row therefore has to agree with what the rules
-  // engine in src/lib/schemes.ts would say about that artisan, otherwise the
-  // tracker and the eligibility card contradict each other on screen.
-  //
-  // Two deliberate omissions:
-  //   * No pm_vishwakarma row for any weaver. Handloom weaving is not one of
-  //     the 18 notified trades, so the engine returns INELIGIBLE for Lakshmi,
-  //     Sunita, Ramesh and Anita — a tracked row would be a visible lie.
-  //   * Mohan (potter) and Lakshmi's ONDC are left untracked so the live demo
-  //     can click Apply, tick the self-declarations and watch a card move.
-  //
-  const schemeApplicationSeeds: {
-    userId: string;
-    schemeKey: string;
-    schemeName: string;
-    status: string;
-    appliedAt: Date;
-    notes: string;
-  }[] = [
-    // --- Lakshmi: OBC, income Rs 1.8L, in a cooperative, Aadhaar + UPI on file,
-    //     verified marketplace items. Passes nbcfdc, ahvy and gem_seller.
-    {
-      userId: artisans.lakshmi.id,
-      schemeKey: 'nbcfdc',
-      schemeName: 'NBCFDC — National Backward Classes Finance & Development Corporation',
-      status: 'DISBURSED',
-      appliedAt: daysAgo(40),
-      notes: 'Concessional term loan sanctioned and disbursed through the state channel partner.',
-    },
-    {
-      userId: artisans.lakshmi.id,
-      schemeKey: 'ahvy',
-      schemeName: 'AHVY — Ambedkar Hastshilp Vikas Yojana',
-      status: 'APPROVED',
-      appliedAt: daysAgo(25),
-      notes: 'Cluster proposal approved through the Pochampally Weavers Cooperative.',
-    },
-    {
-      userId: artisans.lakshmi.id,
-      schemeKey: 'gem_seller',
-      schemeName: 'GeM Seller Registration',
-      status: 'UNDER_REVIEW',
-      appliedAt: daysAgo(6),
-      notes: 'Seller profile submitted on GeM. Awaiting vendor assessment.',
-    },
-
-    // --- Sunita: SC, income Rs 96,000 — passes nsfdc.
-    {
-      userId: artisans.sunita.id,
-      schemeKey: 'nsfdc',
-      schemeName: 'NSFDC — National Scheduled Castes Finance & Development Corporation',
-      status: 'APPROVED',
-      appliedAt: daysAgo(30),
-      notes: 'Approved by the Bargarh State Channelizing Agency.',
-    },
-
-    // --- Ramesh: ST, in the Bargarh cluster — passes ahvy (not nsfdc/nbcfdc).
-    {
-      userId: artisans.ramesh.id,
-      schemeKey: 'ahvy',
-      schemeName: 'AHVY — Ambedkar Hastshilp Vikas Yojana',
-      status: 'APPLIED',
-      appliedAt: daysAgo(4),
-      notes: 'Application started through the Bargarh Handloom Cluster.',
-    },
-
-    // --- Mohan, Anita, Devi: intentionally no rows.
+  const schemeSeeds = [
+    { email: 'lakshmi@karigari.com', schemeKey: 'pm_vishwakarma', schemeName: 'PM Vishwakarma', status: 'APPLIED', appliedAt: daysAgo(40) },
+    { email: 'lakshmi@karigari.com', schemeKey: 'mudra_shishu', schemeName: 'MUDRA Shishu Loan', status: 'ELIGIBLE', appliedAt: null },
+    { email: 'raghunath@karigari.com', schemeKey: 'pm_vishwakarma', schemeName: 'PM Vishwakarma', status: 'APPROVED', appliedAt: daysAgo(61) },
+    { email: 'anitha@karigari.com', schemeKey: 'mudra_shishu', schemeName: 'MUDRA Shishu Loan', status: 'APPLIED', appliedAt: daysAgo(22) },
+    { email: 'imran@karigari.com', schemeKey: 'pm_vishwakarma', schemeName: 'PM Vishwakarma', status: 'ELIGIBLE', appliedAt: null },
+    { email: 'budhram@karigari.com', schemeKey: 'pm_vishwakarma', schemeName: 'PM Vishwakarma', status: 'APPROVED', appliedAt: daysAgo(75) },
+    { email: 'budhram@karigari.com', schemeKey: 'nsfdc_term_loan', schemeName: 'NSFDC Term Loan', status: 'APPLIED', appliedAt: daysAgo(18) },
+    { email: 'jethiben@karigari.com', schemeKey: 'mudra_shishu', schemeName: 'MUDRA Shishu Loan', status: 'ELIGIBLE', appliedAt: null },
   ];
 
-  await prisma.schemeApplication.createMany({ data: schemeApplicationSeeds });
-  console.log(`${schemeApplicationSeeds.length} scheme applications seeded`);
+  await prisma.schemeApplication.createMany({
+    data: schemeSeeds
+      .filter((s) => byEmail.has(s.email))
+      .map((s) => ({
+        userId: byEmail.get(s.email)!,
+        schemeKey: s.schemeKey,
+        schemeName: s.schemeName,
+        status: s.status,
+        appliedAt: s.appliedAt,
+        createdAt: s.appliedAt ?? daysAgo(70),
+      })),
+  });
 
-  // ---------------------------------------------------------------------
-  // 5. Buyer demand board. Every surface that used to hardcode a demand pin
-  //    (the insights map, the WhatsApp simulation, the buyer ticket) reads
-  //    these rows, so the demo has real data on first load.
-  // ---------------------------------------------------------------------
-  const demandSeeds: {
-    id: string;
-    craftType: string;
-    quantity: number;
-    targetPriceMin: number;
-    targetPriceMax: number;
-    location: string;
-    festival: string | null;
-    buyerName: string;
-    notes: string;
-    status: string;
-    createdAt: Date;
-  }[] = [
-    {
-      id: 'demand-delhi-sambalpuri',
-      craftType: 'Sambalpuri Bandha',
-      quantity: 50,
-      targetPriceMin: 3500,
-      targetPriceMax: 4000,
-      location: 'Delhi NCR',
-      festival: 'Diwali',
-      buyerName: 'Rajesh Retailers',
-      notes: 'Festive collection for 12 stores. Needs GI-tagged handloom only.',
-      status: 'OPEN',
-      createdAt: daysAgo(1),
-    },
-    {
-      id: 'demand-mumbai-pochampally',
-      craftType: 'Pochampally Ikat',
-      quantity: 120,
-      targetPriceMin: 4200,
-      targetPriceMax: 5200,
-      location: 'Mumbai',
-      festival: 'Diwali',
-      buyerName: 'Aarna Boutique Group',
-      notes: 'Double-ikat silk sarees for the Diwali window. Staggered delivery accepted.',
-      status: 'OPEN',
-      createdAt: daysAgo(3),
-    },
-    {
-      id: 'demand-bengaluru-banarasi',
-      craftType: 'Banarasi Silk',
-      quantity: 40,
-      targetPriceMin: 6000,
-      targetPriceMax: 8000,
-      location: 'Bengaluru',
-      festival: 'North Indian Wedding Season',
-      buyerName: 'Tech Park Gifting Co.',
-      notes: 'Bridal-grade brocade for corporate wedding gifting hampers.',
-      status: 'OPEN',
-      createdAt: daysAgo(5),
-    },
-    {
-      id: 'demand-hyderabad-pottery',
-      craftType: 'Khurja Pottery',
-      quantity: 200,
-      targetPriceMin: 450,
-      targetPriceMax: 700,
-      location: 'Hyderabad',
-      festival: 'Ganesh Chaturthi',
-      buyerName: 'Deccan Home Store',
-      notes: 'Planter sets and dinnerware for the festive home decor aisle.',
-      status: 'OPEN',
-      createdAt: daysAgo(2),
-    },
-    {
-      id: 'demand-kolkata-sonepuri',
-      craftType: 'Sonepuri Silk',
-      quantity: 60,
-      targetPriceMin: 3800,
-      targetPriceMax: 4600,
-      location: 'Kolkata',
-      festival: 'Durga Puja',
-      buyerName: 'Baithak Handlooms',
-      notes: 'Puja-week stock. Prefers weavers inside the Bargarh cluster.',
-      status: 'OPEN',
-      createdAt: daysAgo(4),
-    },
-    {
-      id: 'demand-pune-filigree',
-      craftType: 'Cuttack Silver Filigree',
-      quantity: 80,
-      targetPriceMin: 1800,
-      targetPriceMax: 2600,
-      location: 'Pune',
-      festival: null,
-      buyerName: 'Silverline Exports',
-      notes: 'Export sampling order — already matched with a Cuttack workshop.',
-      status: 'MATCHED',
-      createdAt: daysAgo(12),
-    },
+  /* ---- Buyer demand board -------------------------------------------- */
+  await prisma.demand.createMany({
+    data: [
+      { craftType: 'Sambalpuri Ikat Silk Saree', quantity: 40, targetPriceMin: 9000, targetPriceMax: 14000, location: 'Bhubaneswar, Odisha', festival: 'Raja Parba', buyerName: 'Utkal Handloom Emporium', notes: 'Bulk order for the festival window. Prefer GI-tagged weavers.', status: 'OPEN', createdAt: daysAgo(6) },
+      { craftType: 'Pattachitra Painting', quantity: 15, targetPriceMin: 6000, targetPriceMax: 18000, location: 'New Delhi', festival: null, buyerName: 'Crafts Museum Store', notes: 'Jagannath and Dasavatara subjects preferred.', status: 'OPEN', createdAt: daysAgo(11) },
+      { craftType: 'Pochampally Ikat', quantity: 60, targetPriceMin: 7000, targetPriceMax: 12000, location: 'Hyderabad, Telangana', festival: 'Bathukamma', buyerName: 'Telangana State Emporium', notes: 'Double ikat only. Need GI certification on file.', status: 'MATCHED', createdAt: daysAgo(20) },
+      { craftType: 'Jaipur Blue Pottery', quantity: 120, targetPriceMin: 900, targetPriceMax: 2600, location: 'Jaipur, Rajasthan', festival: 'Diwali', buyerName: 'Rajasthali Retail', notes: 'Mixed vases, bowls and knobs for the Diwali gifting range.', status: 'OPEN', createdAt: daysAgo(3) },
+      { craftType: 'Dhokra Brass Figurine', quantity: 25, targetPriceMin: 3500, targetPriceMax: 9000, location: 'Raipur, Chhattisgarh', festival: null, buyerName: 'Bastar Art Collective', notes: 'Tribal musician and animal forms.', status: 'OPEN', createdAt: daysAgo(9) },
+      { craftType: 'Kutch Mirror Embroidery', quantity: 35, targetPriceMin: 2500, targetPriceMax: 7000, location: 'Ahmedabad, Gujarat', festival: 'Navratri', buyerName: 'Gurjari Handicrafts', notes: 'Toran and chakla pieces for the Navratri display.', status: 'OPEN', createdAt: daysAgo(14) },
+    ],
+  });
+
+  /* ---- Notifications --------------------------------------------------- */
+  const notificationSeeds = [
+    { email: 'lakshmi@karigari.com', type: 'DEMAND_ALERT', title: 'New bulk enquiry', message: 'Utkal Handloom Emporium wants 40 Sambalpuri sarees for Raja Parba.', channel: 'SMS', daysAgo: 6 },
+    { email: 'lakshmi@karigari.com', type: 'FESTIVAL', title: 'Raja Parba approaching', message: 'Silk saree demand rises sharply in the four weeks before Raja Parba.', channel: 'IN_APP', daysAgo: 12 },
+    { email: 'raghunath@karigari.com', type: 'DEMAND_ALERT', title: 'Museum store enquiry', message: 'Crafts Museum Store is looking for 15 Pattachitra works.', channel: 'WHATSAPP', daysAgo: 11 },
+    { email: 'anitha@karigari.com', type: 'SCHEME', title: 'MUDRA Shishu update', message: 'Your MUDRA Shishu application has moved to bank verification.', channel: 'IN_APP', daysAgo: 5 },
+    { email: 'anitha@karigari.com', type: 'DEMAND_ALERT', title: 'Bathukamma order matched', message: 'Telangana State Emporium matched your double-ikat listing.', channel: 'SMS', daysAgo: 20 },
+    { email: 'imran@karigari.com', type: 'DEMAND_ALERT', title: 'Diwali gifting range', message: 'Rajasthali Retail wants 120 blue pottery pieces before Diwali.', channel: 'SMS', daysAgo: 3 },
+    { email: 'budhram@karigari.com', type: 'SCHEME', title: 'PM Vishwakarma approved', message: 'Your PM Vishwakarma toolkit grant has been approved.', channel: 'IN_APP', daysAgo: 30 },
+    { email: 'budhram@karigari.com', type: 'DEMAND_ALERT', title: 'Bastar Art Collective', message: '25 Dhokra figurines wanted — tribal musician and animal forms.', channel: 'WHATSAPP', daysAgo: 9 },
+    { email: 'jethiben@karigari.com', type: 'DEMAND_ALERT', title: 'Navratri display order', message: 'Gurjari Handicrafts wants 35 toran and chakla pieces.', channel: 'SMS', daysAgo: 14 },
+    { email: 'jethiben@karigari.com', type: 'FESTIVAL', title: 'Navratri season', message: 'Mirror-work demand peaks six weeks before Navratri.', channel: 'IN_APP', daysAgo: 21 },
   ];
 
-  await prisma.demand.createMany({ data: demandSeeds });
-  console.log(
-    `${demandSeeds.length} buyer demands seeded (${demandSeeds.filter((d) => d.status === 'OPEN').length} open)`
-  );
+  await prisma.notification.createMany({
+    data: notificationSeeds
+      .filter((n) => byEmail.has(n.email))
+      .map((n) => ({
+        userId: byEmail.get(n.email)!,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        channel: n.channel,
+        read: n.daysAgo > 14,
+        createdAt: daysAgo(n.daysAgo),
+      })),
+  });
 
-  // ---------------------------------------------------------------------
-  // 6. Notifications. These are the rows the header bell reads and the
-  //    WhatsApp/SMS simulation replays — one per artisan whose craft matches
-  //    an open demand, plus a festival nudge.
-  // ---------------------------------------------------------------------
-  const notificationSeeds: {
-    userId: string;
-    type: string;
-    title: string;
-    message: string;
-    read: boolean;
-    relatedDemandId: string | null;
-    channel: string;
-    createdAt: Date;
-  }[] = [
-    {
-      userId: artisans.sunita.id,
-      type: 'DEMAND_ALERT',
-      title: 'Demand spike: Sambalpuri Bandha',
-      message:
-        'Rajesh Retailers wants 50 Sambalpuri Bandha pieces in Delhi NCR at Rs 3,500-4,000 per unit for Diwali. Reply YES to list your stock.',
-      read: false,
-      relatedDemandId: 'demand-delhi-sambalpuri',
-      channel: 'WHATSAPP',
-      createdAt: daysAgo(1),
-    },
-    {
-      userId: artisans.lakshmi.id,
-      type: 'DEMAND_ALERT',
-      title: 'Demand spike: Pochampally Ikat',
-      message:
-        'Aarna Boutique Group wants 120 Pochampally Ikat pieces in Mumbai at Rs 4,200-5,200 per unit for Diwali. Reply YES to list your stock.',
-      read: false,
-      relatedDemandId: 'demand-mumbai-pochampally',
-      channel: 'WHATSAPP',
-      createdAt: daysAgo(3),
-    },
-    {
-      userId: artisans.ramesh.id,
-      type: 'DEMAND_ALERT',
-      title: 'Demand spike: Sonepuri Silk',
-      message:
-        'Baithak Handlooms wants 60 Sonepuri Silk pieces in Kolkata at Rs 3,800-4,600 per unit for Durga Puja. Reply YES to list your stock.',
-      read: false,
-      relatedDemandId: 'demand-kolkata-sonepuri',
-      channel: 'SMS',
-      createdAt: daysAgo(4),
-    },
-    {
-      userId: artisans.anita.id,
-      type: 'DEMAND_ALERT',
-      title: 'Demand spike: Banarasi Silk',
-      message:
-        'Tech Park Gifting Co. wants 40 Banarasi Silk pieces in Bengaluru at Rs 6,000-8,000 per unit for the wedding season. Reply YES to list your stock.',
-      read: true,
-      relatedDemandId: 'demand-bengaluru-banarasi',
-      channel: 'WHATSAPP',
-      createdAt: daysAgo(5),
-    },
-    {
-      userId: artisans.mohan.id,
-      type: 'FESTIVAL',
-      title: 'Ganesh Chaturthi is close',
-      message:
-        'Idol and decor demand rises before Ganesh Chaturthi. Terracotta and pottery sell out early — list your stock this week.',
-      read: false,
-      relatedDemandId: null,
-      channel: 'IN_APP',
-      createdAt: daysAgo(2),
-    },
-  ];
+  /* ---- Summary --------------------------------------------------------- */
+  const totalItems = Object.values(counts).reduce((sum, n) => sum + n, 0);
 
-  await prisma.notification.createMany({ data: notificationSeeds });
-  console.log(`${notificationSeeds.length} notifications seeded`);
+  console.log('\n' + '='.repeat(66));
+  console.log('  LOGINS — password for every account: password123');
+  console.log('='.repeat(66));
+  console.log('  admin@karigari.com'.padEnd(34) + 'ADMIN'.padEnd(22) + '—');
+  for (const c of credentials) {
+    console.log('  ' + c.email.padEnd(32) + c.craft.padEnd(30) + `${c.items} items`);
+  }
 
-  console.log('Seeding complete.');
+  console.log('\n' + '='.repeat(66));
+  console.log('  DATA');
+  console.log('='.repeat(66));
+  console.log(`  Artisans:              ${ARTISANS.length}`);
+  console.log(`  Craft items:           ${totalItems}`);
+  for (const [status, n] of Object.entries(counts).sort()) {
+    console.log(`    ${status.padEnd(21)}${n}`);
+  }
+  console.log(`  Listed on marketplace: ${listed}`);
+  console.log(`  Sold (escrow settled): ${sold}`);
+  console.log(`  Scheme applications:   ${schemeSeeds.length}`);
+  console.log(`  Buyer demands:         6`);
+  console.log(`  Notifications:         ${notificationSeeds.length}`);
+
+  console.log('\n' + '='.repeat(66));
+  console.log('  IMAGES');
+  console.log('='.repeat(66));
+  console.log(`  Real photographs (Wikimedia Commons): ${images.report.real}`);
+  console.log(`  Generated fallbacks:                  ${images.report.generated}`);
+  console.log(`  QR verification composites:           ${verifiedImages}`);
+  console.log(`  QR codes encode: ${BASE_URL}/verify/<patchId>`);
+  console.log('');
 }
 
 main()

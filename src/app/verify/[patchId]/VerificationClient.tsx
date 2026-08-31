@@ -4,7 +4,6 @@ import { useState } from "react";
 import Image from "next/image";
 import { CheckCircle2, ShieldCheck, Clock, MapPin, Scissors, Tag, Info, Mic } from "lucide-react";
 import Link from "next/link";
-import { VerificationCamera } from "@/components/VerificationCamera";
 import { formatRupees, getListingPrice } from "@/lib/pricing";
 
 /**
@@ -100,12 +99,28 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
           </div>
         </div>
 
-        {/* Interactive AI Authenticity Camera */}
+        {/* The interactive "Verify Authenticity" camera used to live here. The
+            authenticity guarantee now comes from the physical QR patch: the
+            artisan attaches it, re-photographs the product, and the AI matches
+            that photo to the original capture before the item can be sold. */}
         {!isPurchased && (
-          <VerificationCamera 
-            patchId={patchId} 
-            onPurchaseComplete={() => setIsPurchased(true)}
-          />
+          <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6">
+            <div className="flex items-start gap-3">
+              <ShieldCheck size={20} className="shrink-0 mt-0.5 text-primary" />
+              <div>
+                <h3 className="font-bold text-gray-900 mb-1">
+                  {item.qrVerified
+                    ? 'Authenticity confirmed — QR patch matched to the original craft'
+                    : 'Scan the QR patch on the product to verify'}
+                </h3>
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  {item.qrVerified
+                    ? 'The artisan attached patch ' + patchId + ' to this piece and re-photographed it. The AI matched that photo against the original capture, so the code on the product and the record you are reading are the same item.'
+                    : 'Every KARIGARI piece carries a printed QR patch. Scanning it on the physical product opens this passport — if the code leads here, the item in your hands is the one described on this page.'}
+                </p>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* POST PURCHASE REVEAL */}

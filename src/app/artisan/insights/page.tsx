@@ -380,14 +380,29 @@ export default function InsightsPage() {
                 {recommendation.source === "gemini" ? t("source_ai") : t("source_rules")}
               </p>
 
-              <Link
-                href="/artisan/market"
-                className="flex items-center justify-center gap-2 w-full bg-white text-primary text-center py-3 rounded-xl font-bold hover:bg-gray-100 transition-colors"
-              >
-                <Package size={16} /> {t("list_on_ondc")}
-              </Link>
             </>
           )}
+        </section>
+
+        {/* ---------------- List on ONDC ----------------
+            Its own section rather than a button buried in the AI card: this is
+            an action the artisan takes on their whole catalogue, not a
+            follow-up to one recommendation. */}
+        <section className="bg-card p-6 rounded-2xl border border-gray-100 shadow-card">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="text-lg font-serif font-bold text-primary flex items-center gap-2 mb-1">
+                <Package size={18} /> {t("list_on_ondc")}
+              </h3>
+              <p className="text-sm text-gray-500 leading-relaxed">{t("list_on_ondc_subtitle")}</p>
+            </div>
+            <Link
+              href="/artisan/market?tab=syndication"
+              className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-3 rounded-xl font-bold shadow-sm transition-colors shrink-0"
+            >
+              <Package size={16} /> {t("list_on_ondc")}
+            </Link>
+          </div>
         </section>
 
         {/* ---------------- Government catalog export ---------------- */}

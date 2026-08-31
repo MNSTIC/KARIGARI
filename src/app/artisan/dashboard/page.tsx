@@ -6,20 +6,52 @@ import Image from "next/image";
 import {
   Globe, ChevronDown, TrendingUp, Package, HandCoins, Banknote,
   LogOut, X, MapPin, Award, Camera, FileText, ArrowRightCircle, Clock, CheckCircle2,
-  GraduationCap, Newspaper
+  GraduationCap, Newspaper, QrCode, Globe2, Loader2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { CaptureModal } from "@/components/CaptureModal";
-import { AgentHandoffModal } from "@/components/AgentHandoffModal";
-import { DisputeModal } from "@/components/DisputeModal";
-import { ProfileEditorModal } from "@/components/ProfileEditorModal";
+import dynamic from "next/dynamic";
 import { useLanguage } from "@/lib/translations";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import { NotificationsBell } from "@/components/NotificationsBell";
-import { CompleteDraftModal } from "@/components/CompleteDraftModal";
-import { LearningAssistantModal } from "@/components/LearningAssistantModal";
 import { formatRupees, getListingPrice } from "@/lib/pricing";
 import { StatCard } from "@/components/ui/StatCard";
+
+/**
+ * Modals are code-split out of the first paint.
+ *
+ * Every one of these was imported eagerly into the dashboard bundle even though
+ * none of them renders until the artisan opens it — CaptureModal alone is ~44 KB
+ * before its dependencies. `ssr: false` because they are all interaction-only.
+ * Same pattern the insights page already uses for DemandMap.
+ */
+const CaptureModal = dynamic(
+  () => import("@/components/CaptureModal").then((m) => m.CaptureModal),
+  { ssr: false }
+);
+const AgentHandoffModal = dynamic(
+  () => import("@/components/AgentHandoffModal").then((m) => m.AgentHandoffModal),
+  { ssr: false }
+);
+const DisputeModal = dynamic(
+  () => import("@/components/DisputeModal").then((m) => m.DisputeModal),
+  { ssr: false }
+);
+const ProfileEditorModal = dynamic(
+  () => import("@/components/ProfileEditorModal").then((m) => m.ProfileEditorModal),
+  { ssr: false }
+);
+const LearningAssistantModal = dynamic(
+  () => import("@/components/LearningAssistantModal").then((m) => m.LearningAssistantModal),
+  { ssr: false }
+);
+const CompleteDraftModal = dynamic(
+  () => import("@/components/CompleteDraftModal").then((m) => m.CompleteDraftModal),
+  { ssr: false }
+);
+const QrAttachModal = dynamic(
+  () => import("@/components/QrAttachModal").then((m) => m.QrAttachModal),
+  { ssr: false }
+);
 
 export default function ArtisanDashboard() {
   const router = useRouter();
@@ -34,6 +66,12 @@ export default function ArtisanDashboard() {
   /** The IVR voice draft the artisan is finishing, if any. */
   const [draftItem, setDraftItem] = useState<any>(null);
   const [isProfileEditorOpen, setIsProfileEditorOpen] = useState(false);
+  /** The item whose physical QR patch is being attached and verified. */
+  const [qrItem, setQrItem] = useState<any>(null);
+  /** Per-row in-flight state for the List on ONDC action. */
+  const [listingId, setListingId] = useState<string | null>(null);
+  /** In-app banner for the listing action - never a browser alert. */
+  const [listNotice, setListNotice] = useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
   
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -91,6 +129,45 @@ export default function ArtisanDashboard() {
     }
   };
 
+  /**
+   * Publish one capture to the ONDC channels.
+   *
+   * Gated on SELLABLE: an item is only sellable once the artisan has attached
+   * the physical QR patch and the AI has matched the re-photographed piece to
+   * the original capture. Listing before that would put something on the
+   * marketplace that carries no verifiable patch.
+   */
+  const listOnOndc = async (item: any) => {
+    if (item.status !== 'SELLABLE') {
+      setListNotice({ tone: 'warn', text: t('list_requires_sellable') });
+      return;
+    }
+    setListingId(item.id);
+    setListNotice(null);
+    try {
+      const res = await fetch('/api/artisan/syndicate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          craftItemId: item.id,
+          targetPlatforms: ['ONDC_PAYTM', 'ONDC_MAGICPIN'],
+        }),
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setListNotice({ tone: 'ok', text: t('list_success') });
+        await fetchDashboardData();
+      } else {
+        setListNotice({ tone: 'warn', text: data?.error || t('list_failed') });
+      }
+    } catch (e) {
+      console.error('List on ONDC failed:', e);
+      setListNotice({ tone: 'warn', text: t('list_failed') });
+    } finally {
+      setListingId(null);
+    }
+  };
+
   const handleModalClose = () => {
     setIsModalOpen(false);
     fetchDashboardData();
@@ -135,10 +212,6 @@ export default function ArtisanDashboard() {
               message: `${item.craftType} — ${t('item_flagged')}`,
             }))}
           />
-
-          <Link href="/buyer" className="hidden sm:flex items-center justify-center bg-[#14211B] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#24332C] transition-colors ml-2 shadow-sm border border-[#14211B]/50">
-            Switch to Buyer View
-          </Link>
 
           <div 
             className="w-[34px] h-[34px] rounded-full overflow-hidden border border-gray-200 cursor-pointer shadow-sm hover:ring-2 hover:ring-[#24332C] transition-all ml-2"
@@ -404,6 +477,18 @@ export default function ArtisanDashboard() {
           </button>
         </div>
 
+        {listNotice && (
+          <div
+            className={`mb-4 rounded-xl px-4 py-3 text-sm font-bold border ${
+              listNotice.tone === 'ok'
+                ? 'bg-[var(--color-mint)] border-[var(--color-sage)] text-primary'
+                : 'bg-orange-50 border-orange-200 text-orange-800'
+            }`}
+          >
+            {listNotice.text}
+          </div>
+        )}
+
         <div className="bg-white border border-gray-200 rounded-2xl overflow-x-auto shadow-sm">
           <table className="w-full text-left border-collapse min-w-[800px]">
             <thead>
@@ -422,10 +507,17 @@ export default function ArtisanDashboard() {
                   if (item.status === 'PENDING_VERIFICATION') statusClass = "bg-orange-50 text-orange-600"; // Pending
                   if (item.status === 'SOLD_FINAL' || item.status === 'SOLD_MIDDLEMAN' || item.isListedOnMarketplace) statusClass = "bg-green-50 text-green-700"; // Listed/Sold
                   if (item.status === 'FLAGGED') statusClass = "bg-red-50 text-red-600";
+                  // Approved and patch minted, but the artisan still has to
+                  // stick it on and re-photograph the piece. Amber: action due.
+                  if (item.status === 'VERIFIED' && !item.qrVerified) statusClass = "bg-yellow-50 text-yellow-700";
+                  // Patch attached and AI-matched - ready to list.
+                  if (item.status === 'SELLABLE') statusClass = "bg-[var(--color-mint)] text-primary";
                   // Voice drafts are not "pending" anything yet — they are
                   // waiting on the artisan, so they get their own mint chip.
                   const isIvrDraft = item.status === 'IVR_DRAFT';
                   if (isIvrDraft) statusClass = "bg-[var(--color-mint)] text-primary";
+
+                  const awaitingPatch = item.status === 'VERIFIED' && !item.qrVerified && item.patchId;
                   
                   return (
                     <tr key={item.id} className="border-b border-gray-100 last:border-b-0 hover:bg-gray-50/50 transition-colors">
@@ -451,21 +543,51 @@ export default function ArtisanDashboard() {
                         </span>
                       </td>
                       <td className="py-5 px-6">
-                        {isIvrDraft ? (
-                          <button
-                            onClick={() => setDraftItem(item)}
-                            className="bg-primary text-white font-bold text-xs px-3 py-2 rounded-lg hover:bg-primary-dark transition-colors"
-                          >
-                            {t('complete_draft')}
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => { setSelectedItem(item); setIsDetailsModalOpen(true); }}
-                            className="text-[#24332C] font-bold text-sm hover:underline"
-                          >
-                            {t('view_details')}
-                          </button>
-                        )}
+                        {/* Wraps on narrow screens so the listing action and the
+                            existing details/draft action both stay reachable. */}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                          {!isIvrDraft && (
+                            awaitingPatch ? (
+                              <button
+                                onClick={() => setQrItem(item)}
+                                className="inline-flex items-center gap-1.5 bg-primary text-white font-bold text-xs px-3 py-2 rounded-lg hover:bg-primary-dark transition-colors"
+                              >
+                                <QrCode size={13} /> {t('download_qr_upload_photo')}
+                              </button>
+                            ) : item.isListedOnMarketplace ? (
+                              <span className="inline-flex items-center gap-1.5 bg-[var(--color-mint)] text-primary font-bold text-xs px-3 py-2 rounded-lg">
+                                <CheckCircle2 size={13} /> {t('listed_on_ondc')}
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => listOnOndc(item)}
+                                disabled={listingId === item.id}
+                                className="inline-flex items-center gap-1.5 border border-[var(--color-sage)] text-primary font-bold text-xs px-3 py-2 rounded-lg hover:bg-[var(--color-mint)] disabled:opacity-50 transition-colors"
+                              >
+                                {listingId === item.id
+                                  ? <Loader2 size={13} className="animate-spin" />
+                                  : <Globe2 size={13} />}
+                                {t('list_on_ondc')}
+                              </button>
+                            )
+                          )}
+
+                          {isIvrDraft ? (
+                            <button
+                              onClick={() => setDraftItem(item)}
+                              className="bg-primary text-white font-bold text-xs px-3 py-2 rounded-lg hover:bg-primary-dark transition-colors"
+                            >
+                              {t('complete_draft')}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => { setSelectedItem(item); setIsDetailsModalOpen(true); }}
+                              className="text-[#24332C] font-bold text-sm hover:underline whitespace-nowrap"
+                            >
+                              {t('view_details')}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -481,33 +603,62 @@ export default function ArtisanDashboard() {
 
       </div>
 
-      {/* MODALS */}
-      <CaptureModal isOpen={isModalOpen} onClose={handleModalClose} />
-      <AgentHandoffModal 
-        isOpen={isSellModalOpen || isCrossCheckModalOpen} 
-        onClose={() => { setIsSellModalOpen(false); setIsCrossCheckModalOpen(false); fetchDashboardData(); }} 
-        item={selectedItem} 
-      />
-      <DisputeModal isOpen={isDisputeModalOpen} onClose={() => setIsDisputeModalOpen(false)} item={selectedDisputeItem} />
-      <ProfileEditorModal 
-        isOpen={isProfileEditorOpen} 
-        onClose={() => setIsProfileEditorOpen(false)} 
-        artisanData={{...dashboardData?.artisanProfile, name: dashboardData?.artisanName}} 
-        onSaved={fetchDashboardData} 
-      />
-      <LearningAssistantModal
-        isOpen={isLearningModalOpen}
-        onClose={() => setIsLearningModalOpen(false)}
-      />
+      {/* MODALS
+          Each is mounted only while it is open. `dynamic()` fetches a chunk when
+          the component RENDERS, so leaving them mounted with isOpen={false}
+          would download every modal on first paint and defeat the split. */}
+      {isModalOpen && <CaptureModal isOpen onClose={handleModalClose} />}
 
-      <CompleteDraftModal
-        item={draftItem}
-        onClose={() => setDraftItem(null)}
-        onCompleted={() => {
-          setDraftItem(null);
-          fetchDashboardData();
-        }}
-      />
+      {(isSellModalOpen || isCrossCheckModalOpen) && (
+        <AgentHandoffModal
+          isOpen
+          onClose={() => { setIsSellModalOpen(false); setIsCrossCheckModalOpen(false); fetchDashboardData(); }}
+          item={selectedItem}
+        />
+      )}
+
+      {isDisputeModalOpen && (
+        <DisputeModal isOpen onClose={() => setIsDisputeModalOpen(false)} item={selectedDisputeItem} />
+      )}
+
+      {isProfileEditorOpen && (
+        <ProfileEditorModal
+          isOpen
+          onClose={() => setIsProfileEditorOpen(false)}
+          artisanData={{...dashboardData?.artisanProfile, name: dashboardData?.artisanName}}
+          onSaved={fetchDashboardData}
+        />
+      )}
+
+      {isLearningModalOpen && (
+        <LearningAssistantModal
+          isOpen
+          onClose={() => setIsLearningModalOpen(false)}
+          /* The artisan's real craft, so the assistant asks about — and finds
+             videos for — what they actually make. */
+          craftType={dashboardData?.artisanProfile?.craftType}
+        />
+      )}
+
+      {qrItem !== null && (
+        <QrAttachModal
+          isOpen
+          onClose={() => setQrItem(null)}
+          item={qrItem}
+          onVerified={fetchDashboardData}
+        />
+      )}
+
+      {draftItem && (
+        <CompleteDraftModal
+          item={draftItem}
+          onClose={() => setDraftItem(null)}
+          onCompleted={() => {
+            setDraftItem(null);
+            fetchDashboardData();
+          }}
+        />
+      )}
 
       {isDetailsModalOpen && selectedItem && (
         <DetailsModal item={selectedItem} onClose={() => { setIsDetailsModalOpen(false); setSelectedItem(null); }} />
@@ -584,6 +735,51 @@ function DetailsModal({ item, onClose }: { item: any, onClose: () => void }) {
   const { t } = useLanguage();
   const money = describeArtisanMoney(item, t);
   const listingPrice = getListingPrice(item);
+
+  /**
+   * The photo and the timeline are deliberately NOT in the dashboard payload —
+   * they were the bulk of it. Fetch them here, for this one item, when the
+   * artisan actually opens it.
+   */
+  const [detail, setDetail] = useState<{
+    images: string[];
+    auditLogs: any[];
+    patchId: string | null;
+    qrVerified: boolean;
+    qrVerifiedImageUrl: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!item?.id) return;
+    let cancelled = false;
+    const kickoff = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/items/${item.id}`, { cache: 'no-store' });
+        const data = await res.json();
+        if (!cancelled && data?.success) {
+          setDetail({
+            images: data.images || [],
+            auditLogs: data.auditLogs || [],
+            patchId: data.patchId ?? null,
+            qrVerified: data.qrVerified === true,
+            qrVerifiedImageUrl: data.qrVerifiedImageUrl ?? null,
+          });
+        }
+      } catch (e) {
+        console.error('Failed to load item details:', e);
+      }
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(kickoff);
+    };
+  }, [item?.id]);
+
+  const heroImage = detail?.images?.[0] || item.images?.[0] || "/ikat_saree.jpg";
+  const timeline = detail?.auditLogs ?? item.auditLogs ?? null;
+  /** The photo the artisan took of the piece with its printed QR patch on it. */
+  const patchPhoto = detail?.qrVerified ? detail.qrVerifiedImageUrl : null;
+  const patchId = detail?.patchId ?? item.patchId ?? null;
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in-up">
       <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col">
@@ -595,12 +791,58 @@ function DetailsModal({ item, onClose }: { item: any, onClose: () => void }) {
         </div>
         <div className="p-6 overflow-y-auto max-h-[80vh]">
           <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden mb-6 bg-gray-100 border border-gray-200 shadow-sm">
-            <Image src={item.images?.[0] || "/ikat_saree.jpg"} alt="Item" fill className="object-cover" />
+            {/* Data URLs cannot be optimized by next/image, so skip the
+                optimizer for them and keep it for the static fallback. */}
+            <Image
+              src={heroImage}
+              alt="Item"
+              fill
+              sizes="(max-width: 640px) 100vw, 512px"
+              unoptimized={heroImage.startsWith('data:')}
+              className="object-cover"
+            />
             <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md px-3 py-1 rounded-full text-xs font-bold shadow-sm">
               {item.status === 'PENDING_VERIFICATION' ? 'ID Hidden' : `ID: ${item.patchId || item.id.substring(0,8).toUpperCase()}`}
             </div>
           </div>
-          
+
+          {/* The physical-patch proof. This is the photo the artisan took of the
+              finished piece with its printed QR stuck on, which the AI matched
+              against the original capture before the item became sellable —
+              deliberately a different picture from the hero image above. */}
+          {patchPhoto && (
+            <div className="mb-6">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+                  {t('verification_photo_title')}
+                </h4>
+                <span className="inline-flex items-center gap-1 bg-[var(--color-mint)] text-primary text-[10px] font-bold px-2.5 py-1 rounded-full border border-[var(--color-sage)]">
+                  <CheckCircle2 size={11} /> {t('verified_authentic')}
+                </span>
+              </div>
+
+              <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-gray-100 border border-[var(--color-sage)] shadow-sm">
+                <Image
+                  src={patchPhoto}
+                  alt={t('verification_photo_title')}
+                  fill
+                  sizes="(max-width: 640px) 100vw, 512px"
+                  /* Real uploads arrive as data URLs, seeded ones as /seed paths.
+                     Only the former cannot go through the optimizer. */
+                  unoptimized={patchPhoto.startsWith('data:')}
+                  className="object-cover"
+                />
+              </div>
+
+              {patchId && (
+                <p className="text-[11px] font-mono text-gray-500 mt-2">{patchId}</p>
+              )}
+              <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                {t('verification_photo_note')}
+              </p>
+            </div>
+          )}
+
           <h3 className="text-xl font-bold text-gray-900 mb-1">{item.craftType}</h3>
           <p className="text-gray-600 text-sm mb-6">{item.descriptionEnglish}</p>
           
@@ -648,8 +890,8 @@ function DetailsModal({ item, onClose }: { item: any, onClose: () => void }) {
             </h4>
 
             <div className="space-y-4 relative before:absolute before:inset-0 before:ml-4 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-gray-200 before:to-transparent">
-              {item.auditLogs && item.auditLogs.length > 0 ? (
-                item.auditLogs.map((log: any) => (
+              {timeline && timeline.length > 0 ? (
+                timeline.map((log: any) => (
                   <div key={log.id} className="relative flex items-start gap-4">
                     <div className="flex items-center justify-center w-8 h-8 rounded-full border-2 border-white bg-blue-100 text-blue-500 shrink-0 shadow-sm relative z-10">
                       <CheckCircle2 size={14} />

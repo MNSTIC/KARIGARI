@@ -54,13 +54,38 @@ export async function GET(req: Request) {
       prisma.craftItem.findMany({ where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] } }, select: { advancePaid: true } }),
       prisma.craftItem.count({ where: { artisanId, status: { in: ['SOLD_FINAL', 'SOLD_MIDDLEMAN'] } } }),
       prisma.craftItem.aggregate({ _sum: { finalPayoutQueued: true }, where: { artisanId, status: 'SOLD_FINAL' } }),
-      // auditLogs travel with the item so "View Details" can render the same
-      // Product Timeline the public passport shows, without a second round trip.
+      // Only what the captures table and its status/money logic actually read.
+      // This used to `include: { auditLogs }` with no select, so every response
+      // carried 10 items' base64 `images` plus their whole audit history —
+      // multi-megabyte JSON for a table that shows five columns. Images and the
+      // timeline are now fetched on demand by GET /api/items/[id] when the
+      // artisan opens "View Details".
       prisma.craftItem.findMany({
         where: { artisanId },
         orderBy: { createdAt: 'desc' },
         take: 10,
-        include: { auditLogs: { orderBy: { createdAt: 'desc' } } }
+        select: {
+          id: true,
+          craftType: true,
+          descriptionEnglish: true,
+          patchId: true,
+          status: true,
+          isListedOnMarketplace: true,
+          isOndcLive: true,
+          qrVerified: true,
+          escrowStatus: true,
+          advancePaid: true,
+          finalPayoutQueued: true,
+          salePrice: true,
+          askingPrice: true,
+          standardMarketPrice: true,
+          fairWageFloor: true,
+          marketPriceMin: true,
+          marketPriceMax: true,
+          laborDays: true,
+          rawMaterialCost: true,
+          createdAt: true,
+        }
       }),
       prisma.craftItem.count({ where: { artisanId, createdAt: { gte: oneWeekAgo } } }),
       prisma.craftItem.findMany({ where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] }, createdAt: { gte: oneWeekAgo } }, select: { advancePaid: true } }),

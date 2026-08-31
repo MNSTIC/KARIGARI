@@ -14,12 +14,8 @@ import {
 } from "lucide-react";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import { formatRupees } from "@/lib/pricing";
-import {
-  ESCROW_TRUST_LINE,
-  imageProps,
-  marketPrice,
-  type MarketItem,
-} from "@/lib/marketplace";
+import { imageProps, marketPrice, type MarketItem } from "@/lib/marketplace";
+import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 
 /**
@@ -30,6 +26,7 @@ import { cn } from "@/lib/utils";
  * before anything moves, and neither tranche passes through an admin.
  */
 export function ProductClient({ id }: { id: string }) {
+  const { t } = useLanguage();
   const [item, setItem] = useState<MarketItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -90,13 +87,13 @@ export function ProductClient({ id }: { id: string }) {
       });
       const data = await res.json();
       if (!res.ok || !data?.success || !data.url) {
-        setBuyError(data?.error || "Checkout could not be started. Please try again.");
+        setBuyError(data?.error || t('checkout_failed'));
         return;
       }
       window.location.href = data.url;
     } catch (error) {
       console.error("Checkout failed:", error);
-      setBuyError("Checkout could not be started. Please try again.");
+      setBuyError(t('checkout_failed'));
     } finally {
       setBuying(false);
     }
@@ -125,13 +122,13 @@ export function ProductClient({ id }: { id: string }) {
         ) : notFound || !item ? (
           <div className="bg-card border border-dashed border-gray-200 rounded-2xl p-10 text-center">
             <p className="text-sm text-gray-500 italic mb-4">
-              This piece is no longer available.
+              {t('product_unavailable')}
             </p>
             <Link
               href="/marketplace"
               className="inline-block bg-primary hover:bg-primary-dark text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-colors"
             >
-              Back to the marketplace
+              {t('back_to_marketplace')}
             </Link>
           </div>
         ) : (
@@ -161,7 +158,7 @@ export function ProductClient({ id }: { id: string }) {
                     <button
                       key={`${src.slice(0, 24)}-${index}`}
                       onClick={() => setActiveImage(index)}
-                      aria-label={`View photo ${index + 1}`}
+                      aria-label={`${t('view_photo')} ${index + 1}`}
                       className={cn(
                         "relative h-16 w-16 shrink-0 rounded-xl overflow-hidden border-2 transition-colors",
                         index === activeImage
@@ -187,7 +184,7 @@ export function ProductClient({ id }: { id: string }) {
               <div className="flex flex-wrap gap-2 mb-3">
                 {item.patchId && (
                   <span className="inline-flex items-center gap-1 bg-primary text-white text-[11px] font-bold px-2.5 py-1 rounded-full">
-                    <CheckCircle2 size={12} /> Verified passport
+                    <CheckCircle2 size={12} /> {t('verified_passport')}
                   </span>
                 )}
                 {(item.giTagApplied || item.artisan.giTagName) && (
@@ -197,7 +194,7 @@ export function ProductClient({ id }: { id: string }) {
                 )}
                 {item.isOndcLive && (
                   <span className="bg-[var(--color-mint)] text-primary text-[11px] font-bold px-2.5 py-1 rounded-full">
-                    Live on ONDC
+                    {t('live_on_ondc')}
                   </span>
                 )}
               </div>
@@ -209,7 +206,7 @@ export function ProductClient({ id }: { id: string }) {
                 {item.artisan.location ? ` · ${item.artisan.location}` : ""}
               </p>
               <p className="text-sm text-gray-600 mb-5">
-                Handcrafted by <span className="font-bold text-primary">{item.artisan.name}</span>
+                {t('handcrafted_by')} <span className="font-bold text-primary">{item.artisan.name}</span>
               </p>
 
               <p className="text-4xl font-serif font-bold text-primary mb-1">
@@ -217,7 +214,7 @@ export function ProductClient({ id }: { id: string }) {
               </p>
               {item.fairWageFloor !== null && (
                 <p className="text-xs text-gray-500 mb-5">
-                  AI fair-wage floor for this piece: {formatRupees(item.fairWageFloor)}
+                  {t('ai_fair_floor_note')} {formatRupees(item.fairWageFloor)}
                 </p>
               )}
 
@@ -232,7 +229,7 @@ export function ProductClient({ id }: { id: string }) {
                   href={`/verify/${item.patchId}`}
                   className="text-xs font-bold text-primary underline underline-offset-4 mb-6 w-fit"
                 >
-                  View the digital passport
+                  {t('view_passport')}
                 </Link>
               )}
 
@@ -240,13 +237,13 @@ export function ProductClient({ id }: { id: string }) {
               <div className="rounded-2xl border border-[var(--color-sage)]/60 bg-[var(--color-mint)]/60 p-4 mb-4 flex gap-2.5 items-start">
                 <ShieldCheck size={16} className="shrink-0 mt-0.5 text-primary" />
                 <p className="text-xs text-primary leading-relaxed font-medium">
-                  {ESCROW_TRUST_LINE}
+                  {t('escrow_trust_line')}
                 </p>
               </div>
 
               {cancelled && (
                 <p className="text-xs text-gray-600 bg-card border border-gray-200 rounded-xl p-3 mb-4">
-                  Checkout was cancelled. Nothing was charged.
+                  {t('payment_cancelled')}
                 </p>
               )}
 
@@ -263,20 +260,18 @@ export function ProductClient({ id }: { id: string }) {
               >
                 {buying ? (
                   <>
-                    <Loader2 size={18} className="animate-spin" /> Opening Stripe…
+                    <Loader2 size={18} className="animate-spin" /> {t('opening_stripe')}
                   </>
                 ) : price === null ? (
-                  "Price not set yet"
+                  t('price_not_set')
                 ) : (
-                  "Buy Now via Stripe"
+                  t('buy_now_stripe')
                 )}
               </button>
 
               <p className="text-[11px] text-gray-500 mt-3 flex gap-2 items-start leading-relaxed">
                 <Info size={12} className="shrink-0 mt-0.5 text-gray-400" />
-                Prototype: Stripe runs in TEST mode, so no live charge is made. Payouts are
-                programmatic settlement records to the artisan&apos;s VPA, not confirmed bank
-                credits.
+                {t('stripe_test_note')}
               </p>
             </div>
           </div>

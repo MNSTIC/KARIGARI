@@ -1,18 +1,51 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, Mic, MicOff, Send, Bot, Video, ArrowRight, Loader2 } from "lucide-react";
+import { X, Mic, MicOff, Send, Bot, ExternalLink, Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
 
-export function LearningAssistantModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
-  const { t } = useLanguage();
-  const [messages, setMessages] = useState<{role: 'user'|'assistant', text: string, videoId?: string}[]>([
-    { role: 'assistant', text: 'Namaskar! I am your Karigari Business & Learning Assistant. Do you want to learn a new technique or get advice on selling your Pattachitra crafts?' }
-  ]);
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  text: string;
+  videoId?: string | null;
+  /** Offered instead of an embed when nothing relevant was embeddable. */
+  searchUrl?: string | null;
+};
+
+/**
+ * `craftType` comes from the dashboard, which already holds the artisan's
+ * profile. It used to be hardcoded to 'Pattachitra' for every user, so a
+ * Banarasi weaver was asking about — and being shown videos of — someone
+ * else's craft.
+ */
+export function LearningAssistantModal({
+  isOpen,
+  onClose,
+  craftType,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  craftType?: string | null;
+}) {
+  const { t, language } = useLanguage();
+  const craft = (craftType || '').trim() || t('your_craft');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+
+  // Seeded here rather than in useState so the greeting names the artisan's
+  // real craft once the dashboard has handed it down.
+  useEffect(() => {
+    if (!isOpen) return;
+    const kickoff = setTimeout(() => {
+      setMessages((prev) =>
+        prev.length > 0 ? prev : [{ role: 'assistant', text: `${t('learn_greeting')} ${craft}?` }]
+      );
+    }, 0);
+    return () => clearTimeout(kickoff);
+  }, [isOpen, craft, t]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -79,17 +112,18 @@ export function LearningAssistantModal({ isOpen, onClose }: { isOpen: boolean, o
       const res = await fetch('/api/artisan/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMsg, craftType: 'Pattachitra' }) // Hardcoded craft for demo
+        body: JSON.stringify({ message: userMsg, craftType: craft, language })
       });
       const data = await res.json();
       
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        text: data.reply || "Sorry, I couldn't process that.",
-        videoId: data.videoId
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: data.reply || t('chat_no_answer'),
+        videoId: data.videoId ?? null,
+        searchUrl: data.searchUrl ?? null,
       }]);
-    } catch (error) {
-      setMessages(prev => [...prev, { role: 'assistant', text: "Network error. Please try again." }]);
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant', text: t('chat_network_error') }]);
     }
     
     setIsTyping(false);
@@ -106,7 +140,7 @@ export function LearningAssistantModal({ isOpen, onClose }: { isOpen: boolean, o
               <Bot size={20} />
             </div>
             <div>
-              <h2 className="font-bold text-lg leading-tight">Learn & Grow AI</h2>
+              <h2 className="font-bold text-lg leading-tight">{t('learn_and_grow')}</h2>
               <p className="text-xs text-white/70">Powered by Gemini</p>
             </div>
           </div>
@@ -122,7 +156,19 @@ export function LearningAssistantModal({ isOpen, onClose }: { isOpen: boolean, o
               <div className={`max-w-[85%] rounded-2xl p-4 ${msg.role === 'user' ? 'bg-[#3D624F] text-white rounded-tr-none' : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none shadow-sm'}`}>
                 <p className="text-sm leading-relaxed">{msg.text}</p>
                 
-                {/* Optional YouTube Embed */}
+                {/* A relevant embeddable tutorial, or a search link when there
+                    was none — never a random unrelated embed. */}
+                {!msg.videoId && msg.searchUrl && msg.role === 'assistant' && (
+                  <a
+                    href={msg.searchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-[#3D624F] hover:underline"
+                  >
+                    {t('search_on_youtube')} <ExternalLink size={12} />
+                  </a>
+                )}
+
                 {msg.videoId && (
                   <div className="mt-4 rounded-xl overflow-hidden border border-gray-100 shadow-sm bg-black aspect-video relative group cursor-pointer">
                     <iframe 
@@ -144,7 +190,7 @@ export function LearningAssistantModal({ isOpen, onClose }: { isOpen: boolean, o
             <div className="flex justify-start">
                <div className="bg-white border border-gray-200 rounded-2xl rounded-tl-none p-4 shadow-sm flex items-center gap-2">
                  <Loader2 size={16} className="animate-spin text-[#3D624F]" />
-                 <span className="text-sm text-gray-500 font-medium">Typing...</span>
+                 <span className="text-sm text-gray-500 font-medium">{t('typing')}</span>
                </div>
             </div>
           )}
@@ -167,7 +213,7 @@ export function LearningAssistantModal({ isOpen, onClose }: { isOpen: boolean, o
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask about business or skills..." 
+            placeholder={t('chat_placeholder')} 
             className="flex-1 bg-gray-50 border border-gray-200 rounded-full px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#3D624F] focus:border-transparent"
           />
           <button 

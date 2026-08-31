@@ -1,45 +1,67 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, MapPin, Calendar, ExternalLink, Loader2, Newspaper, Megaphone, Milestone, ShieldCheck } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { ArrowLeft, MapPin, Calendar, ExternalLink, Loader2, Newspaper, Megaphone, ShieldCheck, RefreshCw, AlertTriangle } from "lucide-react";
+import { useLanguage } from "@/lib/translations";
 
 export default function NewsPage() {
-  const router = useRouter();
+  const { t, language } = useLanguage();
   const [news, setNews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  /** Raw RSS headlines the route hands back when the summariser is down. */
+  const [headlines, setHeadlines] = useState<{ title: string; link: string }[]>([]);
   const [craftName, setCraftName] = useState("Your Craft");
   const [clusterName, setClusterName] = useState("Local Area");
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const dbRes = await fetch('/api/artisan/dashboard');
-        const dbData = await dbRes.json();
-        
-        const craft = dbData.data?.artisanProfile?.craftType || "General Crafts";
-        const cluster = dbData.data?.artisanProfile?.clusterName || "Local Artisan Cluster";
-        setCraftName(craft);
-        setClusterName(cluster);
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Two strings, one tiny query — not the whole dashboard payload.
+      const dbRes = await fetch('/api/artisan/profile-lite', { cache: 'no-store' });
+      const dbData = await dbRes.json();
 
-        const res = await fetch('/api/artisan/generate-news', {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ craftType: craft, clusterName: cluster })
-        });
-        const data = await res.json();
-        if (data.success && data.data) {
-          setNews(data.data);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
+      const craft = dbData?.craftType || "General Crafts";
+      const cluster = dbData?.clusterName || "Local Artisan Cluster";
+      setCraftName(craft);
+      setClusterName(cluster);
+
+      const res = await fetch('/api/artisan/generate-news', {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ craftType: craft, clusterName: cluster, language })
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+        setNews(data.data);
+        setHeadlines([]);
+      } else {
+        // No invented article. Show the real headlines if the route sent them.
+        setNews([]);
+        setHeadlines(Array.isArray(data?.headlines) ? data.headlines : []);
+        setError(data?.error || t('news_load_failed'));
       }
+    } catch (e) {
+      console.error(e);
+      setNews([]);
+      setError(t('news_load_failed'));
+    } finally {
+      setLoading(false);
     }
-    fetchData();
-  }, []);
+    // `t` is read inside but deliberately not a dependency: the fetch only
+    // needs to re-run when the language changes, and listing it here would
+    // re-create this callback on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
+
+  useEffect(() => {
+    // Deferred by a macrotask so the effect body performs no synchronous
+    // setState — the same kickoff pattern the other artisan pages use.
+    const kickoff = setTimeout(fetchData, 0);
+    return () => clearTimeout(kickoff);
+  }, [fetchData]);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans">
@@ -48,7 +70,7 @@ export default function NewsPage() {
           <Link href="/artisan/dashboard" className="p-2 -ml-2 rounded-full hover:bg-gray-100 transition-colors">
             <ArrowLeft size={20} className="text-gray-700" />
           </Link>
-          <h1 className="font-serif font-bold text-xl text-gray-900">Live News & Events</h1>
+          <h1 className="font-serif font-bold text-xl text-gray-900">{t('news_title')}</h1>
         </div>
       </header>
 
@@ -68,6 +90,38 @@ export default function NewsPage() {
             <Loader2 className="animate-spin mb-4" size={32} />
             <p>Scanning the internet for local {craftName} updates...</p>
           </div>
+        ) : error ? (
+          <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-10 text-center">
+            <AlertTriangle size={28} className="mx-auto mb-3 text-gray-400" />
+            <p className="font-bold text-gray-900 mb-1">{t('news_load_failed')}</p>
+            <p className="text-sm text-gray-500 mb-6">{error}</p>
+
+            {headlines.length > 0 && (
+              <div className="text-left max-w-lg mx-auto mb-6 space-y-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                  {t('news_raw_headlines')}
+                </p>
+                {headlines.map((headline, i) => (
+                  <a
+                    key={i}
+                    href={headline.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-sm text-primary hover:underline"
+                  >
+                    {headline.title}
+                  </a>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={fetchData}
+              className="inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-colors"
+            >
+              <RefreshCw size={16} /> {t('retry')}
+            </button>
+          </div>
         ) : (
           <div className="space-y-6">
             {news.map((item, i) => (
@@ -82,7 +136,7 @@ export default function NewsPage() {
                       {item.type === 'EVENT' ? <Calendar size={12} className="inline mr-1"/> :
                        item.type === 'GOVT_SCHEME' ? <ShieldCheck size={12} className="inline mr-1"/> :
                        <Megaphone size={12} className="inline mr-1"/>}
-                      {item.type.replace('_', ' ')}
+                      {String(item.type || 'NEWS').replace('_', ' ')}
                     </span>
                     <span className="text-sm font-medium text-gray-500">{item.date}</span>
                   </div>

@@ -14,7 +14,9 @@ import {
   X,
 } from "lucide-react";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
+import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 import { formatRupees } from "@/lib/pricing";
+import { useLanguage } from "@/lib/translations";
 import { imageProps, marketPrice, type MarketItem } from "@/lib/marketplace";
 
 /**
@@ -26,6 +28,7 @@ import { imageProps, marketPrice, type MarketItem } from "@/lib/marketplace";
  */
 
 export default function MarketplacePage() {
+  const { t } = useLanguage();
   const [items, setItems] = useState<MarketItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -82,12 +85,17 @@ export default function MarketplacePage() {
           <ArrowLeft size={20} className="text-gray-700" />
         </Link>
         <KarigariLogo variant="dark" showWordmark={true} size={28} />
-        <Link
-          href="/login"
-          className="ml-auto text-sm font-bold text-primary hover:text-primary-dark transition-colors"
-        >
-          Artisan login
-        </Link>
+        <div className="ml-auto flex items-center gap-4">
+          {/* A shopper has no account here, so the switcher has to be reachable
+              from the storefront itself. */}
+          <LanguageSwitcher />
+          <Link
+            href="/login"
+            className="text-sm font-bold text-primary hover:text-primary-dark transition-colors whitespace-nowrap"
+          >
+            {t('artisan_login')}
+          </Link>
+        </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
@@ -95,16 +103,14 @@ export default function MarketplacePage() {
           <div className="mb-6 flex items-start gap-3 rounded-2xl border border-[var(--color-sage)] bg-[var(--color-mint)] p-4 sm:p-5">
             <CheckCircle2 size={20} className="shrink-0 mt-0.5 text-primary" />
             <div className="text-sm text-primary">
-              <p className="font-bold">Test payment complete — held in escrow.</p>
+              <p className="font-bold">{t('payment_success_title')}</p>
               <p className="mt-1 leading-relaxed text-primary/80">
-                Stripe ran in TEST mode, so no real money moved. On dispatch the 40% fair-wage
-                advance is released programmatically to the artisan&apos;s own VPA, with zero
-                middleman intervention.
+                {t('payment_success_body')}
               </p>
             </div>
             <button
               onClick={() => setPaymentBanner(null)}
-              aria-label="Dismiss"
+              aria-label={t('dismiss')}
               className="ml-auto p-1 text-primary/60 hover:text-primary transition-colors"
             >
               <X size={16} />
@@ -115,10 +121,10 @@ export default function MarketplacePage() {
         {paymentBanner === "cancelled" && (
           <div className="mb-6 flex items-start gap-3 rounded-2xl border border-gray-200 bg-card p-4 sm:p-5">
             <Info size={20} className="shrink-0 mt-0.5 text-gray-400" />
-            <p className="text-sm text-gray-600">Checkout was cancelled. Nothing was charged.</p>
+            <p className="text-sm text-gray-600">{t('payment_cancelled')}</p>
             <button
               onClick={() => setPaymentBanner(null)}
-              aria-label="Dismiss"
+              aria-label={t('dismiss')}
               className="ml-auto p-1 text-gray-400 hover:text-gray-700 transition-colors"
             >
               <X size={16} />
@@ -129,24 +135,21 @@ export default function MarketplacePage() {
         <div className="mb-8">
           <h1 className="text-3xl sm:text-4xl font-serif font-bold text-primary flex items-center gap-3">
             <Globe size={28} className="text-primary-light" />
-            Marketplace
+            {t('nav_marketplace')}
           </h1>
           <p className="text-gray-600 mt-2 text-sm sm:text-base max-w-2xl leading-relaxed">
-            Buy direct from the artisan who made it. Every piece carries a fair-wage floor and a
-            digital passport, and the artisan keeps 89.36% of what you pay.
+            {t('marketplace_subtitle')}
           </p>
         </div>
 
         <div className="mb-8 grid gap-3 sm:grid-cols-2">
           <p className="text-xs text-primary bg-[var(--color-mint)]/60 border border-[var(--color-sage)]/50 rounded-xl p-3 flex gap-2 items-start leading-relaxed">
             <ShieldCheck size={14} className="shrink-0 mt-0.5" />
-            Escrow-protected. 40% fair-wage advance to the artisan on dispatch, direct to their VPA
-            — zero middleman.
+            {t('mp_escrow_note')}
           </p>
           <p className="text-xs text-gray-500 bg-card border border-gray-200 rounded-xl p-3 flex gap-2 items-start leading-relaxed">
             <Info size={14} className="shrink-0 mt-0.5 text-gray-400" />
-            Prototype: Stripe runs in TEST mode, so no live charge is made. ONDC and GeM listings
-            are broadcast/upload-ready payloads, not a live transmission to those portals.
+            {t('mp_prototype_note')}
           </p>
         </div>
 
@@ -156,16 +159,16 @@ export default function MarketplacePage() {
           </div>
         ) : loadFailed ? (
           <p className="text-sm text-gray-500 italic bg-card border border-dashed border-gray-200 rounded-2xl p-8 text-center">
-            The marketplace could not be loaded. Please refresh.
+            {t('mp_load_failed')}
           </p>
         ) : items.length === 0 ? (
           <p className="text-sm text-gray-500 italic bg-card border border-dashed border-gray-200 rounded-2xl p-8 text-center">
-            No pieces have been published yet. Artisans publish from their Syndication Hub.
+            {t('mp_empty')}
           </p>
         ) : (
           <>
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">
-              {items.length} {items.length === 1 ? "piece" : "pieces"} live
+              {items.length} {t('pieces_live')}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {items.map((item) => (
@@ -180,6 +183,7 @@ export default function MarketplacePage() {
 }
 
 function ProductCard({ item }: { item: MarketItem }) {
+  const { t } = useLanguage();
   const price = marketPrice(item);
 
   return (
@@ -203,7 +207,7 @@ function ProductCard({ item }: { item: MarketItem }) {
         )}
         {item.patchId && (
           <span className="absolute top-2 right-2 inline-flex items-center gap-1 bg-primary text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-sm">
-            <CheckCircle2 size={11} /> Verified
+            <CheckCircle2 size={11} /> {t('verified')}
           </span>
         )}
       </div>
@@ -229,7 +233,7 @@ function ProductCard({ item }: { item: MarketItem }) {
 
         <div className="mt-auto pt-4 border-t border-gray-100 flex items-end justify-between">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Price</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{t('price_label')}</p>
             <p className="text-xl font-serif font-bold text-primary">{formatRupees(price)}</p>
           </div>
           <span className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-primary text-white">

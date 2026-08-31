@@ -1,44 +1,61 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, MapPin, Phone, ExternalLink, ShieldCheck, Box, Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { ArrowLeft, MapPin, Phone, ExternalLink, ShieldCheck, Box, Loader2, RefreshCw, AlertTriangle } from "lucide-react";
+import { useLanguage } from "@/lib/translations";
 
 export default function MaterialsPage() {
-  const router = useRouter();
+  const { t, language } = useLanguage();
   const [materials, setMaterials] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [craftName, setCraftName] = useState("Your Craft");
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        // First fetch dashboard data to get the craft type
-        const dbRes = await fetch('/api/artisan/dashboard');
-        const dbData = await dbRes.json();
-        
-        const craftType = dbData.data?.artisanProfile?.craftType || "General Crafts";
-        const clusterName = dbData.data?.artisanProfile?.clusterName || "Local Artisan Cluster";
-        setCraftName(craftType);
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Two strings, one tiny query — not the whole dashboard payload.
+      const dbRes = await fetch('/api/artisan/profile-lite', { cache: 'no-store' });
+      const dbData = await dbRes.json();
 
-        const res = await fetch('/api/artisan/generate-materials', {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ craftType, clusterName })
-        });
-        const data = await res.json();
-        if (data.success && data.data) {
-          setMaterials(data.data);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
+      const craftType = dbData?.craftType || "General Crafts";
+      const clusterName = dbData?.clusterName || "Local Artisan Cluster";
+      setCraftName(craftType);
+
+      const res = await fetch('/api/artisan/generate-materials', {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ craftType, clusterName, language })
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+        setMaterials(data.data);
+      } else {
+        // Never render a fabricated row: say plainly that nothing loaded.
+        setMaterials([]);
+        setError(data?.error || t('materials_load_failed'));
       }
+    } catch (e) {
+      console.error(e);
+      setMaterials([]);
+      setError(t('materials_load_failed'));
+    } finally {
+      setLoading(false);
     }
-    fetchData();
-  }, []);
+    // `t` is read inside but deliberately not a dependency: the fetch only
+    // needs to re-run when the language changes, and listing it here would
+    // re-create this callback on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
+
+  useEffect(() => {
+    // Deferred by a macrotask so the effect body performs no synchronous
+    // setState — the same kickoff pattern the other artisan pages use.
+    const kickoff = setTimeout(fetchData, 0);
+    return () => clearTimeout(kickoff);
+  }, [fetchData]);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans">
@@ -47,7 +64,7 @@ export default function MaterialsPage() {
           <Link href="/artisan/dashboard" className="p-2 -ml-2 rounded-full hover:bg-gray-100 transition-colors">
             <ArrowLeft size={20} className="text-gray-700" />
           </Link>
-          <h1 className="font-serif font-bold text-xl text-gray-900">Source Raw Materials</h1>
+          <h1 className="font-serif font-bold text-xl text-gray-900">{t('materials_title')}</h1>
         </div>
       </header>
 
@@ -66,6 +83,18 @@ export default function MaterialsPage() {
           <div className="flex flex-col items-center justify-center py-20 text-gray-500">
             <Loader2 className="animate-spin mb-4" size={32} />
             <p>Scanning local cooperatives and suppliers for {craftName} materials...</p>
+          </div>
+        ) : error ? (
+          <div className="bg-white border border-dashed border-gray-300 rounded-2xl p-10 text-center">
+            <AlertTriangle size={28} className="mx-auto mb-3 text-gray-400" />
+            <p className="font-bold text-gray-900 mb-1">{t('materials_load_failed')}</p>
+            <p className="text-sm text-gray-500 mb-6">{error}</p>
+            <button
+              onClick={fetchData}
+              className="inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-colors"
+            >
+              <RefreshCw size={16} /> {t('retry')}
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

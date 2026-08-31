@@ -130,6 +130,19 @@ export default function MarketPage() {
     return () => clearTimeout(kickoff);
   }, [load]);
 
+  // Deep link from Insights ("List on ONDC") arrives as ?tab=syndication. Read
+  // it off the URL in a deferred effect rather than via useSearchParams, so
+  // this fully client page needs no Suspense boundary.
+  useEffect(() => {
+    const kickoff = setTimeout(() => {
+      const requested = new URLSearchParams(window.location.search).get("tab");
+      if (requested === "syndication" || requested === "buyers" || requested === "listings") {
+        setTab(requested);
+      }
+    }, 0);
+    return () => clearTimeout(kickoff);
+  }, []);
+
   // The ONDC export is scoped by provider id, which is the caller's own user id.
   useEffect(() => {
     const kickoff = setTimeout(async () => {

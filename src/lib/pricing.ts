@@ -124,6 +124,32 @@ export interface CraftValuation {
   marketPriceMin: number;
   marketPriceMax: number;
   seasonalBump: number;
+  /** Multiplier applied to the market band from the stated technique. 1 = none. */
+  techniqueFactor: number;
+}
+
+/**
+ * How the stated technique moves the MARKET BAND — never the fair wage floor.
+ *
+ * The floor is labour + material + overhead: it is what the artisan must be
+ * paid for the hours they worked, and no production method reduces that. What
+ * technique legitimately changes is what a buyer will pay above it. Hand
+ * processes carry a premium; machine work does not, so its band sits closer to
+ * the floor rather than the floor being cut.
+ */
+function techniqueFactorFor(technique?: string | null): number {
+  const text = (technique || '').toLowerCase();
+  if (!text) return 1;
+
+  // Checked first: "machine-made on a handloom" is not a thing, but
+  // "not machine made" is — so an explicit hand signal wins.
+  if (/hand[- ]?loom|handmade|hand[- ]?made|hand[- ]?woven|hand[- ]?painted|hand[- ]?spun|natural dye|vegetable dye|organic/.test(text)) {
+    return 1.08;
+  }
+  if (/machine|power[- ]?loom|powerloom|mill[- ]?made|synthetic|chemical dye/.test(text)) {
+    return 0.9;
+  }
+  return 1;
 }
 
 /** Per-day wage by fibre. Silk is the most skilled, cotton the least. */
@@ -145,6 +171,12 @@ export function estimateCraftValuation(
   craftType: string,
   laborDays: number,
   rawMaterialCost: number,
+  /**
+   * Free-text technique the artisan volunteered ("handloom, pure silk thread").
+   * Optional and additive: no existing caller passes it, and omitting it
+   * reproduces the previous numbers exactly.
+   */
+  technique?: string | null,
   now: Date = new Date()
 ): CraftValuation {
   const days = Math.max(0, Number(laborDays) || 0);
@@ -160,12 +192,19 @@ export function estimateCraftValuation(
   const seasonalBump =
     (month === 9 || month === 10) && (craftType || '').toLowerCase().includes('silk') ? 1.15 : 1.0;
 
+  // Technique moves the band, not the floor — and the band is clamped so it can
+  // never dip beneath the floor, whatever the technique says.
+  const techniqueFactor = techniqueFactorFor(technique);
+  const band = (multiplier: number) =>
+    Math.max(fairWageFloor, fairWageFloor * multiplier * seasonalBump * techniqueFactor);
+
   return {
     baseWage,
     fairWageFloor,
-    standardMarketPrice: fairWageFloor * 1.4 * seasonalBump,
-    marketPriceMin: fairWageFloor * 1.2 * seasonalBump,
-    marketPriceMax: fairWageFloor * 1.6 * seasonalBump,
+    standardMarketPrice: band(1.4),
+    marketPriceMin: band(1.2),
+    marketPriceMax: band(1.6),
     seasonalBump,
+    techniqueFactor,
   };
 }

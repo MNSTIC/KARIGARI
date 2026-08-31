@@ -98,6 +98,14 @@ model CraftItem {
   giTagApplied         String?
   isListedOnMarketplace Boolean @default(false)
 
+  // Physical QR patch attachment. An admin approving an item mints its patchId
+  // but no longer publishes it: the artisan must print the QR, stick it on the
+  // piece, re-photograph it, and have the AI match that photo to the original
+  // capture. Only then does the item become SELLABLE and listable.
+  qrVerified          Boolean   @default(false)
+  qrVerifiedImageUrl  String?   // the artisan's photo of the product WITH the patch
+  qrVerifiedAt        DateTime?
+
   // Zero-ID multi-platform syndication. The artisan owns the listing outright;
   // there is no external seller account to reconcile against.
   isOndcLive           Boolean  @default(false)

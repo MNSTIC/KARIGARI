@@ -1,9 +1,15 @@
+"use client";
+
 import Link from 'next/link';
 import Image from 'next/image';
 import { ArrowRight, ShieldCheck, HandCoins, Building2, TrendingUp, CheckCircle2 } from 'lucide-react';
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
+import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
+import { useLanguage } from "@/lib/translations";
 
 export default function LandingPage() {
+  const { t } = useLanguage();
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* Navigation */}
@@ -17,26 +23,28 @@ export default function LandingPage() {
             </div>
             
             <div className="hidden md:flex space-x-8 items-center">
-              <Link href="#" className="text-gray-600 hover:text-primary transition-colors font-medium">Home</Link>
-              <Link href="#" className="text-gray-600 hover:text-primary transition-colors font-medium">How it Works</Link>
-              <Link href="/marketplace" className="text-gray-600 hover:text-primary transition-colors font-medium">Marketplace</Link>
-              <Link href="/login" className="text-gray-600 hover:text-primary transition-colors font-medium">For Artisans</Link>
-              <Link href="/login" className="text-gray-600 hover:text-primary transition-colors font-medium">For Admins</Link>
+              <Link href="/" className="text-gray-600 hover:text-primary transition-colors font-medium">{t('nav_home')}</Link>
+              <Link href="/buyer" className="text-gray-600 hover:text-primary transition-colors font-medium">{t('nav_buyer')}</Link>
+              <Link href="/marketplace" className="text-gray-600 hover:text-primary transition-colors font-medium">{t('nav_marketplace')}</Link>
+              <Link href="/login" className="text-gray-600 hover:text-primary transition-colors font-medium">{t('nav_for_artisans')}</Link>
+              <Link href="/login?role=admin" className="text-gray-600 hover:text-primary transition-colors font-medium">{t('nav_for_admins')}</Link>
             </div>
 
             <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+              {/* A visitor must be able to pick their language before they log in. */}
+              <LanguageSwitcher />
               <Link
                 href="/login"
                 className="text-primary font-medium hover:text-primary-dark transition-colors whitespace-nowrap"
               >
-                Login
+                {t('login')}
               </Link>
               <Link
                 href="/register"
                 className="bg-primary hover:bg-primary-dark text-white text-sm sm:text-base px-4 sm:px-6 py-2 sm:py-2.5 rounded-full font-medium whitespace-nowrap transition-all shadow-soft hover:shadow-lg transform hover:-translate-y-0.5"
               >
-                <span className="sm:hidden">Register</span>
-                <span className="hidden sm:inline">Register as Artisan</span>
+                <span className="sm:hidden">{t('register_short')}</span>
+                <span className="hidden sm:inline">{t('register_as_artisan')}</span>
               </Link>
             </div>
           </div>
@@ -51,13 +59,13 @@ export default function LandingPage() {
             {/* Left side text */}
             <div className="max-w-xl">
               <h1 className="text-5xl lg:text-7xl font-serif font-extrabold text-gray-900 leading-[1.1] tracking-tight mb-6 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
-                Fair pay.<br/>
-                <span className="text-primary">Proven craft.</span><br/>
-                Every time.
+                {t('hero_line_1')}<br/>
+                <span className="text-primary">{t('hero_line_2')}</span><br/>
+                {t('hero_line_3')}
               </h1>
               
               <p className="text-xl text-gray-600 mb-8 leading-relaxed animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-                KARIGARI is a decision engine that predicts fair value, verifies authenticity and enables same-day cash advances for artisans.
+                {t('hero_subtitle')}
               </p>
               
               {/* Two CTAs, not three: admin sign-in is an internal door and sits
@@ -68,22 +76,22 @@ export default function LandingPage() {
                     href="/marketplace"
                     className="bg-primary hover:bg-primary-dark text-white px-8 py-4 rounded-full font-semibold text-lg whitespace-nowrap transition-all shadow-soft hover:shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2 group"
                   >
-                    Explore Marketplace
+                    {t('explore_marketplace')}
                     <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                   </Link>
                   <Link
                     href="/login"
                     className="bg-white hover:bg-gray-50 text-gray-800 border-2 border-gray-200 hover:border-gray-300 px-8 py-4 rounded-full font-semibold text-lg whitespace-nowrap transition-all shadow-soft flex items-center justify-center"
                   >
-                    For Artisans
+                    {t('nav_for_artisans')}
                   </Link>
                 </div>
 
                 <Link
-                  href="/login"
+                  href="/login?role=admin"
                   className="inline-flex items-center gap-1.5 mt-5 text-sm font-medium text-gray-500 hover:text-primary transition-colors"
                 >
-                  Admin &amp; facilitator sign-in
+                  {t('admin_signin_link')}
                   <ArrowRight className="w-4 h-4" />
                 </Link>
               </div>
@@ -123,11 +131,11 @@ export default function LandingPage() {
                 
                   <div className="space-y-3">
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-500">Fair Wage Floor</span>
+                      <span className="text-gray-500">{t('fair_wage_floor')}</span>
                       <span className="font-bold text-gray-900">₹7,100</span>
                     </div>
                     <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-500">Market Price Band</span>
+                      <span className="text-gray-500">{t('market_price_band')}</span>
                       <span className="font-bold text-gray-900">₹8,800 - ₹11,200</span>
                     </div>
                   
@@ -138,7 +146,7 @@ export default function LandingPage() {
                         </div>
                         <span className="text-xs font-bold text-green-600 whitespace-nowrap">Score: Low (A)</span>
                       </div>
-                      <p className="text-xs text-gray-400 mt-1">Credit Risk Assessment</p>
+                      <p className="text-xs text-gray-400 mt-1">{t('credit_risk_assessment')}</p>
                     </div>
                   </div>
                 </div>
@@ -159,7 +167,7 @@ export default function LandingPage() {
                 <TrendingUp className="w-6 h-6 text-green-300" />
               </div>
               <h4 className="text-3xl font-bold mb-1">25K+</h4>
-              <p className="text-primary-light font-medium text-sm">Artisans onboarded</p>
+              <p className="text-primary-light font-medium text-sm">{t('stat_artisans_onboarded')}</p>
             </div>
             
             <div className="flex flex-col items-center justify-center px-4 text-center">
@@ -167,7 +175,7 @@ export default function LandingPage() {
                 <ShieldCheck className="w-6 h-6 text-green-300" />
               </div>
               <h4 className="text-3xl font-bold mb-1">1.2L+</h4>
-              <p className="text-primary-light font-medium text-sm">Craft items verified</p>
+              <p className="text-primary-light font-medium text-sm">{t('stat_items_verified')}</p>
             </div>
             
             <div className="flex flex-col items-center justify-center px-4 text-center">
@@ -175,7 +183,7 @@ export default function LandingPage() {
                 <HandCoins className="w-6 h-6 text-green-300" />
               </div>
               <h4 className="text-3xl font-bold mb-1">₹48Cr+</h4>
-              <p className="text-primary-light font-medium text-sm">Fair pay facilitated</p>
+              <p className="text-primary-light font-medium text-sm">{t('stat_fair_pay')}</p>
             </div>
             
             <div className="flex flex-col items-center justify-center px-4 text-center">
@@ -183,7 +191,7 @@ export default function LandingPage() {
                 <Building2 className="w-6 h-6 text-green-300" />
               </div>
               <h4 className="text-3xl font-bold mb-1">200+</h4>
-              <p className="text-primary-light font-medium text-sm">Partner cooperatives</p>
+              <p className="text-primary-light font-medium text-sm">{t('stat_cooperatives')}</p>
             </div>
 
           </div>

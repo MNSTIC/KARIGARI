@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Mic, UploadCloud, FileText, ArrowRight, X, Sparkles, CheckCircle2, Camera, Trash2, ShieldCheck, Globe, AlertTriangle, Pencil, IndianRupee } from "lucide-react";
+import { Mic, UploadCloud, FileText, ArrowRight, X, Sparkles, CheckCircle2, Camera, Trash2, ShieldCheck, Globe, AlertTriangle, Pencil, IndianRupee, TrendingUp, Loader2, RefreshCw } from "lucide-react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/translations";
 import { estimateCraftValuation, formatRupees } from "@/lib/pricing";
+import { downscaleImage, enhanceProductPhoto } from "@/lib/imageEnhance";
 
 interface CaptureModalProps {
   isOpen: boolean;
@@ -26,6 +27,18 @@ const FALLBACK_MATERIAL_COST = 2800;
 /** In-app replacement for every browser `alert()` this modal used to fire. */
 type Notice = { tone: "error" | "warning"; title: string; body?: string };
 
+/**
+ * BCP-47 tags for the live preview. Indian variants matter: `hi-IN` recognises
+ * Indian Hindi far better than `hi`. Odia has patchy browser support, which is
+ * exactly why Whisper remains the authority — a missing preview costs nothing.
+ */
+const SPEECH_LANGS: Record<string, string> = {
+  en: "en-IN",
+  hi: "hi-IN",
+  te: "te-IN",
+  or: "or-IN",
+};
+
 export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
   const { t, language } = useLanguage();
   const [step, setStep] = useState(1);
@@ -35,6 +48,19 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
   const [isProcessingAI, setIsProcessingAI] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
+
+  /**
+   * Browser SpeechRecognition runs alongside MediaRecorder purely so the
+   * artisan sees their words appear as they speak. Whisper is still the
+   * authority — it handles Odia and Telugu far better than any handset engine —
+   * so this transcript is a preview, and the server's `originalTranscript`
+   * replaces it once the recording is parsed.
+   */
+  const recognitionRef = useRef<any>(null);
+  const liveTranscriptRef = useRef<string>("");
+  const [liveTranscript, setLiveTranscript] = useState("");
+  /** Id of the user bubble holding the live text, so it can be rewritten. */
+  const liveBubbleIdRef = useRef<string | null>(null);
   
   // Chat History
   const [messages, setMessages] = useState<Message[]>([]);
@@ -56,6 +82,27 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
   const [englishDescription, setEnglishDescription] = useState<string>("");
   const [sourceLanguage, setSourceLanguage] = useState<string>("");
   const [craftType, setCraftType] = useState<string>("");
+  /** Cost-relevant context the artisan volunteered (loom, thread, handmade...). */
+  const [technique, setTechnique] = useState<string | null>(null);
+
+  /**
+   * Everything the artisan has said so far in Step 1.
+   *
+   * Each turn is appended and the WHOLE thing is re-parsed, so "a silk saree"
+   * followed by "it took 12 days, pure silk thread" is understood as one
+   * complete description. Parsing only the latest message would throw away the
+   * craft name the moment they answered the follow-up question.
+   */
+  const conversationTextRef = useRef<string>("");
+
+  /** Which of product / time / materials the artisan has actually stated. */
+  const [facts, setFacts] = useState<{ product: boolean; time: boolean; materials: boolean }>({
+    product: false,
+    time: false,
+    materials: false,
+  });
+  /** True once at least one parse has run, so the checklist is not shown empty. */
+  const [hasParsed, setHasParsed] = useState(false);
 
   // Step 3 price-setting. Kept as a string so the field can be cleared without
   // snapping back to 0, and so a blank means "use the AI suggestion".
@@ -72,6 +119,8 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
   const [isVerifyingVision, setIsVerifyingVision] = useState(false);
   const [isVisionVerified, setIsVisionVerified] = useState(false);
   const [isEnhancingImage, setIsEnhancingImage] = useState(false);
+  /** True when the ML cutout actually ran, so the UI can say so honestly. */
+  const [backgroundRemoved, setBackgroundRemoved] = useState(false);
   const [ecommerceDescEnglish, setEcommerceDescEnglish] = useState("");
   const [ecommerceDescLocal, setEcommerceDescLocal] = useState("");
 
@@ -84,6 +133,18 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
 
   /** Every other former `alert()` lands here and renders as a banner. */
   const [notice, setNotice] = useState<Notice | null>(null);
+
+  /* --- Dynamic Pricing Assistant (Step 3) ------------------------------- */
+  const [priceResearch, setPriceResearch] = useState<{
+    recommendedPrice: number;
+    floor: number;
+    band: { min: number; max: number };
+    rationale: string | null;
+    clampedToFloor: boolean;
+    comparables: { platform: string; title: string; priceMin: number; priceMax: number; note: string }[];
+  } | null>(null);
+  const [priceResearchLoading, setPriceResearchLoading] = useState(false);
+  const [priceResearchError, setPriceResearchError] = useState<string | null>(null);
 
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
   const [createdItemId, setCreatedItemId] = useState<string | null>(null);
@@ -103,19 +164,34 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
       setIsVerifyingVision(true);
       setIsEnhancingImage(true);
 
-      // Simulate image enhancement delay visually
-      setTimeout(() => setIsEnhancingImage(false), 2000);
+      // Real work, not a timer: cut the background out and enhance the photo,
+      // then verify THAT image and save it. Falls back to the enhanced original
+      // if the ML model is slow or unsupported, so capture never stalls.
+      enhanceProductPhoto(images[0])
+      .then(async (enhanced) => {
+        setBackgroundRemoved(enhanced.backgroundRemoved);
+        setIsEnhancingImage(false);
 
-      fetch('/api/items/vision-verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          imageBase64: images[0], 
-          description: englishDescription,
-          targetLanguage: language
-        })
+        // Compress the enhanced frame before it becomes the stored image, so
+        // the cutout/enhancement pass cannot reintroduce a huge payload.
+        const stored = await downscaleImage(enhanced.dataUrl);
+        if (stored !== images[0]) {
+          // The enhanced frame becomes the item's photo, so what the model
+          // verifies is exactly what ends up on the listing.
+          setImages((prev) => [stored, ...prev.slice(1)]);
+        }
+
+        const res = await fetch('/api/items/vision-verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: stored,
+            description: englishDescription,
+            targetLanguage: language
+          })
+        });
+        return res.json();
       })
-      .then(res => res.json())
       .then(data => {
         setIsVerifyingVision(false);
         setIsEnhancingImage(false);
@@ -152,9 +228,10 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
       estimateCraftValuation(
         craftType || FALLBACK_CRAFT_TYPE,
         laborDays || FALLBACK_LABOR_DAYS,
-        rawMaterialCost || FALLBACK_MATERIAL_COST
+        rawMaterialCost || FALLBACK_MATERIAL_COST,
+        technique
       ),
-    [craftType, laborDays, rawMaterialCost]
+    [craftType, laborDays, rawMaterialCost, technique]
   );
 
   // Prefill with the suggested market-mid until the artisan types their own
@@ -220,7 +297,17 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
    * server-side, so recognition quality no longer depends on the handset.
    */
   const processAudioWithGroq = async (audioBlob: Blob) => {
-    setMessages(prev => [...prev, { id: Date.now().toString(), role: "user", text: `🎙️ ${t('audio_recorded')}` }]);
+    // The live bubble already holds whatever the browser heard. Keep it and
+    // overwrite it with the server transcript below; only create one here when
+    // the browser had no SpeechRecognition to seed it.
+    const bubbleId = liveBubbleIdRef.current ?? `voice-${Date.now()}`;
+    if (!liveBubbleIdRef.current) {
+      liveBubbleIdRef.current = bubbleId;
+      setMessages(prev => [
+        ...prev,
+        { id: bubbleId, role: "user", text: liveTranscriptRef.current || `🎙️ ${t('audio_recorded')}` },
+      ]);
+    }
     setIsProcessingAI(true);
 
     if (typeof navigator !== "undefined" && !navigator.onLine) {
@@ -232,6 +319,13 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
     try {
       const formData = new FormData();
       formData.append("file", audioBlob, "recording.webm");
+      // Ask the parser for the description in the artisan's own language too.
+      formData.append("language", language);
+      // Everything said so far, so this recording is understood as a
+      // continuation rather than a replacement.
+      if (conversationTextRef.current) {
+        formData.append("context", conversationTextRef.current);
+      }
 
       const res = await fetch("/api/items/voice-parse", { method: "POST", body: formData });
       const result = await res.json();
@@ -240,20 +334,31 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
         throw new Error(result?.error || "Failed to process audio");
       }
 
-      setOriginalTranscript(result.data.originalTranscript || "");
-      setEnglishDescription(result.data.englishDescription);
-      setLaborDays(result.data.laborDays);
-      setRawMaterialCost(result.data.rawMaterialCost);
-      setSourceLanguage(result.data.sourceLanguage);
-      setCraftType(result.data.craftType);
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: "assistant",
-        text: `${t('ai_understood')} ${result.data.craftType} · ${result.data.laborDays} ${t('days')} · ₹${result.data.rawMaterialCost}`,
-      }]);
-      setIsProcessed(true);
+      // The route merged `context` with this turn's transcript; keep the merged
+      // text as the running conversation.
+      conversationTextRef.current = (result.data.originalTranscript || "").trim();
+
+      // Whisper is the authority: replace the browser's preview with what the
+      // server actually understood, so the artisan sees the words the valuation
+      // was derived from.
+      const spoken = (result.data.originalTranscript || "").trim();
+      if (spoken) {
+        setMessages(prev => prev.map(m => (m.id === bubbleId ? { ...m, text: spoken } : m)));
+      }
+      liveBubbleIdRef.current = null;
+
+      applyParse(result.data);
     } catch (err) {
       console.error("Audio processing failed:", err);
+      // Keep whatever the browser heard rather than a stale placeholder.
+      const heard = liveTranscriptRef.current.trim();
+      setMessages(prev =>
+        heard
+          ? prev.map(m => (m.id === bubbleId ? { ...m, text: heard } : m))
+          : prev.filter(m => m.id !== bubbleId)
+      );
+      liveBubbleIdRef.current = null;
+
       // In-app banner, never a browser alert — and the typed path still works.
       setNotice({
         tone: "warning",
@@ -265,11 +370,155 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
     }
   };
 
+  /**
+   * Apply one parse result to Step 1.
+   *
+   * The gate: `isProcessed` — which is what enables Next — is only set when the
+   * artisan has actually stated the product, the time and the materials. The
+   * parser always returns numbers (it estimates so the valuation has something
+   * to work with), so gating on "did we get a response" let a bare "a silk
+   * saree" through carrying invented labour days and material cost.
+   */
+  const applyParse = (data: any): boolean => {
+    const missing: string[] = Array.isArray(data?.missing) ? data.missing : [];
+
+    setFacts({
+      product: data?.statedProduct === true,
+      time: data?.statedTime === true,
+      materials: data?.statedMaterials === true,
+    });
+    setHasParsed(true);
+
+    // Keep whatever was understood so far — a later turn only adds to it.
+    setOriginalTranscript(conversationTextRef.current);
+    if (data?.craftType) setCraftType(data.craftType);
+    if (data?.englishDescription) setEnglishDescription(data.englishDescription);
+    if (typeof data?.laborDays === 'number') setLaborDays(data.laborDays);
+    if (typeof data?.rawMaterialCost === 'number') setRawMaterialCost(data.rawMaterialCost);
+    if (data?.sourceLanguage) setSourceLanguage(data.sourceLanguage);
+    if (data?.technique) setTechnique(data.technique);
+
+    if (missing.length > 0) {
+      // Ask for exactly what is missing, in their language, and stay on Step 1.
+      const question =
+        (typeof data?.followUpQuestion === 'string' && data.followUpQuestion.trim()) ||
+        t('provide_missing_hint');
+      setMessages((prev) => [
+        ...prev,
+        { id: `ask-${Date.now()}`, role: 'assistant', text: question },
+      ]);
+      return false;
+    }
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `sum-${Date.now()}`,
+        role: 'assistant',
+        text:
+          `${t('ai_understood')} ${data.craftType} · ${data.laborDays} ${t('days')} · ₹${data.rawMaterialCost}` +
+          (data.technique ? ` · ${data.technique}` : ''),
+      },
+    ]);
+    setIsProcessed(true);
+    return true;
+  };
+
+  /**
+   * Estimated comparable prices across platforms.
+   *
+   * The route is explicit that these are estimates, not scraped listings, and
+   * it never recommends below the fair-wage floor. Called on demand from Step 3
+   * so an artisan who already knows their price pays no latency for it.
+   */
+  const runPriceResearch = async () => {
+    setPriceResearchLoading(true);
+    setPriceResearchError(null);
+    try {
+      const res = await fetch('/api/items/price-research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          craftType: craftType || FALLBACK_CRAFT_TYPE,
+          description: englishDescription,
+          laborDays: laborDays || FALLBACK_LABOR_DAYS,
+          rawMaterialCost: rawMaterialCost || FALLBACK_MATERIAL_COST,
+          language,
+        }),
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setPriceResearch(data);
+      } else {
+        setPriceResearchError(data?.error || t('price_research_failed'));
+      }
+    } catch (e) {
+      console.error('Price research failed:', e);
+      setPriceResearchError(t('price_research_failed'));
+    } finally {
+      setPriceResearchLoading(false);
+    }
+  };
+
+  /**
+   * Start the live preview. Never throws: an unsupported browser simply means
+   * no preview, and the record -> Whisper path is untouched.
+   */
+  const startLivePreview = () => {
+    if (typeof window === "undefined") return;
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = SPEECH_LANGS[language] || "en-IN";
+
+      recognition.onresult = (event: any) => {
+        let text = "";
+        for (let i = 0; i < event.results.length; i += 1) {
+          text += event.results[i][0].transcript;
+        }
+        const trimmed = text.trim();
+        liveTranscriptRef.current = trimmed;
+        setLiveTranscript(trimmed);
+
+        // Rewrite the user's own bubble in place so the words appear as spoken.
+        if (liveBubbleIdRef.current) {
+          const id = liveBubbleIdRef.current;
+          setMessages((prev) =>
+            prev.map((m) => (m.id === id ? { ...m, text: trimmed || `🎙️ ${t('listening')}` } : m))
+          );
+        }
+      };
+
+      // A recognition error is not an error for the capture: Whisper still runs.
+      recognition.onerror = () => {};
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (err) {
+      console.warn("Live transcription unavailable:", (err as Error)?.message);
+    }
+  };
+
+  const stopLivePreview = () => {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // Already stopped; nothing to do.
+    }
+    recognitionRef.current = null;
+  };
+
   const toggleListening = async () => {
     if (isProcessed) return;
 
     if (isListening && mediaRecorder) {
       mediaRecorder.stop();
+      stopLivePreview();
       setIsListening(false);
       return;
     }
@@ -278,6 +527,17 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
       audioChunksRef.current = [];
+      liveTranscriptRef.current = "";
+      setLiveTranscript("");
+
+      // Seed the bubble the live text will be written into, so the artisan sees
+      // something the instant they start speaking rather than after upload.
+      const bubbleId = `live-${Date.now()}`;
+      liveBubbleIdRef.current = bubbleId;
+      setMessages((prev) => [
+        ...prev,
+        { id: bubbleId, role: "user", text: `🎙️ ${t('listening')}` },
+      ]);
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) audioChunksRef.current.push(event.data);
@@ -285,11 +545,31 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
 
       recorder.onstop = async () => {
         stream.getTracks().forEach(track => track.stop());
+        stopLivePreview();
+
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        if (audioBlob.size > 0) await processAudioWithGroq(audioBlob);
+        const dropBubble = () => {
+          const id = liveBubbleIdRef.current;
+          if (id) setMessages((prev) => prev.filter((m) => m.id !== id));
+          liveBubbleIdRef.current = null;
+        };
+
+        if (audioBlob.size === 0) {
+          dropBubble();
+          return;
+        }
+        // A tap-and-release is a few hundred bytes of silence. Tell the artisan
+        // to hold the button instead of burning a failed API round trip on it.
+        if (audioBlob.size < 4096) {
+          dropBubble();
+          setNotice({ tone: "warning", title: t('recording_too_short'), body: t('recording_too_short_body') });
+          return;
+        }
+        await processAudioWithGroq(audioBlob);
       };
 
       recorder.start();
+      startLivePreview();
       setMediaRecorder(recorder);
       setIsListening(true);
     } catch (err) {
@@ -312,21 +592,22 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
     setIsProcessingAI(true);
     
     try {
+      // Append this turn, then re-parse everything said so far.
+      const combined = [conversationTextRef.current, userMessage]
+        .filter(Boolean)
+        .join('. ')
+        .trim();
+
       const res = await fetch("/api/items/voice-parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ regionalTranscript: userMessage })
+        body: JSON.stringify({ regionalTranscript: combined, language })
       });
       const result = await res.json();
-      
+
       if (res.ok && result.data) {
-        setOriginalTranscript(result.data.originalTranscript || userMessage);
-        setEnglishDescription(result.data.englishDescription);
-        setLaborDays(result.data.laborDays);
-        setRawMaterialCost(result.data.rawMaterialCost);
-        setSourceLanguage(result.data.sourceLanguage);
-        setCraftType(result.data.craftType || "Crafted Item");
-        setIsProcessed(true);
+        conversationTextRef.current = combined;
+        applyParse(result.data);
       } else {
         setNotice({ tone: "error", title: t('ai_parsing_failed') });
         setMessages(prev => [...prev, { id: Date.now().toString(), role: "assistant", text: t('ai_parsing_failed') }]);
@@ -368,19 +649,32 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
     }
   }, [isOpen, step]);
 
+  // A live recogniser left running after the modal closes keeps the mic hot.
+  useEffect(() => {
+    if (isOpen) return;
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // Already stopped.
+    }
+    recognitionRef.current = null;
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  const captureFrame = () => {
+  const captureFrame = async () => {
     if (videoRef.current && canvasRef.current) {
       const context = canvasRef.current.getContext("2d");
       if (context) {
         context.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-        const dataUrl = canvasRef.current.toDataURL("image/png");
-        if (images.length < 4) {
-          setImages([...images, dataUrl]);
-        } else {
+        if (images.length >= 4) {
           setNotice({ tone: "warning", title: t('max_images') });
+          return;
         }
+        // Compressed before it ever reaches state: a full-resolution PNG here
+        // was megabytes of base64 that then travelled with the row forever.
+        const dataUrl = await downscaleImage(canvasRef.current.toDataURL("image/png"));
+        setImages((prev) => [...prev, dataUrl]);
       }
     }
   };
@@ -389,14 +683,15 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          if (images.length < 4) {
-            setImages([...images, event.target.result as string]);
-          } else {
-            setNotice({ tone: "warning", title: t('max_images') });
-          }
+      reader.onload = async (event) => {
+        if (!event.target?.result) return;
+        if (images.length >= 4) {
+          setNotice({ tone: "warning", title: t('max_images') });
+          return;
         }
+        // A phone photo is 3-8 MB; store a capped JPEG instead.
+        const dataUrl = await downscaleImage(event.target.result as string);
+        setImages((prev) => [...prev, dataUrl]);
       };
       reader.readAsDataURL(file);
     }
@@ -416,6 +711,7 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
     setIsVisionVerified(false);
     setVisionRejected(false);
     setRejectionReason("");
+    setBackgroundRemoved(false);
   };
 
 
@@ -448,6 +744,12 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
       setPriceTouched(false);
       setInputText("");
       setMessages([]);
+      // Step 1 starts from nothing again: a stale running transcript would let
+      // the next capture inherit the previous item's facts.
+      conversationTextRef.current = "";
+      setFacts({ product: false, time: false, materials: false });
+      setHasParsed(false);
+      setTechnique(null);
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
         mediaRecorder.stop();
       }
@@ -588,6 +890,45 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
               {/* Input Area */}
               {!isProcessed && (
                 <div className="p-3 bg-white border-t border-gray-100 rounded-xl relative shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)]">
+                  {/* What is still needed before Step 2 opens. Shown only once
+                      something has been parsed, so the artisan is not greeted
+                      by three empty circles. */}
+                  {hasParsed && (
+                    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                      {([
+                        ['product', t('checklist_product')],
+                        ['time', t('checklist_time')],
+                        ['materials', t('checklist_materials')],
+                      ] as const).map(([key, label]) => {
+                        const done = facts[key];
+                        return (
+                          <span
+                            key={key}
+                            className={cn(
+                              "inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full border",
+                              done
+                                ? "bg-[var(--color-mint)] text-primary border-[var(--color-sage)]"
+                                : "bg-gray-50 text-gray-400 border-gray-200"
+                            )}
+                          >
+                            {done ? "✓" : "○"} {label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Live caption while the mic is open, so the artisan can see
+                      they are being heard before the recording is uploaded. */}
+                  {isListening && (
+                    <div className="mb-2 flex items-start gap-2 rounded-xl bg-[var(--color-mint)]/60 border border-[var(--color-sage)]/50 px-3 py-2">
+                      <span className="mt-1 w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                      <p className="text-xs text-primary leading-relaxed">
+                        {liveTranscript || t('listening')}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-2xl p-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all">
                     <textarea
                       value={inputText}
@@ -639,7 +980,7 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
               {isEnhancingImage ? (
                 <div className="bg-purple-50 border border-purple-200 text-purple-800 px-4 py-3 rounded-xl mb-6 text-sm flex gap-3 items-center shadow-sm animate-pulse">
                   <Sparkles size={20} className="text-purple-600" />
-                  <p className="font-bold">Enhancing your picture & generating description...</p>
+                  <p className="font-bold">{t('enhancing_image')}</p>
                 </div>
               ) : isVerifyingVision && (
                 <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-xl mb-6 text-sm flex gap-3 items-center shadow-sm">
@@ -673,7 +1014,12 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
                 <div className="mb-6 space-y-4">
                   <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm flex gap-3 items-center shadow-sm animate-fade-in-up">
                     <ShieldCheck size={20} className="text-green-600 shrink-0" />
-                    <p><strong>AI Verified & Enhanced:</strong> Ready for e-commerce listing.</p>
+                    <p>
+                      <strong>{t('ai_verified_enhanced')}</strong>{' '}
+                      {/* Says which of the two actually happened, rather than
+                          claiming a cutout that may have timed out. */}
+                      {backgroundRemoved ? t('bg_removed_note') : t('bg_kept_note')}
+                    </p>
                   </div>
 
                   {/* Both listings are editable before save. The English one is
@@ -831,6 +1177,117 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
                 />
               </div>
               <p className="text-xs text-gray-400 mb-4">{t('asking_price_hint')}</p>
+
+              {/* ---- Dynamic Pricing Assistant --------------------------------
+                  Estimated comparable bands per platform, then one recommended
+                  price the artisan can apply in a tap. Explicitly labelled as
+                  estimates: these are not live scraped listings. */}
+              <div className="border border-[var(--color-sage)]/60 bg-[var(--color-mint)]/25 rounded-2xl p-4 mb-6">
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <h4 className="text-sm font-bold text-primary flex items-center gap-2">
+                    <TrendingUp size={16} /> {t('pricing_assistant')}
+                  </h4>
+                  {priceResearch && (
+                    <button
+                      type="button"
+                      onClick={runPriceResearch}
+                      disabled={priceResearchLoading}
+                      aria-label={t('retry')}
+                      className="p-1.5 text-primary/70 hover:text-primary transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-600 leading-relaxed mb-3">
+                  {t('pricing_assistant_subtitle')}
+                </p>
+
+                {!priceResearch && !priceResearchLoading && (
+                  <button
+                    type="button"
+                    onClick={runPriceResearch}
+                    className="w-full bg-primary hover:bg-primary-dark text-white py-2.5 rounded-xl font-bold text-sm transition-colors"
+                  >
+                    {t('find_similar_prices')}
+                  </button>
+                )}
+
+                {priceResearchLoading && (
+                  <div className="flex items-center justify-center gap-2 py-6 text-primary">
+                    <Loader2 size={18} className="animate-spin" />
+                    <span className="text-sm font-bold">{t('pricing_searching')}</span>
+                  </div>
+                )}
+
+                {priceResearchError && !priceResearchLoading && (
+                  <div className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                    {priceResearchError}
+                  </div>
+                )}
+
+                {priceResearch && !priceResearchLoading && (
+                  <div className="space-y-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                      {t('similar_items_found')}
+                    </p>
+
+                    <div className="space-y-2">
+                      {priceResearch.comparables.map((row, i) => (
+                        <div
+                          key={`${row.platform}-${i}`}
+                          className="bg-white border border-gray-100 rounded-xl px-3 py-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-primary">{row.platform}</p>
+                              <p className="text-[11px] text-gray-500 truncate">{row.title}</p>
+                            </div>
+                            <p className="text-xs font-bold text-gray-900 whitespace-nowrap">
+                              {formatRupees(row.priceMin)} – {formatRupees(row.priceMax)}
+                            </p>
+                          </div>
+                          {row.note && (
+                            <p className="text-[11px] text-gray-400 mt-1 leading-snug">{row.note}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="bg-primary text-white rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">
+                          {t('recommended_price')}
+                        </p>
+                        <p className="text-xl font-serif font-bold">
+                          {formatRupees(priceResearch.recommendedPrice)}
+                        </p>
+                        {priceResearch.clampedToFloor && (
+                          <p className="text-[10px] text-white/70 mt-0.5">{t('price_raised_to_floor')}</p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPriceTouched(true);
+                          setAskingPrice(String(priceResearch.recommendedPrice));
+                        }}
+                        className="bg-white text-primary px-4 py-2 rounded-lg font-bold text-xs hover:bg-gray-100 transition-colors shrink-0"
+                      >
+                        {t('use_this_price')}
+                      </button>
+                    </div>
+
+                    {priceResearch.rationale && (
+                      <p className="text-[11px] text-gray-600 leading-relaxed">{priceResearch.rationale}</p>
+                    )}
+
+                    <p className="text-[10px] text-gray-400 italic leading-relaxed">
+                      {t('pricing_estimates_note')}
+                    </p>
+                  </div>
+                )}
+              </div>
 
               {/* Warns, never blocks: the artisan's price is still their choice. */}
               {isBelowFairFloor && (

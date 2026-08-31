@@ -57,7 +57,3 @@ export function marketPrice(item: {
 export function imageProps(src: string) {
   return { src, unoptimized: src.startsWith('data:') };
 }
-
-/** The one line of escrow copy the storefront shows. Honest about what is real. */
-export const ESCROW_TRUST_LINE =
-  'Escrow-protected · 40% fair-wage advance to the artisan on dispatch · direct to VPA, zero middleman.';

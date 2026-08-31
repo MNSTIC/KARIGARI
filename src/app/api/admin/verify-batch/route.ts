@@ -70,9 +70,11 @@ export async function POST(req: Request) {
         const uniqueSuffix = Date.now().toString(36).toUpperCase() + Math.floor(1000 + Math.random() * 9000).toString();
         const generatedPatchId = `PATCH-${uniqueSuffix}`;
 
-        // Approval IS publication — there is no second manual step. The listing
-        // text is the artisan's own edited English description, so whatever they
-        // approved in the capture flow is exactly what goes out.
+        // Approval mints the patch id; it does NOT publish. The artisan has to
+        // print this QR, attach it to the physical piece, re-photograph it and
+        // pass the AI match (/api/items/attach-verify) before the item is
+        // SELLABLE — and only then can they list it. Auto-publishing here would
+        // put an item on the marketplace that carries no physical patch yet.
         const listingText =
           (source?.aiGeneratedListing || '').trim() || (source?.descriptionEnglish || '').trim() || null;
 
@@ -82,7 +84,6 @@ export async function POST(req: Request) {
             status: 'VERIFIED',
             patchId: generatedPatchId,
             assignedAdminId: decoded.userId,
-            isListedOnMarketplace: true,
             ...(listingText ? { aiGeneratedListing: listingText } : {})
           }
         });
@@ -93,21 +94,9 @@ export async function POST(req: Request) {
           actorId: decoded.userId,
           actorRole: 'ADMIN',
           action: 'ADMIN_VERIFIED',
-          previousState: { status: 'PENDING_VERIFICATION', isListedOnMarketplace: false },
-          newState: { status: 'VERIFIED', patchId: generatedPatchId, isListedOnMarketplace: true },
-          comments: `Admin verified AI math and attached Patch ID: ${generatedPatchId}.`
-        });
-
-        await logCraftItemEvent({
-          prisma: tx as any,
-          craftItemId: id,
-          actorId: decoded.userId,
-          actorRole: 'ADMIN',
-          action: 'MARKETPLACE_PUBLISHED',
-          newState: { isListedOnMarketplace: true, patchId: generatedPatchId },
-          comments: listingText
-            ? "Published to the ONDC listing board on approval, carrying the artisan's own English description."
-            : 'Published to the ONDC listing board on approval. No description was supplied by the artisan.'
+          previousState: { status: 'PENDING_VERIFICATION' },
+          newState: { status: 'VERIFIED', patchId: generatedPatchId },
+          comments: `Admin verified AI math and issued Patch ID: ${generatedPatchId}. The artisan must now attach the physical QR patch and re-photograph the piece before it can be listed.`
         });
 
         updatedItems.push(updated);
