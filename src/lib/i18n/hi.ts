@@ -570,6 +570,8 @@ const dict: Record<string, string> = {
   verification_photo_note: "इस फ़ोटो का QR इसी वस्तु की पैच ID से मेल खाया, और AI ने इसे आपकी मूल तस्वीर से मिलाया।",
   verification_photo_title: "सत्यापन फ़ोटो — QR पैच लगा हुआ",
   verified_authentic: "प्रामाणिक सत्यापित",
+
+  logout: "लॉगआउट",
 };
 
 export default dict;

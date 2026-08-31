@@ -573,6 +573,8 @@ const dict: Record<string, string> = {
   verification_photo_note: "ఈ ఫోటోలోని QR ఈ వస్తువు ప్యాచ్ IDకి సరిపోలింది, మరియు AI దీన్ని మీ అసలు ఫోటోతో సరిపోల్చింది.",
   verification_photo_title: "ధృవీకరణ ఫోటో — QR ప్యాచ్ అతికించబడింది",
   verified_authentic: "ప్రామాణికత ధృవీకరించబడింది",
+
+  logout: "లాగౌట్",
 };
 
 export default dict;

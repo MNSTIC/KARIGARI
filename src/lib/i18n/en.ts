@@ -584,6 +584,8 @@ const dict: Record<string, string> = {
   verification_photo_note: "The QR on this photo decoded to this item's patch ID, and the AI matched the piece to your original capture.",
   verification_photo_title: "Verification photo — QR patch attached",
   verified_authentic: "Verified authentic",
+
+  logout: "Logout",
 };
 
 export default dict;

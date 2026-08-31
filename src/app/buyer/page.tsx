@@ -13,11 +13,13 @@ import {
   CalendarDays,
   Loader2,
   BellRing,
+  LogOut,
 } from "lucide-react";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import Image from "next/image";
 import { LogisticsMap } from "@/components/LogisticsMap";
 import { PostDemandModal, type PostedDemand } from "@/components/PostDemandModal";
+import { useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +40,7 @@ function priceLabel(demand: PostedDemand): string {
 }
 
 export default function BuyerDashboard() {
+  const router = useRouter();
   const { t } = useLanguage();
 
   const [buyerName, setBuyerName] = useState(DEFAULT_BUYER);
@@ -108,6 +111,22 @@ export default function BuyerDashboard() {
     return { openCount: open.length, units, topCraft: top?.[0] ?? null, topUnits: top?.[1] ?? 0 };
   }, [demands]);
 
+  /**
+   * Same contract as the artisan dashboard and AdminShell: clear the auth
+   * cookie server-side, then land on the public home page. Harmless for a
+   * signed-out visitor — the buyer board itself needs no account — but an
+   * artisan or admin who switched over here can get out the same way they
+   * would from their own dashboard.
+   */
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.push("/");
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handlePosted = (demand: PostedDemand, notified: number) => {
     localStorage.setItem(BUYER_NAME_KEY, demand.buyerName || buyerName);
     if (demand.buyerName) setBuyerName(demand.buyerName);
@@ -151,6 +170,15 @@ export default function BuyerDashboard() {
             <div className="text-sm font-bold text-gray-900 truncate">{buyerName}</div>
             <div className="text-[10px] text-gray-500 font-medium">{t("verified_buyer")}</div>
           </div>
+
+          <button
+            onClick={handleLogout}
+            title={t("logout")}
+            aria-label={t("logout")}
+            className="text-gray-400 hover:text-red-500 transition-colors ml-2 shrink-0"
+          >
+            <LogOut size={20} />
+          </button>
         </div>
       </header>
 
