@@ -28,7 +28,7 @@ export default async function VerifyPassport({ params }: { params: Promise<{ pat
 
   const artisanName = item.artisan?.name || "Unknown Artisan";
   const artisanProfile = item.artisan?.artisanProfile;
-  const photoUrl = artisanProfile?.photoUrl || "/female_artisan.jpg";
+  const photoUrl = artisanProfile?.photoUrl || null;
   const artisanBio = artisanProfile?.description || "An artisan from Pochampally Cooperative dedicated to handloom crafts.";
   const artisanTags = artisanProfile?.tags || ["Artisan"];
   

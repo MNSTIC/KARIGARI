@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Bell, CalendarDays, MessageCircle, TrendingUp, AlertTriangle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/translations";
@@ -224,6 +225,16 @@ export function NotificationsBell({
               </button>
             ))}
           </div>
+
+          {/* Route to the full view, where the alerts sit alongside the
+              upcoming-events calendar and the artisan's matching listings. */}
+          <Link
+            href="/artisan/notifications"
+            onClick={() => setOpen(false)}
+            className="block border-t border-gray-100 px-4 py-3 text-center text-xs font-bold text-primary hover:bg-[var(--color-mint)]/40 transition-colors"
+          >
+            {t("view_all_notifications")} →
+          </Link>
         </div>
       )}
     </div>

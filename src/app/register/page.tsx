@@ -1,17 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ShieldCheck, User, MapPin, Briefcase, Info, UserRound } from "lucide-react";
 import { CITY_OPTIONS, locateCity } from "@/lib/indiaGeo";
 import { GENDERS, GENDER_LABELS } from "@/lib/gender";
 
+import { Avatar } from "@/components/ui/Avatar";
+import { downscaleImage } from "@/lib/imageEnhance";
+import { useLanguage } from "@/lib/translations";
+
 export default function RegisterPage() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [role, setRole] = useState<'ARTISAN' | 'ADMIN'>('ARTISAN');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  /** Optional profile photo, held as a compact JPEG data URL. */
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -34,6 +42,23 @@ export default function RegisterPage() {
   // silently registering someone who will never appear on the map.
   const locationResolves = Boolean(locateCity(formData.location));
 
+  /**
+   * Compressed before it ever leaves the page: a phone selfie is several
+   * megabytes, and this string is stored on the profile row and re-sent with
+   * every query that reads it.
+   */
+  const handlePhotoPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (loaded) => {
+      if (typeof loaded.target?.result !== "string") return;
+      // 320px is ample for an avatar circle.
+      setPhotoUrl(await downscaleImage(loaded.target.result, 320, 0.82));
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -46,6 +71,7 @@ export default function RegisterPage() {
         body: JSON.stringify({
           ...formData,
           role,
+          photoUrl,
         }),
       });
 
@@ -114,6 +140,38 @@ export default function RegisterPage() {
           </div>
 
           <form className="space-y-6" onSubmit={handleSubmit}>
+            {/* Optional profile photo. Skipping it is fine — the Avatar falls
+                back to initials on a colour derived from the name. */}
+            <div className="flex items-center gap-4">
+              <Avatar name={formData.name} src={photoUrl} size={64} />
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="text-sm font-bold text-primary hover:text-primary-dark underline underline-offset-4 transition-colors"
+                >
+                  {photoUrl ? t('change_photo') : t('add_photo')}
+                </button>
+                {photoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setPhotoUrl(null)}
+                    className="ml-4 text-sm font-medium text-gray-500 hover:text-red-600 transition-colors"
+                  >
+                    {t('remove')}
+                  </button>
+                )}
+                <p className="text-xs text-gray-500 mt-1">{t('photo_optional_hint')}</p>
+              </div>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handlePhotoPick}
+              />
+            </div>
+
             {error && (
               <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm font-medium border border-red-100">
                 {error}

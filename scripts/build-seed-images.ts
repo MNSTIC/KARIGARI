@@ -387,7 +387,7 @@ export interface SeedImageSet {
   report: BuildReport;
 }
 
-export async function buildSeedImages(perCraft = 3, peopleCount = 6): Promise<SeedImageSet> {
+export async function buildSeedImages(perCraft = 5, peopleCount = 6): Promise<SeedImageSet> {
   await ensureDir(SEED_DIR);
   const report: BuildReport = { real: 0, generated: 0, files: [] };
 

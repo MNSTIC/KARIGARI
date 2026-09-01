@@ -7,10 +7,14 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/translations";
 import { estimateCraftValuation, formatRupees } from "@/lib/pricing";
 import { downscaleImage, enhanceProductPhoto } from "@/lib/imageEnhance";
+import { Avatar } from "@/components/ui/Avatar";
 
 interface CaptureModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** The signed-in artisan, so their own bubble shows their own avatar. */
+  artisanName?: string | null;
+  artisanPhotoUrl?: string | null;
 }
 
 type Message = { id: string; role: "assistant" | "user"; text: string; isProcessing?: boolean };
@@ -23,6 +27,21 @@ type Message = { id: string; role: "assistant" | "user"; text: string; isProcess
 const FALLBACK_CRAFT_TYPE = "Crafted Item";
 const FALLBACK_LABOR_DAYS = 9;
 const FALLBACK_MATERIAL_COST = 2800;
+
+/**
+ * Brand mark per comparable platform.
+ *
+ * Matched on a substring because the model returns the platform name as free
+ * text ("Amazon Karigar", "Flipkart Samarth"). Anything unrecognised falls back
+ * to the neutral local-retail mark rather than rendering a broken image.
+ */
+function platformIcon(platform: string): string {
+  const name = platform.toLowerCase();
+  if (name.includes('amazon')) return '/icons/amazon.svg';
+  if (name.includes('flipkart')) return '/icons/flipkart.svg';
+  if (name.includes('myntra')) return '/icons/myntra.svg';
+  return '/icons/local-retail.svg';
+}
 
 /** In-app replacement for every browser `alert()` this modal used to fire. */
 type Notice = { tone: "error" | "warning"; title: string; body?: string };
@@ -39,7 +58,7 @@ const SPEECH_LANGS: Record<string, string> = {
   or: "or-IN",
 };
 
-export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
+export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: CaptureModalProps) {
   const { t, language } = useLanguage();
   const [step, setStep] = useState(1);
   const [isListening, setIsListening] = useState(false);
@@ -513,6 +532,22 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
     recognitionRef.current = null;
   };
 
+  /**
+   * Warm the pricing estimate the moment the artisan reaches Step 3, so the
+   * recommendation is usually on screen by the time they look for it instead
+   * of costing them a wait after a deliberate tap.
+   */
+  useEffect(() => {
+    if (step !== 3 || priceResearch || priceResearchLoading || priceResearchError) return;
+    const kickoff = setTimeout(() => {
+      void runPriceResearch();
+    }, 0);
+    return () => clearTimeout(kickoff);
+    // runPriceResearch is stable enough for this one-shot warm-up; listing it
+    // would re-fire the request on every keystroke in Step 3.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, priceResearch, priceResearchLoading, priceResearchError]);
+
   const toggleListening = async () => {
     if (isProcessed) return;
 
@@ -806,7 +841,7 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
                 {messages.map((msg) => (
                   <div key={msg.id} className={cn("flex gap-4 max-w-[90%] animate-fade-in-up", msg.role === 'user' ? 'ml-auto flex-row-reverse' : '')}>
                     <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-1", msg.role === 'assistant' ? 'bg-primary' : 'bg-gray-200 overflow-hidden border border-gray-200')}>
-                      {msg.role === 'assistant' ? <Sparkles size={16} className="text-white" /> : <Image src="/female_artisan.jpg" alt="User" width={32} height={32} className="object-cover" />}
+                      {msg.role === 'assistant' ? <Sparkles size={16} className="text-white" /> : <Avatar name={artisanName} src={artisanPhotoUrl} size={32} />}
                     </div>
                     <div className={cn("p-4 rounded-2xl shadow-sm break-words", msg.role === 'assistant' ? 'bg-white rounded-tl-none border border-gray-100 text-gray-800 font-medium' : 'bg-primary rounded-tr-none text-white leading-relaxed whitespace-pre-wrap')}>
                       {msg.text}
@@ -817,7 +852,7 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
                 {inputText && (
                   <div className="flex gap-4 max-w-[90%] ml-auto flex-row-reverse animate-fade-in-up">
                     <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center shrink-0 overflow-hidden mt-1 border border-gray-200">
-                      <Image src="/female_artisan.jpg" alt="User" width={32} height={32} className="object-cover" />
+                      <Avatar name={artisanName} src={artisanPhotoUrl} size={32} />
                     </div>
                     <div className="bg-primary p-4 rounded-2xl rounded-tr-none text-white shadow-sm break-words opacity-80">
                       <p className="leading-relaxed whitespace-pre-wrap">{inputText}</p>
@@ -1239,11 +1274,21 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
                           className="bg-white border border-gray-100 rounded-xl px-3 py-2.5"
                         >
                           <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-xs font-bold text-primary">{row.platform}</p>
-                              <p className="text-[11px] text-gray-500 truncate">{row.title}</p>
+                            <div className="flex items-start gap-2.5 min-w-0">
+                              <Image
+                                src={platformIcon(row.platform)}
+                                alt=""
+                                width={22}
+                                height={22}
+                                className="rounded-md shrink-0 mt-0.5"
+                              />
+                              <div className="min-w-0">
+                                <p className="text-xs font-bold text-primary">{row.platform}</p>
+                                <p className="text-[11px] text-gray-500 truncate">{row.title}</p>
+                              </div>
                             </div>
-                            <p className="text-xs font-bold text-gray-900 whitespace-nowrap">
+                            {/* font-sans: ₹ is missing from the serif face. */}
+                            <p className="text-xs font-bold text-gray-900 whitespace-nowrap font-sans">
                               {formatRupees(row.priceMin)} – {formatRupees(row.priceMax)}
                             </p>
                           </div>
@@ -1259,7 +1304,7 @@ export function CaptureModal({ isOpen, onClose }: CaptureModalProps) {
                         <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">
                           {t('recommended_price')}
                         </p>
-                        <p className="text-xl font-serif font-bold">
+                        <p className="text-xl font-sans font-bold">
                           {formatRupees(priceResearch.recommendedPrice)}
                         </p>
                         {priceResearch.clampedToFloor && (

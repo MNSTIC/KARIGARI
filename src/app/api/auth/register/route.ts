@@ -8,7 +8,7 @@ import { normalizeGender } from '@/lib/gender';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { name, email, password, role, craftType, location, experienceYears, aadhaarLast4, annualIncome, clusterName, gender } = body;
+    const { name, email, password, role, craftType, location, experienceYears, aadhaarLast4, annualIncome, clusterName, gender, photoUrl } = body;
 
     // Validation
     if (!name || !email || !password || !role) {
@@ -52,6 +52,11 @@ export async function POST(req: Request) {
               annualIncome: Number(annualIncome) || 0,
               clusterName: clusterName || 'Independent',
               gender: normalizedGender,
+              // Optional at signup. Left null when they skip it, so <Avatar />
+              // draws their initials rather than a stock stranger's face.
+              photoUrl: typeof photoUrl === 'string' && photoUrl.startsWith('data:image/')
+                ? photoUrl
+                : null,
             }
           }
         })

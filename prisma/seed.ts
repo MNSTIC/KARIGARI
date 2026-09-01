@@ -341,6 +341,39 @@ const ITEMS: Record<string, ItemSeed[]> = {
       createdDaysAgo: 3,
       imageIndex: 1,
     },
+    {
+      title: 'Sambalpuri Ikat Silk Saree — Sachipar Border',
+      descriptionEnglish:
+        'Bottle-green ikat silk saree with the sachipar leaf border, 5.5m with an unstitched 0.8m blouse piece.',
+      descriptionOriginal: 'ସବୁଜ ରଙ୍ଗର ସଚିପାର ପାଢ଼ି ଥିବା ପଟ ଶାଢ଼ୀ।',
+      aiGeneratedListing:
+        'Bottle green with the sachipar leaf running the length of both borders. 5.5 metres with an unstitched blouse piece, and the leaf repeat lines up where the pallu joins.',
+      aiSuggestedCategory: 'Handloom Sarees',
+      tags: ['Sambalpuri', 'Ikat', 'Silk', 'Sachipar'],
+      laborDays: 23,
+      rawMaterialCost: 7400,
+      stage: 'LISTED',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 44,
+      imageIndex: 3,
+      secondImageIndex: 4,
+    },
+    {
+      title: 'Sambalpuri Cotton Bedcover — Double',
+      descriptionEnglish:
+        'Handwoven double bedcover, 90 x 108 inches, in rust and natural cotton with a fish-motif ikat band across the centre.',
+      descriptionOriginal: 'ମାଛ ନକ୍ସାର ସୂତା ବେଡ଼କଭର, ଡବଲ ସାଇଜ।',
+      aiGeneratedListing:
+        'A 90 by 108 inch double bedcover in rust and undyed cotton, with a fish-motif ikat band tied across the centre panel. Woven in two loom widths and joined by hand.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Sambalpuri', 'Cotton', 'Bedcover'],
+      laborDays: 16,
+      rawMaterialCost: 3200,
+      stage: 'SELLABLE',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 12,
+      imageIndex: 4,
+    },
   ],
 
   raghunath: [
@@ -424,6 +457,39 @@ const ITEMS: Record<string, ItemSeed[]> = {
       createdDaysAgo: 2,
       imageIndex: 1,
     },
+    {
+      title: 'Pattachitra — Tree of Life on Silk',
+      descriptionEnglish:
+        'Tree of Life composition painted on silk, 18 x 24 inches, with birds and creepers filling the canopy in stone colours.',
+      descriptionOriginal: 'ରେଶମ ଉପରେ ଅଙ୍କିତ ଜୀବନ ବୃକ୍ଷ ପଟଚିତ୍ର।',
+      aiGeneratedListing:
+        'The Tree of Life on silk, 18 by 24 inches. Birds and creepers fill the canopy so no ground is left bare — the chitrakar convention that a painted surface should never rest.',
+      aiSuggestedCategory: 'Paintings & Wall Art',
+      tags: ['Pattachitra', 'Tree of Life', 'Silk', 'Stone Colour'],
+      laborDays: 27,
+      rawMaterialCost: 3800,
+      stage: 'LISTED',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 36,
+      imageIndex: 3,
+      secondImageIndex: 4,
+    },
+    {
+      title: 'Pattachitra Ganjapa Playing Cards',
+      descriptionEnglish:
+        'Hand-painted round ganjapa cards, a set of 96 in eight suits, lacquered on both faces and boxed.',
+      descriptionOriginal: 'ହାତରେ ଅଙ୍କିତ ଗଞ୍ଜପା ତାସ, ୯୬ଟି।',
+      aiGeneratedListing:
+        'Ninety-six round ganjapa cards in eight suits, each painted by hand and lacquered on both faces. The game predates the rectangular deck in Odisha by centuries.',
+      aiSuggestedCategory: 'Folk Games & Curios',
+      tags: ['Pattachitra', 'Ganjapa', 'Hand Painted'],
+      laborDays: 22,
+      rawMaterialCost: 2400,
+      stage: 'SELLABLE',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 14,
+      imageIndex: 4,
+    },
   ],
 
   anitha: [
@@ -504,6 +570,39 @@ const ITEMS: Record<string, ItemSeed[]> = {
       createdDaysAgo: 4,
       imageIndex: 2,
     },
+    {
+      title: 'Pochampally Ikat Silk Saree — Elephant Pallu',
+      descriptionEnglish:
+        'Ochre double-ikat silk saree with a procession of elephants tied into the pallu and a plain body.',
+      descriptionOriginal: 'ఏనుగుల పల్లూతో ఓక్రా రంగు డబుల్ ఇకత్ చీర.',
+      aiGeneratedListing:
+        'A plain ochre body so the pallu carries the whole story — a procession of elephants, tied into both warp and weft before weaving. Twenty-four days.',
+      aiSuggestedCategory: 'Handloom Sarees',
+      tags: ['Pochampally', 'Double Ikat', 'Silk', 'Elephant'],
+      laborDays: 24,
+      rawMaterialCost: 8100,
+      stage: 'LISTED',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 33,
+      imageIndex: 3,
+      secondImageIndex: 4,
+    },
+    {
+      title: 'Pochampally Ikat Table Runner — 6ft',
+      descriptionEnglish:
+        'Six-foot cotton table runner in charcoal and cream ikat with mitred corners and a hand-rolled hem.',
+      descriptionOriginal: 'ఆరు అడుగుల ఇకత్ కాటన్ టేబుల్ రన్నర్.',
+      aiGeneratedListing:
+        'Six feet of charcoal-and-cream ikat cotton, mitred at the corners and hemmed by hand. Sits across a long table without bunching.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Pochampally', 'Ikat', 'Cotton', 'Table Runner'],
+      laborDays: 5,
+      rawMaterialCost: 1400,
+      stage: 'SELLABLE',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 10,
+      imageIndex: 4,
+    },
   ],
 
   imran: [
@@ -581,6 +680,39 @@ const ITEMS: Record<string, ItemSeed[]> = {
       catalogMethod: 'IVR',
       createdDaysAgo: 1,
       imageIndex: 1,
+    },
+    {
+      title: 'Blue Pottery Planter — 8 inch, Pierced Rim',
+      descriptionEnglish:
+        'Eight-inch quartz-body planter with a pierced rim and drainage hole, cobalt vine on a white ground.',
+      descriptionOriginal: 'आठ इंच का जालीदार किनारे वाला ब्लू पॉटरी गमला।',
+      aiGeneratedListing:
+        'An eight-inch planter with the rim pierced by hand before firing, cobalt vine on white, drainage hole cut at the base. The quartz body will not hold damp the way terracotta does.',
+      aiSuggestedCategory: 'Pottery & Ceramics',
+      tags: ['Blue Pottery', 'Planter', 'Cobalt'],
+      laborDays: 9,
+      rawMaterialCost: 1700,
+      stage: 'LISTED',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 30,
+      imageIndex: 3,
+      secondImageIndex: 4,
+    },
+    {
+      title: 'Blue Pottery Tile Set — 4 x 4 inch, Set of 9',
+      descriptionEnglish:
+        'Nine hand-painted 4-inch tiles that assemble into one continuous floral panel, glazed and ready to set.',
+      descriptionOriginal: 'नौ हाथ से चित्रित चार इंच की ब्लू पॉटरी टाइलें।',
+      aiGeneratedListing:
+        'Nine four-inch tiles painted as one continuous floral panel, so the vine carries across the grout lines when they are set together.',
+      aiSuggestedCategory: 'Home Décor',
+      tags: ['Blue Pottery', 'Tiles', 'Floral'],
+      laborDays: 7,
+      rawMaterialCost: 1350,
+      stage: 'SELLABLE',
+      catalogMethod: 'IVR',
+      createdDaysAgo: 11,
+      imageIndex: 4,
     },
   ],
 
@@ -660,6 +792,39 @@ const ITEMS: Record<string, ItemSeed[]> = {
       catalogMethod: 'VOICE',
       createdDaysAgo: 5,
       imageIndex: 1,
+    },
+    {
+      title: 'Dhokra Brass Tribal Horse — 11 inch',
+      descriptionEnglish:
+        'Eleven-inch standing horse in cast brass, lost-wax method, with the characteristic wound-thread surface intact.',
+      descriptionOriginal: 'ग्यारह इंच का ढोकरा पीतल घोड़ा।',
+      aiGeneratedListing:
+        'An eleven-inch horse, wax thread wound over the clay core so the whole surface reads as fine coiled line. One pour, one mould, broken to free it.',
+      aiSuggestedCategory: 'Metal Craft',
+      tags: ['Dhokra', 'Brass', 'Horse', 'Lost Wax'],
+      laborDays: 18,
+      rawMaterialCost: 3900,
+      stage: 'LISTED',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 37,
+      imageIndex: 3,
+      secondImageIndex: 4,
+    },
+    {
+      title: 'Dhokra Brass Oil Lamp (Diya) — Set of 3',
+      descriptionEnglish:
+        'Three graduated cast-brass diyas on tripod feet, the tallest 5 inches, each with a thread-work stem.',
+      descriptionOriginal: 'तीन ढोकरा पीतल दीये, अलग-अलग ऊँचाई।',
+      aiGeneratedListing:
+        'Three diyas in graduated heights, the tallest five inches, each on tripod feet with the wax-thread texture running up the stem.',
+      aiSuggestedCategory: 'Metal Craft',
+      tags: ['Dhokra', 'Brass', 'Diya', 'Festival'],
+      laborDays: 8,
+      rawMaterialCost: 2000,
+      stage: 'SELLABLE',
+      catalogMethod: 'IVR',
+      createdDaysAgo: 9,
+      imageIndex: 4,
     },
   ],
 
@@ -741,6 +906,39 @@ const ITEMS: Record<string, ItemSeed[]> = {
       createdDaysAgo: 2,
       imageIndex: 2,
     },
+    {
+      title: 'Kutch Mirror Work Bridal Odhani',
+      descriptionEnglish:
+        'Full bridal odhani in madder-red cotton, 2.5m, with dense abhla-bharat across the ends and a mirrored centre medallion.',
+      descriptionOriginal: 'લાલ કાપડની આભલા ભરતકામવાળી લગ્નની ઓઢણી.',
+      aiGeneratedListing:
+        'A bridal odhani, two and a half metres of madder-red cotton, worked end to end in abhla-bharat with a mirrored medallion at the centre. Thirty-one days of daylight stitching.',
+      aiSuggestedCategory: 'Textile Art',
+      tags: ['Kutch', 'Mirror Work', 'Bridal', 'Odhani'],
+      laborDays: 31,
+      rawMaterialCost: 4200,
+      stage: 'LISTED',
+      catalogMethod: 'VOICE',
+      createdDaysAgo: 39,
+      imageIndex: 3,
+      secondImageIndex: 4,
+    },
+    {
+      title: 'Kutch Embroidered Camel Belt',
+      descriptionEnglish:
+        'Traditional Rabari camel belt, 4 feet, in wool and cotton with mirror rosettes and woollen tassels at both ends.',
+      descriptionOriginal: 'ઊન અને કપાસની આભલાવાળી ઊંટની પટ્ટી.',
+      aiGeneratedListing:
+        'The Rabari camel belt, four feet of wool and cotton with mirror rosettes down its length and woollen tassels at both ends. A working piece, made the way it always was.',
+      aiSuggestedCategory: 'Textile Art',
+      tags: ['Kutch', 'Rabari', 'Mirror Work', 'Wool'],
+      laborDays: 12,
+      rawMaterialCost: 1800,
+      stage: 'SELLABLE',
+      catalogMethod: 'MANUAL',
+      createdDaysAgo: 8,
+      imageIndex: 4,
+    },
   ],
 };
 
@@ -757,7 +955,8 @@ const LANGUAGE_CODE: Record<ArtisanSeed['language'], string> = {
 async function main() {
   console.log('Seeding KARIGARI database...\n');
 
-  const images = await buildSeedImages(3, ARTISANS.length);
+  // 5 photos per craft so seven items per artisan can each look different.
+  const images = await buildSeedImages(5, ARTISANS.length);
   console.log('');
 
   // FK-safe wipe, unchanged order.

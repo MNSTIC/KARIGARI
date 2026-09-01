@@ -1,0 +1,8 @@
+<!-- Simplified brand-coloured glyph: Flipkart's blue tile with the yellow
+     shopping-bag mark. Not the official wordmark. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Flipkart">
+  <rect width="32" height="32" rx="7" fill="#2874F0"/>
+  <path d="M11 11h10v10.5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 11 21.5z" fill="#FFE11B"/>
+  <path d="M13.4 12.2v-1.1a2.6 2.6 0 0 1 5.2 0v1.1" fill="none" stroke="#2874F0" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M13.2 16.6h5.6" stroke="#2874F0" stroke-width="1.4" stroke-linecap="round"/>
+</svg>

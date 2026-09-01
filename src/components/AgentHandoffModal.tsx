@@ -244,9 +244,9 @@ export function AgentHandoffModal({ isOpen, onClose, item }: AgentHandoffModalPr
                 <h4 className="text-xs font-bold text-white/70 uppercase tracking-wider mb-1 flex items-center gap-2"><Sparkles size={14}/> Dynamic Pricing Assistant</h4>
                 <p className="text-[13px] text-white/80 mb-3">AI-suggested optimal selling price based on current Diwali season demand, {item.laborDays} labor days, and raw material costs:</p>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-serif font-bold text-[#F3EEEB]">₹{item.marketPriceMin?.toLocaleString() || 2500}</span>
+                  <span className="text-3xl font-sans font-bold text-[#F3EEEB]">₹{item.marketPriceMin?.toLocaleString() || 2500}</span>
                   <span className="text-xl text-white/50">-</span>
-                  <span className="text-3xl font-serif font-bold text-[#F3EEEB]">₹{item.marketPriceMax?.toLocaleString() || 3200}</span>
+                  <span className="text-3xl font-sans font-bold text-[#F3EEEB]">₹{item.marketPriceMax?.toLocaleString() || 3200}</span>
                 </div>
               </div>
 

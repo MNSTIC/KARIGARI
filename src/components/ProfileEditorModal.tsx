@@ -17,7 +17,7 @@ interface ProfileEditorModalProps {
 
 export function ProfileEditorModal({ isOpen, onClose, artisanData, onSaved }: ProfileEditorModalProps) {
   const { language } = useLanguage();
-  const [photoUrl, setPhotoUrl] = useState(artisanData?.photoUrl || "/female_artisan.jpg");
+  const [photoUrl, setPhotoUrl] = useState(artisanData?.photoUrl || "");
   const [name, setName] = useState(artisanData?.name || "");
   const [mobileNumber, setMobileNumber] = useState(artisanData?.mobileNumber || "");
   const [aadhaarLast4, setAadhaarLast4] = useState(artisanData?.aadhaarLast4 || "");
@@ -38,7 +38,7 @@ export function ProfileEditorModal({ isOpen, onClose, artisanData, onSaved }: Pr
   // otherwise edits abandoned with Cancel survive and get written on the next save.
   useEffect(() => {
     if (isOpen && artisanData) {
-      setPhotoUrl(artisanData.photoUrl || "/female_artisan.jpg");
+      setPhotoUrl(artisanData.photoUrl || "");
       setName(artisanData.name || "");
       setMobileNumber(artisanData.mobileNumber || "");
       setAadhaarLast4(artisanData.aadhaarLast4 || "");

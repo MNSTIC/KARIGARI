@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { ArrowRight, ShieldCheck, HandCoins, Building2, TrendingUp, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, CheckCircle2 } from 'lucide-react';
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 import { useLanguage } from "@/lib/translations";
@@ -157,46 +157,6 @@ export default function LandingPage() {
         </div>
       </main>
 
-      {/* Footer Stats Banner */}
-      <div className="bg-primary text-white py-12 mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 divide-x divide-white/20">
-            
-            <div className="flex flex-col items-center justify-center px-4 text-center">
-              <div className="bg-white/10 p-3 rounded-xl mb-4">
-                <TrendingUp className="w-6 h-6 text-green-300" />
-              </div>
-              <h4 className="text-3xl font-bold mb-1">25K+</h4>
-              <p className="text-primary-light font-medium text-sm">{t('stat_artisans_onboarded')}</p>
-            </div>
-            
-            <div className="flex flex-col items-center justify-center px-4 text-center">
-              <div className="bg-white/10 p-3 rounded-xl mb-4">
-                <ShieldCheck className="w-6 h-6 text-green-300" />
-              </div>
-              <h4 className="text-3xl font-bold mb-1">1.2L+</h4>
-              <p className="text-primary-light font-medium text-sm">{t('stat_items_verified')}</p>
-            </div>
-            
-            <div className="flex flex-col items-center justify-center px-4 text-center">
-              <div className="bg-white/10 p-3 rounded-xl mb-4">
-                <HandCoins className="w-6 h-6 text-green-300" />
-              </div>
-              <h4 className="text-3xl font-bold mb-1">₹48Cr+</h4>
-              <p className="text-primary-light font-medium text-sm">{t('stat_fair_pay')}</p>
-            </div>
-            
-            <div className="flex flex-col items-center justify-center px-4 text-center">
-              <div className="bg-white/10 p-3 rounded-xl mb-4">
-                <Building2 className="w-6 h-6 text-green-300" />
-              </div>
-              <h4 className="text-3xl font-bold mb-1">200+</h4>
-              <p className="text-primary-light font-medium text-sm">{t('stat_cooperatives')}</p>
-            </div>
-
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

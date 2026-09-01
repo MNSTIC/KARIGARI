@@ -224,17 +224,13 @@ function ProductCard({ item }: { item: MarketItem }) {
               ONDC
             </span>
           )}
-          {item.artisan.giTagCertified && (
-            <span className="bg-[var(--color-mint)] text-primary text-[10px] font-bold px-2 py-1 rounded-md">
-              GI Tag
-            </span>
-          )}
         </div>
 
         <div className="mt-auto pt-4 border-t border-gray-100 flex items-end justify-between">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{t('price_label')}</p>
-            <p className="text-xl font-serif font-bold text-primary">{formatRupees(price)}</p>
+            {/* font-sans: Playfair ships without U+20B9, so ₹ renders as tofu in serif. */}
+            <p className="text-xl font-sans font-bold text-primary">{formatRupees(price)}</p>
           </div>
           <span className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-primary text-white">
             View

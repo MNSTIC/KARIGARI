@@ -58,7 +58,7 @@ async function searchViaDataApi(query: string): Promise<string[]> {
   try {
     const url =
       `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video` +
-      `&videoEmbeddable=true&maxResults=5&q=${encodeURIComponent(query)}&key=${key}`;
+      `&videoEmbeddable=true&maxResults=12&q=${encodeURIComponent(query)}&key=${key}`;
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) {
       console.warn('[chat] YouTube Data API failed:', res.status);
@@ -137,12 +137,166 @@ async function searchViaScrape(query: string): Promise<string[]> {
   }
 }
 
-/** First relevance-ranked, embeddable video for the query, or null. */
-async function findTutorial(query: string): Promise<string | null> {
-  const candidates = (await searchViaDataApi(query)) || [];
-  const ids = candidates.length > 0 ? candidates : await searchViaScrape(query);
+/** The subset of `videos.list` we score on. */
+interface VideoStats {
+  id: string;
+  title: string;
+  description: string;
+  channelTitle: string;
+  views: number;
+  durationSeconds: number;
+  embeddable: boolean;
+}
 
-  for (const id of ids.slice(0, 5)) {
+/** ISO-8601 duration ("PT12M30S") -> seconds. */
+function parseDuration(iso: string): number {
+  const m = /^P(?:([\d.]+)D)?T?(?:([\d.]+)H)?(?:([\d.]+)M)?(?:([\d.]+)S)?$/.exec(iso || '');
+  if (!m) return 0;
+  const [, d, h, min, sec] = m;
+  return (
+    (parseFloat(d || '0') * 86400) +
+    (parseFloat(h || '0') * 3600) +
+    (parseFloat(min || '0') * 60) +
+    parseFloat(sec || '0')
+  );
+}
+
+/**
+ * Fetch the signals search does not return.
+ *
+ * `search.list` gives relevance order and nothing else — no view count, no
+ * duration, no description. Taking its first hit meant a 30-second Short with
+ * 40 views could win over a proper 12-minute tutorial, which is exactly what
+ * the artisan does not want.
+ */
+async function fetchVideoStats(ids: string[]): Promise<VideoStats[]> {
+  const key = process.env.YOUTUBE_API_KEY?.trim();
+  if (!key || ids.length === 0) return [];
+
+  try {
+    const url =
+      'https://www.googleapis.com/youtube/v3/videos' +
+      '?part=snippet,statistics,contentDetails,status' +
+      `&id=${ids.join(',')}&key=${key}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) {
+      console.warn('[chat] YouTube videos.list failed:', res.status);
+      return [];
+    }
+
+    const data = await res.json();
+    return (data?.items ?? []).map(
+      (item: {
+        id?: string;
+        snippet?: { title?: string; description?: string; channelTitle?: string };
+        statistics?: { viewCount?: string };
+        contentDetails?: { duration?: string };
+        status?: { embeddable?: boolean };
+      }): VideoStats => ({
+        id: String(item.id ?? ''),
+        title: item.snippet?.title ?? '',
+        description: item.snippet?.description ?? '',
+        channelTitle: item.snippet?.channelTitle ?? '',
+        views: Number(item.statistics?.viewCount ?? 0),
+        durationSeconds: parseDuration(item.contentDetails?.duration ?? ''),
+        embeddable: item.status?.embeddable !== false,
+      })
+    );
+  } catch (error) {
+    console.warn('[chat] YouTube videos.list error:', (error as Error)?.message);
+    return [];
+  }
+}
+
+/** Minimum bar for something to count as a real tutorial rather than a clip. */
+const MIN_DURATION_SECONDS = 90;
+const MAX_DURATION_SECONDS = 60 * 60;
+const MIN_DESCRIPTION_CHARS = 100;
+
+/**
+ * Score one candidate. Higher is better; a negative score disqualifies.
+ *
+ * The weights encode what an artisan asked "how do I do X" actually needs: a
+ * watched, reasonably long, properly described video about their craft — not
+ * whatever happens to rank first.
+ */
+function scoreVideo(video: VideoStats, terms: string[]): number {
+  // Hard gates first.
+  if (!video.embeddable) return -1;
+  if (video.durationSeconds < MIN_DURATION_SECONDS) return -1; // Shorts and clips
+  if (video.durationSeconds > MAX_DURATION_SECONDS) return -1; // full documentaries
+
+  let score = 0;
+
+  // Views, on a log scale so a 10M-view video does not simply always win.
+  if (video.views >= 10_000) score += 30;
+  score += Math.min(25, Math.log10(Math.max(video.views, 1)) * 5);
+
+  // 3-20 minutes is the tutorial sweet spot.
+  const minutes = video.durationSeconds / 60;
+  if (minutes >= 3 && minutes <= 20) score += 20;
+  else if (minutes > 20) score += 6;
+
+  // A real tutorial carries a written description.
+  if (video.description.length > MIN_DESCRIPTION_CHARS) score += 15;
+
+  // Topical match on the craft/technique words, title weighted over description.
+  const title = video.title.toLowerCase();
+  const description = video.description.toLowerCase();
+  for (const term of terms) {
+    if (title.includes(term)) score += 12;
+    else if (description.includes(term)) score += 4;
+  }
+
+  // Explicit tutorial framing.
+  if (/tutorial|how to|step by step|learn|demo|technique/i.test(video.title)) score += 10;
+
+  return score;
+}
+
+/** Significant words from the query, used for the topical match. */
+function queryTerms(query: string): string[] {
+  return Array.from(
+    new Set(
+      query
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((word) => word.length > 3 && !['tutorial', 'step', 'how'].includes(word))
+    )
+  );
+}
+
+/**
+ * Best available tutorial for the query, or null.
+ *
+ * With an API key we score on real signals. Without one the scrape path has no
+ * stats to score, so it falls back to relevance order plus an embeddability
+ * check — better than nothing, and clearly weaker.
+ */
+async function findTutorial(query: string): Promise<string | null> {
+  const terms = queryTerms(query);
+  const candidates = await searchViaDataApi(query);
+
+  if (candidates.length > 0) {
+    const stats = await fetchVideoStats(candidates);
+    const ranked = stats
+      .map((video) => ({ video, score: scoreVideo(video, terms) }))
+      .filter((entry) => entry.score >= 0)
+      .sort((a, b) => b.score - a.score);
+
+    for (const entry of ranked) {
+      // Trust but verify: `status.embeddable` occasionally disagrees with what
+      // the player will actually accept.
+      if (await isEmbeddable(entry.video.id)) return entry.video.id;
+    }
+    // Every candidate was a Short, unembeddable or off-topic — say so by
+    // returning null rather than serving the least-bad one.
+    return null;
+  }
+
+  // No API key: relevance order from the results page is all we have.
+  const scraped = await searchViaScrape(query);
+  for (const id of scraped.slice(0, 5)) {
     if (await isEmbeddable(id)) return id;
   }
   return null;

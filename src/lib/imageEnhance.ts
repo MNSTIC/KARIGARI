@@ -16,8 +16,14 @@
  * happened so the UI can be honest about it.
  */
 
-/** Past this, the cutout is abandoned and the enhanced original is used. */
-const BG_REMOVAL_TIMEOUT_MS = 6000;
+/**
+ * Past this, the cutout is abandoned and the enhanced original is used.
+ *
+ * 12s rather than 6s because we now ask for the higher-quality `isnet` model,
+ * which is a larger download and a slower pass. The fallback is unchanged, so a
+ * slow handset still gets a usable photo — it just does not get the cutout.
+ */
+const BG_REMOVAL_TIMEOUT_MS = 12000;
 
 /** Long edge of the processed image. Keeps the base64 payload sane. */
 const MAX_EDGE = 1400;
@@ -81,6 +87,40 @@ async function enhanceOnCanvas(source: string): Promise<string> {
 
   const frame = ctx.getImageData(0, 0, width, height);
   const px = frame.data;
+
+  // --- Pass 0: grey-world white balance ----------------------------------
+  // Workshop bulbs are strongly yellow, which tints the whole product. The
+  // grey-world assumption says a varied scene should average to neutral grey,
+  // so scaling each channel toward the mean of the three removes the cast
+  // without needing a reference card in the frame.
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    sumR += px[i];
+    sumG += px[i + 1];
+    sumB += px[i + 2];
+  }
+  const pixels = px.length / 4;
+  const avgR = sumR / pixels;
+  const avgG = sumG / pixels;
+  const avgB = sumB / pixels;
+  const grey = (avgR + avgG + avgB) / 3;
+
+  // Only correct a cast worth correcting, and clamp the gain: an image that is
+  // legitimately mostly one colour (a red saree) must not be drained to grey.
+  if (grey > 8 && Math.max(avgR, avgG, avgB) - Math.min(avgR, avgG, avgB) > 4) {
+    const clampGain = (gain: number) => Math.max(0.85, Math.min(1.15, gain));
+    const gainR = clampGain(grey / (avgR || grey));
+    const gainG = clampGain(grey / (avgG || grey));
+    const gainB = clampGain(grey / (avgB || grey));
+
+    for (let i = 0; i < px.length; i += 4) {
+      px[i] = Math.max(0, Math.min(255, px[i] * gainR));
+      px[i + 1] = Math.max(0, Math.min(255, px[i + 1] * gainG));
+      px[i + 2] = Math.max(0, Math.min(255, px[i + 2] * gainB));
+    }
+  }
 
   // --- Pass 1: brightness/contrast normalisation -------------------------
   // Stretch the luminance histogram between its 2nd and 98th percentile, so a
@@ -150,6 +190,50 @@ async function enhanceOnCanvas(source: string): Promise<string> {
 }
 
 /**
+ * Drop a soft contact shadow beneath a transparent cutout, then flatten to white.
+ *
+ * A cutout pasted straight onto white reads as a sticker. A blurred, offset,
+ * low-opacity copy of the subject's own silhouette underneath is what makes it
+ * look photographed on a seamless — the same trick a catalogue shoot gets from
+ * a light table.
+ *
+ * Takes the cutout WITH its alpha intact, so it must run before the enhancement
+ * pass flattens the image.
+ */
+async function compositeWithShadow(cutoutDataUrl: string): Promise<string> {
+  const image = await loadImage(cutoutDataUrl);
+
+  const scale = Math.min(1, MAX_EDGE / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return cutoutDataUrl;
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, width, height);
+
+  // The shadow is the subject drawn in near-black, blurred and nudged down.
+  // Scaled to the image so it looks the same at any resolution.
+  const blur = Math.max(6, Math.round(width * 0.018));
+  const offsetY = Math.max(4, Math.round(height * 0.012));
+
+  ctx.save();
+  ctx.globalAlpha = 0.28;
+  ctx.filter = `blur(${blur}px)`;
+  ctx.drawImage(image, 0, offsetY, width, height);
+  ctx.restore();
+
+  // Then the subject itself, sharp, on top.
+  ctx.drawImage(image, 0, 0, width, height);
+
+  return canvas.toDataURL('image/png');
+}
+
+/**
  * Cap an image and re-encode it as JPEG before it is stored.
  *
  * Camera capture used `canvas.toDataURL("image/png")` — a full-resolution
@@ -206,7 +290,14 @@ export async function enhanceProductPhoto(dataUrl: string): Promise<EnhanceResul
     // Imported lazily so the ~and-then-some WASM bundle is only fetched when an
     // artisan actually uploads a photo, not on every dashboard load.
     const removal = import('@imgly/background-removal').then(({ removeBackground }) =>
-      removeBackground(blob)
+      removeBackground(blob, {
+        // `isnet` is the high-quality matting model; the default trades edge
+        // accuracy for speed, which shows badly on fabric fringes and fringed
+        // saree ends. PNG because the cutout needs its alpha channel for the
+        // contact shadow below.
+        model: 'isnet',
+        output: { format: 'image/png', quality: 0.9 },
+      })
     );
 
     const timeout = new Promise<null>((resolve) =>
@@ -214,7 +305,11 @@ export async function enhanceProductPhoto(dataUrl: string): Promise<EnhanceResul
     );
 
     const result = await Promise.race([removal, timeout]);
-    if (result) cutout = await blobToDataUrl(result as Blob);
+    if (result) {
+      const raw = await blobToDataUrl(result as Blob);
+      // Shadow first, while the alpha channel is still there to trace.
+      cutout = await compositeWithShadow(raw).catch(() => raw);
+    }
   } catch (error) {
     // Unsupported browser, blocked WASM, or a model fetch failure on a weak
     // connection. Not fatal — the capture flow must not stall on it.

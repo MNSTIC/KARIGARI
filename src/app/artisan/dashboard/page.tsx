@@ -15,6 +15,7 @@ import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { formatRupees, getListingPrice } from "@/lib/pricing";
 import { StatCard } from "@/components/ui/StatCard";
+import { Avatar } from "@/components/ui/Avatar";
 
 /**
  * Modals are code-split out of the first paint.
@@ -217,7 +218,7 @@ export default function ArtisanDashboard() {
             className="w-[34px] h-[34px] rounded-full overflow-hidden border border-gray-200 cursor-pointer shadow-sm hover:ring-2 hover:ring-[#24332C] transition-all ml-2"
             onClick={() => setIsProfileEditorOpen(true)}
           >
-            <Image src={dashboardData?.artisanProfile?.photoUrl || "/female_artisan.jpg"} alt="Avatar" width={34} height={34} className="object-cover w-full h-full" />
+            <Avatar name={dashboardData?.artisanName} src={dashboardData?.artisanProfile?.photoUrl} size={34} />
           </div>
 
           <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 transition-colors ml-2" title="Logout">
@@ -232,7 +233,7 @@ export default function ArtisanDashboard() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between py-4 mb-6 bg-white rounded-2xl shadow-sm border border-gray-100 px-6 gap-6">
           <div className="flex items-center gap-4">
             <div className="w-[52px] h-[52px] rounded-full overflow-hidden border-2 border-gray-100 shadow-sm shrink-0">
-              <Image src={dashboardData?.artisanProfile?.photoUrl || "/female_artisan.jpg"} alt="Profile" width={52} height={52} className="object-cover w-full h-full" />
+              <Avatar name={dashboardData?.artisanName} src={dashboardData?.artisanProfile?.photoUrl} size={52} />
             </div>
             <div>
               <div className="text-[16px] font-bold text-gray-900 flex items-center flex-wrap gap-2">
@@ -240,11 +241,6 @@ export default function ArtisanDashboard() {
                 <span className="inline-flex items-center bg-green-50 text-green-700 border border-green-200 text-[10.5px] font-bold px-2.5 py-0.5 rounded-full">
                   ✓ {t('verified_badge')}
                 </span>
-                {dashboardData?.artisanProfile?.giTagCertified && (
-                  <span className="inline-flex items-center bg-orange-50 text-orange-700 border border-orange-200 text-[10.5px] font-bold px-2.5 py-0.5 rounded-full">
-                    <Award size={10} className="mr-1" /> GI Tag
-                  </span>
-                )}
               </div>
               <div className="text-[13px] text-gray-500 mt-1 font-medium flex items-center gap-1">
                 <MapPin size={12} /> {dashboardData?.artisanProfile?.clusterName || 'Local Cluster'} · {dashboardData?.artisanProfile?.craftType || 'Artisan'}
@@ -359,7 +355,9 @@ export default function ArtisanDashboard() {
           {/* Action 6 (Live News) */}
           <Link href="/artisan/news" className="rounded-3xl p-8 flex flex-col justify-between min-h-[160px] bg-white border border-gray-200 shadow-sm transition-all hover:-translate-y-1 hover:border-gray-300 hover:shadow-md group">
             <div>
-              <div className="w-12 h-12 rounded-2xl bg-green-50 text-[#24332C] flex items-center justify-center mb-6">
+              {/* Red, matching the news page header — this tile read as pink
+                  against the mint chips around it. */}
+              <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mb-6">
                 <Newspaper size={24} />
               </div>
               <div className="text-xl font-bold text-gray-900 mb-2">{t('live_news_title')}</div>
@@ -607,7 +605,14 @@ export default function ArtisanDashboard() {
           Each is mounted only while it is open. `dynamic()` fetches a chunk when
           the component RENDERS, so leaving them mounted with isOpen={false}
           would download every modal on first paint and defeat the split. */}
-      {isModalOpen && <CaptureModal isOpen onClose={handleModalClose} />}
+      {isModalOpen && (
+        <CaptureModal
+          isOpen
+          onClose={handleModalClose}
+          artisanName={dashboardData?.artisanName}
+          artisanPhotoUrl={dashboardData?.artisanProfile?.photoUrl}
+        />
+      )}
 
       {(isSellModalOpen || isCrossCheckModalOpen) && (
         <AgentHandoffModal

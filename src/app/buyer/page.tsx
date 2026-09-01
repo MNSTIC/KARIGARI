@@ -17,16 +17,25 @@ import {
 } from "lucide-react";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import Image from "next/image";
+import Link from "next/link";
 import { LogisticsMap } from "@/components/LogisticsMap";
 import { PostDemandModal, type PostedDemand } from "@/components/PostDemandModal";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/translations";
+import { Avatar } from "@/components/ui/Avatar";
 import { cn } from "@/lib/utils";
 
 /** Buyers have no account yet — the display name is remembered in this browser only. */
 const BUYER_NAME_KEY = "karigari_buyer_name";
 const DEFAULT_BUYER = "Rajesh Retailers";
 
+/**
+ * Prices render in the sans face on purpose.
+ *
+ * Playfair Display is loaded with only the `latin` subset, which does not carry
+ * U+20B9 (the rupee sign), so any price inside a `font-serif` element fell back
+ * per-glyph and showed as tofu/"?" for the symbol. Inter has it.
+ */
 function rupees(value?: number | null): string {
   return value || value === 0 ? `₹${value.toLocaleString("en-IN")}` : "—";
 }
@@ -37,6 +46,21 @@ function priceLabel(demand: PostedDemand): string {
   if (max) return `≤ ${rupees(max)}`;
   if (min) return `≥ ${rupees(min)}`;
   return "—";
+}
+
+/** One real listed item that satisfies a demand. */
+interface MatchRow {
+  id: string;
+  craftType: string;
+  patchId: string | null;
+  image: string | null;
+  price: number;
+  fairWageFloor: number | null;
+  artisanName: string;
+  clusterName: string | null;
+  location: string | null;
+  photoUrl: string | null;
+  experienceYears: number | null;
 }
 
 export default function BuyerDashboard() {
@@ -52,6 +76,14 @@ export default function BuyerDashboard() {
 
   // The artisan-match panel is an explicit simulation, kept per demand.
   const [quoteState, setQuoteState] = useState<Record<string, "pending" | "quoted" | "accepted">>({});
+
+  /**
+   * Real listed stock per demand, from /api/demand/match. Replaces the old
+   * setTimeout that "found" an invented artisan and quoted the buyer's own
+   * target ceiling back at them.
+   */
+  const [matches, setMatches] = useState<Record<string, MatchRow[]>>({});
+  const [matchError, setMatchError] = useState<Record<string, string>>({});
 
   useEffect(() => {
     // Deferred by a macrotask so the effect body performs no synchronous
@@ -139,9 +171,29 @@ export default function BuyerDashboard() {
     );
   };
 
-  const simulateMatch = (id: string) => {
+  /**
+   * Ask the DB what actually exists for this demand. Named `findMatches` rather
+   * than `simulateMatch` because nothing is simulated any more.
+   */
+  const findMatches = async (id: string) => {
     setQuoteState((prev) => ({ ...prev, [id]: "pending" }));
-    setTimeout(() => setQuoteState((prev) => ({ ...prev, [id]: "quoted" })), 1500);
+    setMatchError((prev) => ({ ...prev, [id]: "" }));
+    try {
+      const res = await fetch(`/api/demand/match?demandId=${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.matches) && data.matches.length > 0) {
+        setMatches((prev) => ({ ...prev, [id]: data.matches }));
+        setQuoteState((prev) => ({ ...prev, [id]: "quoted" }));
+      } else {
+        // Honest empty state: no artisan currently has matching stock listed.
+        setMatchError((prev) => ({ ...prev, [id]: t("no_matches_yet") }));
+      }
+    } catch (e) {
+      console.error("Demand match failed:", e);
+      setMatchError((prev) => ({ ...prev, [id]: t("match_failed") }));
+    }
   };
 
   // Shipping is quoted off the real order size rather than a fixed sticker price.
@@ -163,9 +215,7 @@ export default function BuyerDashboard() {
           </span>
         </div>
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-8 h-8 bg-gray-200 rounded-full overflow-hidden shrink-0">
-            <Image src="/female_artisan.jpg" alt="Buyer" width={32} height={32} className="object-cover" />
-          </div>
+          <Avatar name={buyerName} size={32} />
           <div className="hidden sm:block min-w-0">
             <div className="text-sm font-bold text-gray-900 truncate">{buyerName}</div>
             <div className="text-[10px] text-gray-500 font-medium">{t("verified_buyer")}</div>
@@ -292,17 +342,17 @@ export default function BuyerDashboard() {
 
                   {isSelected && (
                     <div className="p-6 bg-gray-50">
-                      {demandState === "pending" ? (
+                      {demandState !== "quoted" && demandState !== "accepted" ? (
                         <div className="text-center py-8">
                           <Search className="mx-auto text-gray-300 mb-3" size={32} />
                           <p className="text-gray-500 font-medium text-sm mb-4">
-                            {t("matchmaker_searching")}
+                            {matchError[demand.id] || t("matchmaker_searching")}
                           </p>
                           <button
-                            onClick={() => simulateMatch(demand.id)}
+                            onClick={() => findMatches(demand.id)}
                             className="text-xs font-bold bg-white text-primary px-4 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
                           >
-                            {t("simulate_artisan_match")}
+                            {t("find_artisan_match")}
                           </button>
                         </div>
                       ) : (
@@ -311,41 +361,80 @@ export default function BuyerDashboard() {
                             <CheckCircle2 className="text-green-500" size={18} /> {t("match_found")}
                           </div>
 
-                          <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-card">
-                            <div className="flex flex-wrap justify-between items-start gap-3 mb-4">
-                              <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 bg-gray-200 rounded-full overflow-hidden">
-                                  <Image
-                                    src="/female_artisan.jpg"
-                                    alt="Artisan"
-                                    width={48}
-                                    height={48}
-                                    className="object-cover"
-                                  />
-                                </div>
-                                <div>
-                                  <div className="font-bold text-gray-900 flex items-center gap-2">
-                                    {t("verified_artisan_cluster")}{" "}
-                                    <ShieldCheck size={14} className="text-blue-500" />
+                          {/* Real listed stock, straight from the DB. Each row
+                              is an actual CraftItem an artisan has published,
+                              at the price they are genuinely asking. */}
+                          {(matches[demand.id] ?? []).map((match) => (
+                            <div
+                              key={match.id}
+                              className="bg-white border border-gray-200 rounded-xl p-5 shadow-card mb-4"
+                            >
+                              <div className="flex flex-wrap justify-between items-start gap-3 mb-4">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <Avatar name={match.artisanName} src={match.photoUrl} size={48} />
+                                  <div className="min-w-0">
+                                    <div className="font-bold text-gray-900 flex items-center gap-2">
+                                      <span className="truncate">{match.artisanName}</span>
+                                      <ShieldCheck size={14} className="text-blue-500 shrink-0" />
+                                    </div>
+                                    <div className="text-xs text-gray-500 truncate">
+                                      {match.clusterName || match.location || match.craftType}
+                                      {match.experienceYears
+                                        ? ` · ${match.experienceYears} ${t("years_experience")}`
+                                        : ""}
+                                    </div>
                                   </div>
-                                  <div className="text-xs text-gray-500">
-                                    {t("simulated_match_note")}
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-sm font-bold text-gray-500">
+                                    {t("listed_price")}
+                                  </div>
+                                  {/* font-sans: the rupee glyph is absent from
+                                      the serif face and renders as tofu there. */}
+                                  <div className="text-2xl font-black text-primary font-sans">
+                                    {rupees(match.price)}
+                                    <span className="text-sm font-normal text-gray-500">
+                                      {" "}
+                                      / {t("unit")}
+                                    </span>
                                   </div>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <div className="text-sm font-bold text-gray-500">{t("quoted_price")}</div>
-                                <div className="text-2xl font-black text-primary">
-                                  {rupees(
-                                    demand.targetPriceMax ??
-                                      demand.targetPriceMin ??
-                                      null
+
+                              <div className="flex flex-wrap items-center gap-3">
+                                {match.image && (
+                                  <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-200 shrink-0">
+                                    <Image
+                                      src={match.image}
+                                      alt={match.craftType}
+                                      fill
+                                      sizes="64px"
+                                      unoptimized={match.image.startsWith("data:")}
+                                      className="object-cover"
+                                    />
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-bold text-gray-900 truncate">
+                                    {match.craftType}
+                                  </p>
+                                  {match.patchId && (
+                                    <p className="text-[11px] font-mono text-gray-400 truncate">
+                                      {match.patchId}
+                                    </p>
                                   )}
-                                  <span className="text-sm font-normal text-gray-500"> / {t("unit")}</span>
                                 </div>
+                                <Link
+                                  href={`/marketplace/product/${match.id}`}
+                                  className="text-xs font-bold bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors whitespace-nowrap shrink-0"
+                                >
+                                  {t("view_listing")}
+                                </Link>
                               </div>
                             </div>
+                          ))}
 
+                          <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-card">
                             <div className="bg-[var(--color-mint)] rounded-lg p-4 mb-4 border border-[var(--color-sage)]/50">
                               <h4 className="text-xs font-bold text-primary uppercase tracking-wider mb-2 flex items-center gap-2">
                                 <TrendingUp size={14} /> {t("fair_wage_guarantee")}

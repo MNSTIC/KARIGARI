@@ -31,6 +31,22 @@ const CAPTURE_MODELS = ['gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.1-flas
  */
 
 /**
+ * Domain vocabulary handed to Whisper as a decoding prompt.
+ *
+ * These are the words that get mangled without it — craft names, techniques,
+ * materials and loom parts that no general-purpose model has strong priors for.
+ */
+const CRAFT_GLOSSARY = [
+  'Sambalpuri, Pochampally, Pattachitra, Dhokra, Bandhani, Kalamkari, Chikankari,',
+  'ikat, bandha, telia rumal, pasapali, bichitrapuri, abhla bharat, chikan,',
+  'tussar, mulberry silk, muga, eri, cotton, jute, terracotta, brass, dokra,',
+  'warp, weft, pit loom, handloom, powerloom, lost wax, resist dyeing,',
+  'natural dye, indigo, madder, hingula, haritala, lac,',
+  'saree, dupatta, stole, toran, chakla, potli, patta, chitra,',
+  'labour days, raw material cost, rupees.',
+].join(' ');
+
+/**
  * UI language code -> ISO-639-1 hint for Whisper.
  *
  * **Odia is deliberately absent.** `whisper-large-v3` supports 100 languages
@@ -53,6 +69,41 @@ function whisperLanguageCode(language?: string | null): string | null {
 }
 
 /**
+ * Transcribe with Gemini instead of Whisper.
+ *
+ * This exists because `whisper-large-v3` has no Odia support at all — the hint
+ * is rejected, auto-detect misfires, and an Odia speaker gets back nonsense.
+ * Gemini accepts audio directly and does handle Odia, so it covers the gap and
+ * doubles as a second opinion when Whisper returns something implausible.
+ */
+async function transcribeWithGemini(audio: Blob, language?: string | null): Promise<string | null> {
+  try {
+    const base64 = Buffer.from(await audio.arrayBuffer()).toString('base64');
+    const name = languageName(language);
+
+    const prompt = `Transcribe this audio recording of an Indian artisan describing a handmade craft.
+Write the transcript VERBATIM in ${name}, in that language's own script. Do not translate it, do not
+summarise it, do not add commentary. Craft vocabulary you may hear: ${CRAFT_GLOSSARY}
+Return only the transcript text.`;
+
+    const result = await generateContentWithFallback(
+      [
+        { text: prompt },
+        { inlineData: { data: base64, mimeType: audio.type || 'audio/webm' } },
+      ],
+      {},
+      CAPTURE_MODELS
+    );
+
+    const text = (typeof result === 'string' ? result : (result as { text?: string })?.text || '').trim();
+    return text || null;
+  } catch (error) {
+    console.warn('[voiceParse] Gemini transcription failed:', (error as Error)?.message);
+    return null;
+  }
+}
+
+/**
  * Transcribe recorded audio with Groq Whisper.
  *
  * This is what lets an artisan speak Odia or Telugu into the app at all: the
@@ -66,10 +117,22 @@ export async function transcribeAudio(
   audio: Blob,
   language?: string | null
 ): Promise<string | null> {
+  // Odia never goes to Whisper: the model does not support it, so the result
+  // would be an auto-detected guess in the wrong language.
+  const whisperCode = whisperLanguageCode(language);
+  const isUnsupported = Boolean(language) && whisperCode === null;
+
+  if (isUnsupported) {
+    const viaGemini = await transcribeWithGemini(audio, language);
+    if (viaGemini) return viaGemini;
+    // Gemini unreachable — fall through and let Whisper auto-detect, which is
+    // worse but still better than returning nothing.
+  }
+
   const key = groqKey();
   if (!key) {
-    console.warn('[voiceParse] GROQ_API_KEY not set — cannot transcribe audio');
-    return null;
+    console.warn('[voiceParse] GROQ_API_KEY not set — trying Gemini for audio');
+    return transcribeWithGemini(audio, language);
   }
 
   try {
@@ -79,16 +142,15 @@ export async function transcribeAudio(
     form.append('response_format', 'json');
 
     // Without a hint Whisper auto-detects, and on a short clip it routinely
-    // picks the wrong language — an Odia sentence comes back as Hindi-ish
-    // nonsense. The artisan has already told us which language they speak, so
-    // pass it rather than making the model guess.
-    const iso = whisperLanguageCode(language);
-    if (iso) form.append('language', iso);
+    // picks the wrong language. The artisan has already told us which language
+    // they speak, so pass it rather than making the model guess.
+    if (whisperCode) form.append('language', whisperCode);
 
-    // Deterministic decoding, plus a domain nudge so craft vocabulary
-    // ("ikat", "saree", "warp") is transcribed rather than approximated.
+    // Deterministic decoding, plus a domain glossary. Whisper biases toward
+    // words in `prompt`, so listing the vocabulary an artisan actually uses
+    // stops "bandha" becoming "banda" and "tussar" becoming "tussore".
     form.append('temperature', '0');
-    form.append('prompt', 'Indian handmade craft description');
+    form.append('prompt', CRAFT_GLOSSARY);
 
     const res = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
       method: 'POST',
@@ -98,15 +160,18 @@ export async function transcribeAudio(
 
     if (!res.ok) {
       console.warn('[voiceParse] Groq Whisper failed:', (await res.text()).slice(0, 300));
-      return null;
+      return transcribeWithGemini(audio, language);
     }
 
     const data = await res.json();
     const text = typeof data?.text === 'string' ? data.text.trim() : '';
-    return text || null;
+    // Empty or a couple of stray characters means Whisper heard nothing usable;
+    // Gemini gets a turn before the caller is told transcription failed.
+    if (text.length < 3) return transcribeWithGemini(audio, language);
+    return text;
   } catch (e) {
     console.warn('[voiceParse] Groq Whisper error:', (e as Error)?.message);
-    return null;
+    return transcribeWithGemini(audio, language);
   }
 }
 
@@ -203,6 +268,23 @@ Use null when they said nothing about it.
 FOLLOW-UP — if anything is missing, write "followUpQuestion": ONE short, warm sentence written in
 ${followUpLanguage}, asking only for the missing item(s). Do not ask for anything already stated.
 When nothing is missing, "followUpQuestion" must be an empty string.
+
+RULES
+- "originalTranscript" must repeat the artisan's own words EXACTLY as spoken, in their own script.
+  Never translate, tidy or shorten it — that text goes on the public product passport.
+- "englishDescription" is a faithful English translation. Do not embellish.
+- NEVER invent a number. If a quantity was not spoken, mark it unstated and estimate separately.
+
+EXAMPLES
+
+Input (Hindi): "यह बनारसी सिल्क साड़ी है, इसे बनाने में बारह दिन लगे, रेशम का धागा तीन हज़ार का लगा"
+Output: {"sourceLanguage":"Hindi","originalTranscript":"यह बनारसी सिल्क साड़ी है, इसे बनाने में बारह दिन लगे, रेशम का धागा तीन हज़ार का लगा","englishDescription":"A Banarasi silk saree. It took twelve days to make, and the silk thread cost three thousand rupees.","craftType":"Banarasi Silk Saree","laborDays":12,"rawMaterialCost":3000,"statedProduct":true,"statedTime":true,"statedMaterials":true,"missing":[],"followUpQuestion":"","technique":"silk thread"}
+
+Input (Odia): "ମୁଁ ଏକ ସମ୍ବଲପୁରୀ ଶାଢ଼ୀ ବୁଣିଛି"
+Output: {"sourceLanguage":"Odia","originalTranscript":"ମୁଁ ଏକ ସମ୍ବଲପୁରୀ ଶାଢ଼ୀ ବୁଣିଛି","englishDescription":"I have woven a Sambalpuri saree.","craftType":"Sambalpuri Saree","laborDays":14,"rawMaterialCost":4000,"statedProduct":true,"statedTime":false,"statedMaterials":false,"missing":["time","materials"],"followUpQuestion":"ଏହା ବୁଣିବାକୁ କେତେ ଦିନ ଲାଗିଲା ଏବଂ କେଉଁ ସାମଗ୍ରୀ ବ୍ୟବହାର କରିଛନ୍ତି?","technique":null}
+
+Input (Telugu): "పది రోజులు పట్టింది, స్వచ్ఛమైన పట్టు దారం వాడాను"
+Output: {"sourceLanguage":"Telugu","originalTranscript":"పది రోజులు పట్టింది, స్వచ్ఛమైన పట్టు దారం వాడాను","englishDescription":"It took ten days. I used pure silk thread.","craftType":"Handwoven Silk","laborDays":10,"rawMaterialCost":3500,"statedProduct":false,"statedTime":true,"statedMaterials":true,"missing":["product"],"followUpQuestion":"మీరు ఏమి తయారు చేశారో చెప్పగలరా?","technique":"pure silk thread"}
 
 Ensure the response format is strictly JSON exactly matching this structure (do not wrap in markdown blocks, just return raw JSON):
 {

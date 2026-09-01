@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { GroqError, firstArray, groqChatJSON, languageInstruction } from '@/lib/groq';
+import { generateContentWithFallback } from '@/lib/gemini';
+import { firstArray, languageInstruction } from '@/lib/groq';
 import { estimateCraftValuation } from '@/lib/pricing';
 
 /**
@@ -18,6 +19,10 @@ import { estimateCraftValuation } from '@/lib/pricing';
  * The recommendation is reconciled against `estimateCraftValuation` — the same
  * function the capture API persists from — and is never allowed below the fair
  * wage floor, whatever the model says.
+ *
+ * Runs on Gemini: it carries more of the Indian retail price knowledge this
+ * question needs than the small Groq chat models available on this account.
+ * Every other Groq surface is unchanged.
  */
 export const dynamic = 'force-dynamic';
 
@@ -54,7 +59,7 @@ export async function POST(req: Request) {
   const bandMin = Math.round(valuation.marketPriceMin);
   const bandMax = Math.round(valuation.marketPriceMax);
 
-  const prompt = `You are a pricing analyst for Indian handicrafts.
+  const prompt = `You are an e-commerce pricing oracle for Indian handicrafts.
 
 CRAFT: "${craftType}"
 ARTISAN'S DESCRIPTION: "${description || 'not provided'}"
@@ -78,10 +83,14 @@ Return strict JSON:
 }`;
 
   try {
-    const parsed = await groqChatJSON<Record<string, unknown>>(prompt, {
-      system: 'You are a JSON-only API. You output raw, valid JSON with no markdown formatting.',
-      temperature: 0.3,
+    const result = await generateContentWithFallback([{ text: prompt }], {
+      responseMimeType: 'application/json',
     });
+    const rawText =
+      typeof result === 'string' ? result : (result as { text?: string })?.text || '{}';
+    const parsed = JSON.parse(
+      rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
+    ) as Record<string, unknown>;
 
     const rows = firstArray(parsed.comparables ?? parsed) as Record<string, unknown>[];
     const comparables: Comparable[] = rows
@@ -120,22 +129,18 @@ Return strict JSON:
       comparables,
     });
   } catch (error) {
-    const err = error as GroqError;
-    console.error('Price research error:', err?.message);
+    console.error('Price research error:', (error as Error)?.message);
     return NextResponse.json(
       {
         success: false,
-        error:
-          err?.name === 'GroqError' && err.status === 503
-            ? 'AI service not configured.'
-            : 'Could not estimate comparable prices right now.',
+        error: 'Could not estimate comparable prices right now.',
         // The deterministic valuation still works without the model, so hand it
         // back — the artisan is not left with nothing.
         recommendedPrice: Math.round(valuation.standardMarketPrice),
         floor,
         band: { min: bandMin, max: bandMax },
       },
-      { status: err?.status ?? 502 }
+      { status: 502 }
     );
   }
 }

@@ -27,6 +27,8 @@ import { cn } from "@/lib/utils";
  */
 export function ProductClient({ id }: { id: string }) {
   const { t } = useLanguage();
+  /** Whether the richer AI-drafted listing is expanded. */
+  const [showFullListing, setShowFullListing] = useState(false);
   const [item, setItem] = useState<MarketItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -103,6 +105,15 @@ export function ProductClient({ id }: { id: string }) {
   const description = item
     ? item.descriptionEnglish || item.aiGeneratedListing || item.descriptionOriginal || ""
     : "";
+
+  /**
+   * The marketing copy the AI drafted at capture time. Only offered when it is
+   * actually different from the short description — otherwise "Learn more"
+   * would expand to the same sentence the buyer just read.
+   */
+  const fullListing = item?.aiGeneratedListing?.trim() || "";
+  const hasLongerListing =
+    fullListing.length > 0 && fullListing !== description.trim();
   const images = item?.images?.length ? item.images : [];
 
   return (
@@ -187,11 +198,6 @@ export function ProductClient({ id }: { id: string }) {
                     <CheckCircle2 size={12} /> {t('verified_passport')}
                   </span>
                 )}
-                {(item.giTagApplied || item.artisan.giTagName) && (
-                  <span className="bg-[var(--color-mint)] text-primary text-[11px] font-bold px-2.5 py-1 rounded-full">
-                    {item.giTagApplied || item.artisan.giTagName} GI
-                  </span>
-                )}
                 {item.isOndcLive && (
                   <span className="bg-[var(--color-mint)] text-primary text-[11px] font-bold px-2.5 py-1 rounded-full">
                     {t('live_on_ondc')}
@@ -209,7 +215,7 @@ export function ProductClient({ id }: { id: string }) {
                 {t('handcrafted_by')} <span className="font-bold text-primary">{item.artisan.name}</span>
               </p>
 
-              <p className="text-4xl font-serif font-bold text-primary mb-1">
+              <p className="text-4xl font-sans font-bold text-primary mb-1">
                 {formatRupees(price)}
               </p>
               {item.fairWageFloor !== null && (
@@ -219,9 +225,37 @@ export function ProductClient({ id }: { id: string }) {
               )}
 
               {description && (
-                <p className="text-sm text-gray-600 leading-relaxed mb-6 whitespace-pre-line">
-                  {description}
-                </p>
+                <div className="mb-6">
+                  <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">
+                    {description}
+                  </p>
+
+                  {hasLongerListing && (
+                    <>
+                      {/* grid-rows trick: animates height without needing a
+                          measured pixel value, so the copy can be any length. */}
+                      {/* Plain conditional render with a fade.
+                          The grid-rows 0fr->1fr height trick was tried first and
+                          did not work here: the row resolved to 0px even with an
+                          inline `grid-template-rows: 1fr`, so the panel stayed
+                          invisible. A correct reveal beats an animated one. */}
+                      {showFullListing && (
+                        <p className="mt-3 text-sm text-gray-600 leading-relaxed whitespace-pre-line border-l-2 border-[var(--color-sage)] pl-4 animate-fade-in-up">
+                          {fullListing}
+                        </p>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setShowFullListing((open) => !open)}
+                        aria-expanded={showFullListing}
+                        className="mt-2 text-xs font-bold text-primary underline underline-offset-4 hover:text-primary-dark transition-colors"
+                      >
+                        {showFullListing ? t('show_less') : t('learn_more')}
+                      </button>
+                    </>
+                  )}
+                </div>
               )}
 
               {item.patchId && (

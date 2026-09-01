@@ -5,6 +5,7 @@ import Image from "next/image";
 import { CheckCircle2, ShieldCheck, Clock, MapPin, Scissors, Tag, Info, Mic } from "lucide-react";
 import Link from "next/link";
 import { formatRupees, getListingPrice } from "@/lib/pricing";
+import { Avatar } from "@/components/ui/Avatar";
 
 /**
  * Pinned locale AND time zone. `toLocaleDateString()` with neither renders in
@@ -38,7 +39,7 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
 
   const artisanName = item.artisan?.name || "Unknown Artisan";
   const artisanProfile = item.artisan?.artisanProfile;
-  const photoUrl = artisanProfile?.photoUrl || "/female_artisan.jpg";
+  const photoUrl = artisanProfile?.photoUrl || null;
   const artisanBio = artisanProfile?.description || "An artisan from Pochampally Cooperative dedicated to handloom crafts.";
   const artisanTags = artisanProfile?.tags || ["Artisan"];
 
@@ -129,7 +130,7 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
             {/* Artisan Profile Block */}
             <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center">
               <div className="w-24 h-24 rounded-full overflow-hidden mb-4 border-4 border-primary/20 relative">
-                <Image src={photoUrl} alt={artisanName} fill sizes="96px" className="object-cover" />
+                <Avatar name={artisanName} src={photoUrl} size={96} />
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-1">Crafted by {artisanName}</h3>
               <p className="text-sm text-gray-500 mb-4 px-2">{artisanBio}</p>

@@ -1,0 +1,7 @@
+<!-- Neutral mark for the "local retail / exhibition" comparable, which has no
+     brand. Heritage primary so it sits with the theme. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Local retail">
+  <rect width="32" height="32" rx="7" fill="#24332C"/>
+  <path d="M9 14h14v8a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1z" fill="#DCEBE0"/>
+  <path d="M8.4 10.4h15.2l1.1 3.2a2.1 2.1 0 0 1-4 .5 2.1 2.1 0 0 1-4 0 2.1 2.1 0 0 1-4 0 2.1 2.1 0 0 1-4-.5z" fill="#A9BFB0"/>
+</svg>
