@@ -355,9 +355,7 @@ export default function ArtisanDashboard() {
           {/* Action 6 (Live News) */}
           <Link href="/artisan/news" className="rounded-3xl p-8 flex flex-col justify-between min-h-[160px] bg-white border border-gray-200 shadow-sm transition-all hover:-translate-y-1 hover:border-gray-300 hover:shadow-md group">
             <div>
-              {/* Red, matching the news page header — this tile read as pink
-                  against the mint chips around it. */}
-              <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-green-50 text-[#24332C] flex items-center justify-center mb-6">
                 <Newspaper size={24} />
               </div>
               <div className="text-xl font-bold text-gray-900 mb-2">{t('live_news_title')}</div>

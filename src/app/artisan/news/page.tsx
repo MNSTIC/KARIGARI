@@ -75,9 +75,9 @@ export default function NewsPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-6 mb-8 flex flex-col md:flex-row gap-6 items-center">
-          <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center shrink-0">
-            <Newspaper size={32} className="text-red-600" />
+        <div className="bg-green-50 border border-green-200 rounded-2xl p-6 mb-8 flex flex-col md:flex-row gap-6 items-center">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center shrink-0">
+            <Newspaper size={32} className="text-green-600" />
           </div>
           <div>
             <h2 className="text-lg font-bold text-gray-900 mb-1">Live Updates for {craftName}</h2>
@@ -131,7 +131,7 @@ export default function NewsPage() {
                     <span className={`text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider ${
                       item.type === 'EVENT' ? 'bg-orange-100 text-orange-700' :
                       item.type === 'GOVT_SCHEME' ? 'bg-blue-100 text-blue-700' :
-                      'bg-purple-100 text-purple-700'
+                      'bg-red-50 text-red-600'
                     }`}>
                       {item.type === 'EVENT' ? <Calendar size={12} className="inline mr-1"/> :
                        item.type === 'GOVT_SCHEME' ? <ShieldCheck size={12} className="inline mr-1"/> :
