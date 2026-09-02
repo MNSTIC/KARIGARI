@@ -116,7 +116,7 @@ export async function GET(req: Request) {
     
     const totalWageItems = above + at + below;
     const fairWageData = totalWageItems > 0 ? [
-      { name: "Above Fair Floor", value: Math.round((above / totalWageItems) * 100), color: "#3D624F" },
+      { name: "Above Fair Floor", value: Math.round((above / totalWageItems) * 100), color: "#4A5241" },
       { name: "At Fair Floor", value: Math.round((at / totalWageItems) * 100), color: "#A9BFB0" },
       { name: "Below Fair Floor", value: Math.round((below / totalWageItems) * 100), color: "#B14B39" }
     ] : [

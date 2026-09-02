@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
-  ArrowLeft,
   BellRing,
   CalendarDays,
   CheckCheck,
@@ -14,10 +13,12 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
-import { KarigariLogo } from "@/components/ui/KarigariLogo";
+import { Shell } from "@/components/ui/AppShell";
+import { PageLede, PageTitle } from "@/components/ui/SectionEyebrow";
 import { useLanguage } from "@/lib/translations";
 import { formatRupees } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
+import { DemandRequestCard } from "@/components/ui/DemandRequestCard";
 
 /**
  * The artisan's notifications view.
@@ -55,6 +56,8 @@ interface NotificationRow {
   channel: string;
   read: boolean;
   createdAt: string;
+  /** Set on DEMAND_ALERT rows; what the buyer's request card is keyed on. */
+  relatedDemandId?: string | null;
 }
 
 /** Pinned zone so the date does not shift between server and client render. */
@@ -119,35 +122,23 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--color-background)] font-sans pb-16">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 px-4 sm:px-6 py-3 flex items-center gap-4">
-        <Link
-          href="/artisan/dashboard"
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-        >
-          <ArrowLeft size={20} className="text-gray-700" />
-        </Link>
-        <KarigariLogo variant="dark" showWordmark={true} size={28} />
-      </header>
-
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-serif font-bold text-primary flex items-center gap-3">
-              <BellRing size={26} className="text-primary-light" />
-              {t("notifications_title")}
-            </h1>
-            <p className="text-gray-600 mt-2 text-sm">{t("notifications_subtitle")}</p>
-          </div>
-          {unread > 0 && (
-            <button
-              onClick={markAllRead}
-              className="flex items-center justify-center gap-2 text-sm font-bold text-primary border border-[var(--color-sage)] rounded-xl px-4 py-2.5 hover:bg-[var(--color-mint)] transition-colors shrink-0"
-            >
-              <CheckCheck size={16} /> {t("mark_all_read")}
-            </button>
-          )}
+    <Shell>
+      {/* One subtitle, not two: the lede replaced the paragraph that used to
+          sit beside the "mark all read" action. */}
+      <div className="mb-9 flex flex-wrap items-start justify-between gap-5">
+        <div className="min-w-0">
+          <PageTitle>{t("page_notifications_title")}</PageTitle>
+          <PageLede>{t("notifications_subtitle")}</PageLede>
         </div>
+        {unread > 0 && (
+          <button
+            onClick={markAllRead}
+            className="kg-press mt-2 flex h-12 shrink-0 items-center gap-2 rounded-xl border border-gray-300 px-5 text-sm font-semibold text-gray-800 hover:bg-white"
+          >
+            <CheckCheck size={16} /> {t("mark_all_read")}
+          </button>
+        )}
+      </div>
 
         {loading ? (
           <div className="py-20 flex justify-center">
@@ -325,6 +316,15 @@ export default function NotificationsPage() {
                         <p className="text-sm text-gray-600 leading-relaxed mt-1">
                           {note.message}
                         </p>
+
+                        {/* The buyer's own words and reference photo, so the
+                            decision to take the job is an informed one. */}
+                        {note.relatedDemandId && (
+                          <DemandRequestCard
+                            demandId={note.relatedDemandId}
+                            className="mt-3"
+                          />
+                        )}
                       </div>
                     </div>
                   ))}
@@ -333,7 +333,6 @@ export default function NotificationsPage() {
             </section>
           </div>
         )}
-      </main>
-    </div>
+    </Shell>
   );
 }

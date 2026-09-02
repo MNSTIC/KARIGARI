@@ -57,3 +57,37 @@ export function marketPrice(item: {
 export function imageProps(src: string) {
   return { src, unoptimized: src.startsWith('data:') };
 }
+
+/**
+ * The category a craft belongs to, for the storefront's filter rail.
+ *
+ * The AI's own `aiSuggestedCategory` wins when the capture produced one. Where
+ * it did not, the craft name is matched against the families the marketplace
+ * actually carries — this is a display grouping, not a stored taxonomy, so it
+ * is derived here rather than written back onto the row.
+ */
+const CATEGORY_RULES: { label: string; test: RegExp }[] = [
+  { label: 'Textiles & Weaving', test: /saree|silk|cotton|ikat|weav|textile|loom|fabric|dupatta|shawl|embroider|kantha|bandhani/i },
+  { label: 'Blue Pottery', test: /blue pottery|blue-pottery/i },
+  { label: 'Terracotta', test: /terracotta|clay|earthen/i },
+  { label: 'Pottery & Ceramics', test: /pottery|ceramic|porcelain/i },
+  { label: 'Metalwork (Dhokra)', test: /dhokra|dokra|brass|bronze|bell metal|metal/i },
+  { label: 'Wood Carving', test: /wood|walnut|teak|carv|sandalwood/i },
+  { label: 'Painting & Scrolls', test: /pattachitra|patachitra|madhubani|warli|cheriyal|paint|scroll|miniature/i },
+  { label: 'Jewellery', test: /jewel|jewell|necklace|bangle|earring|silver filigree|filigree/i },
+  { label: 'Bamboo & Cane', test: /bamboo|cane|wicker|basket/i },
+  { label: 'Leather', test: /leather|jutti|mojari/i },
+];
+
+export function categoryFor(item: {
+  aiSuggestedCategory?: string | null;
+  craftType?: string | null;
+  tags?: string[];
+}): string {
+  const suggested = (item.aiSuggestedCategory || '').trim();
+  if (suggested) return suggested;
+
+  const haystack = [item.craftType || '', ...(item.tags || [])].join(' ');
+  const hit = CATEGORY_RULES.find((rule) => rule.test.test(haystack));
+  return hit ? hit.label : 'Other Crafts';
+}

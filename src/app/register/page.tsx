@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import { ShieldCheck, User, MapPin, Briefcase, Info, UserRound } from "lucide-react";
 import { CITY_OPTIONS, locateCity } from "@/lib/indiaGeo";
@@ -10,6 +11,7 @@ import { GENDERS, GENDER_LABELS } from "@/lib/gender";
 import { Avatar } from "@/components/ui/Avatar";
 import { downscaleImage } from "@/lib/imageEnhance";
 import { useLanguage } from "@/lib/translations";
+import { cn } from "@/lib/utils";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -95,73 +97,104 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans selection:bg-primary/20">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <Link href="/" className="flex items-center justify-center gap-2 mb-6 hover:opacity-80 transition-opacity">
-          <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
-            <span className="text-white font-serif font-bold text-xl">K</span>
-          </div>
-          <span className="font-serif font-bold text-2xl tracking-tight text-gray-900">KARIGARI</span>
-        </Link>
-        <h2 className="mt-6 text-center text-3xl font-serif font-bold text-gray-900">
-          Join the Cooperative
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          Already have an account?{' '}
-          <Link href="/login" className="font-medium text-primary hover:text-primary-dark">
-            Sign in
-          </Link>
-        </p>
+    <div className="min-h-screen bg-[var(--color-background)] font-sans lg:grid lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)]">
+      {/* -------------------------------------------------- Plate */}
+      <div className="relative hidden overflow-hidden lg:block">
+        <Image
+          src="/hero-mural.jpg"
+          alt="A hand-painted Pattachitra scroll from Odisha"
+          fill
+          priority
+          sizes="440px"
+          className="object-cover"
+        />
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-black/20"
+        />
+        <div className="absolute inset-x-0 bottom-0 p-12">
+          <h2 className="kg-display text-[30px] leading-tight text-white">Partner with us</h2>
+          <p className="mt-4 max-w-xs text-[15px] leading-relaxed text-white/75">
+            Register your workshop and every piece you publish carries a patch ID, a fair-wage
+            floor, and settlement straight to your own UPI.
+          </p>
+          <p className="kg-label mt-8 flex items-center gap-4 font-medium text-white/60">
+            <span aria-hidden className="block h-px w-10 bg-white/40" />
+            The Artisan Network
+          </p>
+        </div>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md animate-fade-in-up">
-        <div className="bg-white py-8 px-4 shadow-xl shadow-gray-200/50 sm:rounded-3xl sm:px-10 border border-gray-100">
-          
-          {/* Tabs */}
-          <div className="flex bg-gray-100 p-1 rounded-xl mb-8">
-            <button
-              onClick={() => setRole('ARTISAN')}
-              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
-                role === 'ARTISAN' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <User size={16} />
-              Artisan
-            </button>
-            <button
-              onClick={() => setRole('ADMIN')}
-              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
-                role === 'ADMIN' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <ShieldCheck size={16} />
-              Admin
-            </button>
+      {/* -------------------------------------------------- Panel */}
+      <div className="flex min-h-screen flex-col justify-center bg-white px-6 py-12 sm:px-10 lg:px-16">
+        <div className="mx-auto w-full max-w-[520px]">
+          <Link href="/" className="kg-display block text-2xl leading-none text-gray-900">
+            Karigari
+          </Link>
+
+          <h1 className="kg-display mt-10 text-[28px] leading-tight text-gray-900">
+            Register as Artisan
+          </h1>
+          <p className="mt-2 text-[15px] leading-relaxed text-gray-600">
+            Already have an account?{" "}
+            <Link href="/login" className="font-semibold text-gray-900 underline underline-offset-4">
+              Sign in
+            </Link>
+          </p>
+
+          {/* Role toggle. Real radios: it is one choice out of a set. */}
+          <div
+            role="radiogroup"
+            aria-label="Account type"
+            className="mt-9 grid grid-cols-2 gap-1 rounded-xl bg-[var(--color-pill)] p-1"
+          >
+            {[
+              { value: "ARTISAN" as const, label: "Artisan", icon: <User size={15} /> },
+              { value: "ADMIN" as const, label: "Admin", icon: <ShieldCheck size={15} /> },
+            ].map((option) => {
+              const active = role === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setRole(option.value)}
+                  className={cn(
+                    "kg-press flex min-h-[44px] items-center justify-center gap-2 rounded-lg text-[14px] font-semibold transition-colors",
+                    active ? "bg-white text-gray-900 shadow-card" : "text-gray-500 hover:text-gray-800"
+                  )}
+                >
+                  {option.icon}
+                  {option.label}
+                </button>
+              );
+            })}
           </div>
 
-          <form className="space-y-6" onSubmit={handleSubmit}>
+          <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
             {/* Optional profile photo. Skipping it is fine — the Avatar falls
                 back to initials on a colour derived from the name. */}
-            <div className="flex items-center gap-4">
-              <Avatar name={formData.name} src={photoUrl} size={64} />
+            <div className="flex items-center gap-4 rounded-2xl bg-[var(--color-background)] p-4">
+              <Avatar name={formData.name} src={photoUrl} size={56} />
               <div className="min-w-0">
                 <button
                   type="button"
                   onClick={() => photoInputRef.current?.click()}
-                  className="text-sm font-bold text-primary hover:text-primary-dark underline underline-offset-4 transition-colors"
+                  className="text-[13px] font-semibold text-gray-900 underline underline-offset-4"
                 >
-                  {photoUrl ? t('change_photo') : t('add_photo')}
+                  {photoUrl ? t("change_photo") : t("add_photo")}
                 </button>
                 {photoUrl && (
                   <button
                     type="button"
                     onClick={() => setPhotoUrl(null)}
-                    className="ml-4 text-sm font-medium text-gray-500 hover:text-red-600 transition-colors"
+                    className="ml-4 text-[13px] font-medium text-gray-500 transition-colors hover:text-red-600"
                   >
-                    {t('remove')}
+                    {t("remove")}
                   </button>
                 )}
-                <p className="text-xs text-gray-500 mt-1">{t('photo_optional_hint')}</p>
+                <p className="mt-1 text-xs text-gray-500">{t("photo_optional_hint")}</p>
               </div>
               <input
                 ref={photoInputRef}
@@ -173,198 +206,154 @@ export default function RegisterPage() {
             </div>
 
             {error && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm font-medium border border-red-100">
+              <p
+                role="alert"
+                className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+              >
                 {error}
-              </div>
+              </p>
             )}
 
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Full Name</label>
-              <input
-                name="name"
-                type="text"
-                required
-                value={formData.name}
-                onChange={handleChange}
-                className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                placeholder="Sunita R."
-              />
-            </div>
+            <Field label="Full name" htmlFor="name">
+              <input id="name" name="name" type="text" required value={formData.name}
+                onChange={handleChange} placeholder="Sunita R." className={INPUT} />
+            </Field>
 
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Email Address</label>
-              <input
-                name="email"
-                type="email"
-                required
-                value={formData.email}
-                onChange={handleChange}
-                className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                placeholder="sunita@example.com"
-              />
-            </div>
+            <Field label="Email address" htmlFor="email">
+              <input id="email" name="email" type="email" autoComplete="email" required
+                value={formData.email} onChange={handleChange} placeholder="sunita@example.com"
+                className={INPUT} />
+            </Field>
 
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Password</label>
-              <input
-                name="password"
-                type="password"
-                required
-                value={formData.password}
-                onChange={handleChange}
-                className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                placeholder="••••••••"
-              />
-            </div>
+            <Field label="Password" htmlFor="password">
+              <input id="password" name="password" type="password" autoComplete="new-password"
+                required value={formData.password} onChange={handleChange} placeholder="••••••••"
+                className={INPUT} />
+            </Field>
 
-            {role === 'ARTISAN' && (
-              <div className="space-y-6 pt-4 border-t border-gray-100 mt-6">
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                    <Briefcase size={14} /> Craft Type
-                  </label>
-                  <select
-                    name="craftType"
-                    value={formData.craftType}
-                    onChange={handleChange}
-                    className="block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm bg-white"
-                  >
+            {role === "ARTISAN" && (
+              <div className="space-y-5 border-t border-gray-200 pt-6">
+                <Field label="Craft type" htmlFor="craftType" icon={<Briefcase size={13} />}>
+                  <select id="craftType" name="craftType" value={formData.craftType}
+                    onChange={handleChange} className={cn(INPUT, "appearance-none")}>
                     <option value="Ikat">Ikat Weaving</option>
                     <option value="Banarasi">Banarasi Brocade</option>
                     <option value="Dhokra">Dhokra Metal Craft</option>
                     <option value="Pattachitra">Pattachitra Painting</option>
                   </select>
-                </div>
+                </Field>
 
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                    <UserRound size={14} /> Gender
-                  </label>
-                  <select
-                    name="gender"
-                    required
-                    value={formData.gender}
-                    onChange={handleChange}
-                    className="block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm bg-white"
-                  >
+                <Field
+                  label="Gender"
+                  htmlFor="gender"
+                  icon={<UserRound size={13} />}
+                  hint="Used to check women-only scheme eligibility, such as GeM Womaniya."
+                >
+                  <select id="gender" name="gender" required value={formData.gender}
+                    onChange={handleChange} className={cn(INPUT, "appearance-none")}>
                     <option value="" disabled>Select gender</option>
                     {GENDERS.map((g) => (
                       <option key={g} value={g}>{GENDER_LABELS[g]}</option>
                     ))}
                   </select>
-                  {/* Says why it is asked, so it does not read as idle data collection. */}
-                  <p className="text-xs text-gray-500 mt-1">
-                    Used to check women-only scheme eligibility, such as GeM Womaniya.
-                  </p>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                      <MapPin size={14} /> Town or City
-                    </label>
-                    <input
-                      name="location"
-                      type="text"
-                      required
-                      list="karigari-cities"
-                      autoComplete="off"
-                      value={formData.location}
-                      onChange={handleChange}
-                      className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                      placeholder="Start typing, e.g. Pochampally"
-                    />
+                </Field>
+
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <Field label="Town or city" htmlFor="location" icon={<MapPin size={13} />}>
+                    <input id="location" name="location" type="text" required
+                      list="karigari-cities" autoComplete="off" value={formData.location}
+                      onChange={handleChange} placeholder="Start typing, e.g. Pochampally"
+                      className={INPUT} />
                     <datalist id="karigari-cities">
                       {CITY_OPTIONS.map((city) => (
                         <option key={city} value={city} />
                       ))}
                     </datalist>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Experience (Years)</label>
-                    <input
-                      name="experienceYears"
-                      type="number"
-                      required
-                      min="0"
-                      value={formData.experienceYears}
-                      onChange={handleChange}
-                      className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                      placeholder="5"
-                    />
-                  </div>
+                  </Field>
+
+                  <Field label="Experience (years)" htmlFor="experienceYears">
+                    <input id="experienceYears" name="experienceYears" type="number" required
+                      min="0" value={formData.experienceYears} onChange={handleChange}
+                      placeholder="5" className={INPUT} />
+                  </Field>
                 </div>
 
                 {formData.location.trim() !== "" && !locationResolves && (
-                  <div className="-mt-3 flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
-                    <Info size={14} className="shrink-0 mt-0.5" />
-                    <span>
-                      We do not have this place on the demand map yet. Pick the nearest town from
-                      the list so buyers near you can find you — a state name on its own will not
-                      place a pin.
-                    </span>
-                  </div>
+                  <p className="flex items-start gap-2 rounded-xl border border-orange-100 bg-orange-50 p-3 text-xs leading-relaxed text-orange-800">
+                    <Info size={14} className="mt-0.5 shrink-0" />
+                    We do not have this place on the demand map yet. Pick the nearest town from the
+                    list so buyers near you can find you — a state name on its own will not place a
+                    pin.
+                  </p>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Aadhaar (Last 4)</label>
-                    <input
-                      name="aadhaarLast4"
-                      type="text"
-                      required
-                      maxLength={4}
-                      pattern="[0-9]{4}"
-                      value={formData.aadhaarLast4}
-                      onChange={handleChange}
-                      className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                      placeholder="1234"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Annual Income (₹)</label>
-                    <input
-                      name="annualIncome"
-                      type="number"
-                      required
-                      min="0"
-                      value={formData.annualIncome}
-                      onChange={handleChange}
-                      className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                      placeholder="85000"
-                    />
-                  </div>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <Field label="Aadhaar (last 4)" htmlFor="aadhaarLast4">
+                    <input id="aadhaarLast4" name="aadhaarLast4" type="text" required maxLength={4}
+                      pattern="[0-9]{4}" value={formData.aadhaarLast4} onChange={handleChange}
+                      placeholder="1234" className={INPUT} />
+                  </Field>
+
+                  <Field label="Annual income (₹)" htmlFor="annualIncome">
+                    <input id="annualIncome" name="annualIncome" type="number" required min="0"
+                      value={formData.annualIncome} onChange={handleChange} placeholder="85000"
+                      className={INPUT} />
+                  </Field>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
-                    <User size={14} /> Link to SHG Group (Optional)
-                  </label>
-                  <p className="text-xs text-gray-500 mb-2">Joining an SHG allows community support while retaining individual decision power via SMS.</p>
-                  <input
-                    name="clusterName"
-                    type="text"
-                    value={formData.clusterName}
-                    onChange={handleChange}
-                    className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                    placeholder="e.g. Pochampally Weavers"
-                  />
-                </div>
+                <Field
+                  label="Link to SHG group (optional)"
+                  htmlFor="clusterName"
+                  icon={<User size={13} />}
+                  hint="Joining an SHG allows community support while retaining individual decision power via SMS."
+                >
+                  <input id="clusterName" name="clusterName" type="text" value={formData.clusterName}
+                    onChange={handleChange} placeholder="e.g. Pochampally Weavers" className={INPUT} />
+                </Field>
               </div>
             )}
 
-            <div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-md text-sm font-bold text-white bg-primary hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? "Registering..." : `Register as ${role === 'ADMIN' ? 'Admin' : 'Artisan'}`}
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="kg-press flex min-h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-maroon)] text-[15px] font-semibold text-[#F0A48C] transition-colors hover:bg-[#6B2020] disabled:opacity-60"
+            >
+              {loading ? "Registering…" : `Register as ${role === "ADMIN" ? "Admin" : "Artisan"}`}
+            </button>
           </form>
         </div>
       </div>
+    </div>
+  );
+}
+
+const INPUT =
+  "block h-[52px] w-full rounded-xl border border-gray-300 bg-white px-4 text-[15px] text-gray-900 placeholder:text-gray-400 transition-colors focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900";
+
+function Field({
+  label,
+  htmlFor,
+  icon,
+  hint,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  icon?: React.ReactNode;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label
+        htmlFor={htmlFor}
+        className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-gray-800"
+      >
+        {icon}
+        {label}
+      </label>
+      {children}
+      {hint && <p className="mt-1.5 text-xs leading-relaxed text-gray-500">{hint}</p>}
     </div>
   );
 }

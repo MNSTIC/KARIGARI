@@ -5,18 +5,21 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   ArrowLeft,
-  CheckCircle2,
   Info,
   Loader2,
   MapPin,
   Package,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
-import { KarigariLogo } from "@/components/ui/KarigariLogo";
+import { PatchIdChip, VerifiedOriginBadge } from "@/components/ui/Badge";
+import { SectionEyebrow } from "@/components/ui/SectionEyebrow";
+import { artisanSharePctFor } from "@/lib/escrow";
 import { formatRupees } from "@/lib/pricing";
 import { imageProps, marketPrice, type MarketItem } from "@/lib/marketplace";
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
+import { captureRefFromUrl, currentRef, trackRef } from "@/lib/affiliateRef";
 
 /**
  * One published craft item, and the direct-to-artisan buy button.
@@ -27,8 +30,6 @@ import { cn } from "@/lib/utils";
  */
 export function ProductClient({ id }: { id: string }) {
   const { t } = useLanguage();
-  /** Whether the richer AI-drafted listing is expanded. */
-  const [showFullListing, setShowFullListing] = useState(false);
   const [item, setItem] = useState<MarketItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -36,6 +37,8 @@ export function ProductClient({ id }: { id: string }) {
   const [buying, setBuying] = useState(false);
   const [buyError, setBuyError] = useState<string | null>(null);
   const [cancelled, setCancelled] = useState(false);
+  /** The creator credited for this visit — from `?ref=` or the stored session. */
+  const [ref, setRef] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +66,19 @@ export function ProductClient({ id }: { id: string }) {
     return () => clearTimeout(kickoff);
   }, [load]);
 
+  // Creator attribution. A `?ref=` on this URL wins; otherwise the handle the
+  // shopper arrived on at /marketplace carries over from sessionStorage. The
+  // click is recorded against this specific item.
+  useEffect(() => {
+    const kickoff = setTimeout(() => {
+      const handle = captureRefFromUrl() || currentRef();
+      if (!handle) return;
+      setRef(handle);
+      trackRef(handle, id);
+    }, 0);
+    return () => clearTimeout(kickoff);
+  }, [id]);
+
   // Read the Stripe cancel return straight off the URL rather than via
   // useSearchParams, so this page needs no Suspense boundary.
   useEffect(() => {
@@ -85,7 +101,9 @@ export function ProductClient({ id }: { id: string }) {
       const res = await fetch("/api/payments/create-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ craftItemId: item.id }),
+        // The creator handle rides along so create-checkout can attach the
+        // attribution before the escrow row is written.
+        body: JSON.stringify({ craftItemId: item.id, ref: ref || undefined }),
       });
       const data = await res.json();
       if (!res.ok || !data?.success || !data.url) {
@@ -105,39 +123,38 @@ export function ProductClient({ id }: { id: string }) {
   const description = item
     ? item.descriptionEnglish || item.aiGeneratedListing || item.descriptionOriginal || ""
     : "";
-
-  /**
-   * The marketing copy the AI drafted at capture time. Only offered when it is
-   * actually different from the short description — otherwise "Learn more"
-   * would expand to the same sentence the buyer just read.
-   */
-  const fullListing = item?.aiGeneratedListing?.trim() || "";
-  const hasLongerListing =
-    fullListing.length > 0 && fullListing !== description.trim();
   const images = item?.images?.length ? item.images : [];
 
   return (
     <div className="min-h-screen bg-[var(--color-background)] font-sans pb-16">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 px-4 sm:px-6 py-3 flex items-center gap-4">
-        <Link href="/marketplace" className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-          <ArrowLeft size={20} className="text-gray-700" />
-        </Link>
-        <KarigariLogo variant="dark" showWordmark={true} size={28} />
+      <header className="sticky top-0 z-40 border-b border-gray-200/60 bg-[var(--color-background)]/90 backdrop-blur-md">
+        <div className="mx-auto flex h-[72px] max-w-[1180px] items-center gap-3 px-4 sm:px-6 lg:px-10">
+          <Link
+            href="/marketplace"
+            aria-label={t('back_to_marketplace')}
+            className="kg-press flex h-11 w-11 items-center justify-center rounded-full text-gray-700 hover:bg-[var(--color-pill)]"
+          >
+            <ArrowLeft size={20} />
+          </Link>
+          <Link href="/" className="kg-display text-[21px] leading-none text-gray-900">
+            Karigari
+          </Link>
+        </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+      <main className="mx-auto max-w-[1180px] px-4 py-10 sm:px-6 sm:py-14 lg:px-10">
         {loading ? (
           <div className="py-24 flex justify-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
           </div>
         ) : notFound || !item ? (
-          <div className="bg-card border border-dashed border-gray-200 rounded-2xl p-10 text-center">
+          <div className="rounded-2xl border border-dashed border-gray-300 p-12 text-center">
             <p className="text-sm text-gray-500 italic mb-4">
               {t('product_unavailable')}
             </p>
             <Link
               href="/marketplace"
-              className="inline-block bg-primary hover:bg-primary-dark text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-colors"
+              className="kg-press mt-5 inline-flex min-h-[44px] items-center rounded-xl bg-primary px-6 text-[13px] font-semibold text-white hover:bg-primary-dark"
             >
               {t('back_to_marketplace')}
             </Link>
@@ -146,7 +163,7 @@ export function ProductClient({ id }: { id: string }) {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10">
             {/* Gallery */}
             <div>
-              <div className="relative aspect-square rounded-2xl overflow-hidden bg-gray-100 border border-gray-100 shadow-card">
+              <div className="relative aspect-square overflow-hidden rounded-3xl bg-[var(--color-pill)]">
                 {images[activeImage] ? (
                   <Image
                     {...imageProps(images[activeImage])}
@@ -173,8 +190,8 @@ export function ProductClient({ id }: { id: string }) {
                       className={cn(
                         "relative h-16 w-16 shrink-0 rounded-xl overflow-hidden border-2 transition-colors",
                         index === activeImage
-                          ? "border-primary"
-                          : "border-gray-200 hover:border-[var(--color-sage)]"
+                          ? "border-gray-900"
+                          : "border-transparent hover:border-gray-300"
                       )}
                     >
                       <Image
@@ -192,85 +209,84 @@ export function ProductClient({ id }: { id: string }) {
 
             {/* Detail + buy */}
             <div className="flex flex-col">
-              <div className="flex flex-wrap gap-2 mb-3">
-                {item.patchId && (
-                  <span className="inline-flex items-center gap-1 bg-primary text-white text-[11px] font-bold px-2.5 py-1 rounded-full">
-                    <CheckCircle2 size={12} /> {t('verified_passport')}
-                  </span>
-                )}
+              {ref && (
+                <div className="mb-5 flex items-start gap-2.5 rounded-2xl border border-orange-100 bg-orange-50 p-3.5">
+                  <Sparkles size={16} className="shrink-0 mt-0.5 text-amber-600" />
+                  <p className="text-xs text-amber-900 leading-relaxed">
+                    <span className="font-bold">{t('endorsed_by')} @{ref}</span>
+                    <span className="block mt-0.5 text-amber-800/80">
+                      They earn 5% of this sale, paid direct to their UPI on delivery. The
+                      artisan&rsquo;s share is unchanged.
+                    </span>
+                  </p>
+                </div>
+              )}
+
+              {/* No GI badge. GI claims were removed from the product earlier and
+                  stay removed: what Karigari can actually attest to is that this
+                  piece carries a patch ID matched against a re-photograph. */}
+              <div className="mb-4 flex flex-wrap items-center gap-2.5">
+                {item.patchId && <VerifiedOriginBadge className="shadow-none" />}
                 {item.isOndcLive && (
-                  <span className="bg-[var(--color-mint)] text-primary text-[11px] font-bold px-2.5 py-1 rounded-full">
+                  <span className="kg-label rounded-full bg-[var(--color-pill)] px-2.5 py-1.5 font-medium text-gray-700">
                     {t('live_on_ondc')}
                   </span>
                 )}
               </div>
 
-              <h1 className="text-3xl font-serif font-bold text-primary mb-2">{item.craftType}</h1>
+              <h1 className="kg-display text-[34px] leading-tight text-gray-900 sm:text-[42px]">
+                {item.craftType}
+              </h1>
 
-              <p className="text-sm text-gray-500 font-medium flex items-center gap-1.5 mb-1">
-                <MapPin size={13} /> {item.artisan.clusterName}
+              <p className="mt-3 flex items-center gap-1.5 text-[14px] text-gray-600">
+                <MapPin size={13} className="text-gray-400" /> {item.artisan.clusterName}
                 {item.artisan.location ? ` · ${item.artisan.location}` : ""}
               </p>
-              <p className="text-sm text-gray-600 mb-5">
-                {t('handcrafted_by')} <span className="font-bold text-primary">{item.artisan.name}</span>
+              <p className="mt-1 text-[14px] text-gray-600">
+                {t('handcrafted_by')}{" "}
+                <span className="font-semibold text-gray-900">{item.artisan.name}</span>
               </p>
 
-              <p className="text-4xl font-sans font-bold text-primary mb-1">
+              <p className="kg-display mt-6 text-[40px] leading-none text-gray-900">
                 {formatRupees(price)}
               </p>
+
+              {/* The real escrow arithmetic, not a fixed headline number. */}
+              <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-gray-200/70 py-3.5">
+                <span className="kg-label font-medium text-[var(--color-rust)]">
+                  Artisan Share: {artisanSharePctFor(price).toFixed(2)}%
+                </span>
+                {item.patchId && <PatchIdChip patchId={item.patchId} />}
+              </div>
+
               {item.fairWageFloor !== null && (
-                <p className="text-xs text-gray-500 mb-5">
+                <p className="mt-3 text-xs text-gray-500">
                   {t('ai_fair_floor_note')} {formatRupees(item.fairWageFloor)}
                 </p>
               )}
 
               {description && (
-                <div className="mb-6">
-                  <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">
+                <div className="mt-7">
+                  <SectionEyebrow>The maker&rsquo;s account</SectionEyebrow>
+                  <p className="mt-2.5 whitespace-pre-line text-[15px] leading-relaxed text-gray-600">
                     {description}
                   </p>
-
-                  {hasLongerListing && (
-                    <>
-                      {/* grid-rows trick: animates height without needing a
-                          measured pixel value, so the copy can be any length. */}
-                      {/* Plain conditional render with a fade.
-                          The grid-rows 0fr->1fr height trick was tried first and
-                          did not work here: the row resolved to 0px even with an
-                          inline `grid-template-rows: 1fr`, so the panel stayed
-                          invisible. A correct reveal beats an animated one. */}
-                      {showFullListing && (
-                        <p className="mt-3 text-sm text-gray-600 leading-relaxed whitespace-pre-line border-l-2 border-[var(--color-sage)] pl-4 animate-fade-in-up">
-                          {fullListing}
-                        </p>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => setShowFullListing((open) => !open)}
-                        aria-expanded={showFullListing}
-                        className="mt-2 text-xs font-bold text-primary underline underline-offset-4 hover:text-primary-dark transition-colors"
-                      >
-                        {showFullListing ? t('show_less') : t('learn_more')}
-                      </button>
-                    </>
-                  )}
                 </div>
               )}
 
               {item.patchId && (
                 <Link
                   href={`/verify/${item.patchId}`}
-                  className="text-xs font-bold text-primary underline underline-offset-4 mb-6 w-fit"
+                  className="mt-6 w-fit text-[13px] font-semibold text-gray-900 underline underline-offset-4"
                 >
                   {t('view_passport')}
                 </Link>
               )}
 
               {/* Trust line */}
-              <div className="rounded-2xl border border-[var(--color-sage)]/60 bg-[var(--color-mint)]/60 p-4 mb-4 flex gap-2.5 items-start">
-                <ShieldCheck size={16} className="shrink-0 mt-0.5 text-primary" />
-                <p className="text-xs text-primary leading-relaxed font-medium">
+              <div className="mt-7 flex items-start gap-2.5 rounded-2xl bg-[var(--color-gray-100)] p-4">
+                <ShieldCheck size={16} className="mt-0.5 shrink-0 text-gray-500" />
+                <p className="text-[13px] font-medium leading-relaxed text-gray-700">
                   {t('escrow_trust_line')}
                 </p>
               </div>
@@ -290,7 +306,7 @@ export function ProductClient({ id }: { id: string }) {
               <button
                 onClick={buyNow}
                 disabled={buying || price === null}
-                className="w-full bg-primary hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-4 rounded-xl font-bold text-base shadow-sm transition-colors flex items-center justify-center gap-2"
+                className="kg-press mt-5 flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl bg-primary px-6 text-[15px] font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {buying ? (
                   <>

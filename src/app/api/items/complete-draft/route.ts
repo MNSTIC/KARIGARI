@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
-import { estimateCraftValuation, FAIR_WAGE_TOLERANCE } from '@/lib/pricing';
+import { estimateCraftValuation, getPricingDiscrepancy } from '@/lib/pricing';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,14 +83,16 @@ export async function POST(req: Request) {
     const { fairWageFloor, standardMarketPrice, marketPriceMin, marketPriceMax } =
       estimateCraftValuation(craftType, resolvedLaborDays, resolvedRawCost);
 
-    // Anti-exploitation guardian, same rule and wording as capture.
-    const underpriced = fairWageFloor > 0 && askingPrice < fairWageFloor * FAIR_WAGE_TOLERANCE;
-    const pctBelow = underpriced
-      ? Math.round(((fairWageFloor - askingPrice) / fairWageFloor) * 100)
-      : 0;
-    const flagReason = underpriced
-      ? `Artisan set price ${Math.round(askingPrice)}, ${pctBelow}% below AI fair-wage floor ${Math.round(fairWageFloor)}`
-      : null;
+    // Anti-exploitation guardian, same rule and wording as capture — under the
+    // fair wage floor or over the market band, both raise the flag.
+    const priceVerdict = getPricingDiscrepancy({
+      fairWageFloor,
+      marketPriceMax,
+      standardMarketPrice,
+      askingPrice,
+    });
+    const flagged = priceVerdict.flagged;
+    const flagReason = flagged ? priceVerdict.reason : null;
 
     const updated = await prisma.craftItem.update({
       where: { id: item.id },
@@ -105,7 +107,7 @@ export async function POST(req: Request) {
         standardMarketPrice,
         marketPriceMin,
         marketPriceMax,
-        pricingFlag: underpriced,
+        pricingFlag: flagged,
         flagReason,
         status: 'PENDING_VERIFICATION',
       },
@@ -128,7 +130,7 @@ export async function POST(req: Request) {
       comments:
         'Artisan completed their IVR voice draft with photo and price. ' +
         'Item now enters the normal verification queue.' +
-        (underpriced ? ` Flagged: ${flagReason}` : ''),
+        (flagged ? ` Flagged: ${flagReason}` : ''),
     });
 
     return NextResponse.json({ success: true, item: updated });

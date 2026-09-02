@@ -2,30 +2,46 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
-import { ShieldCheck, User } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useLanguage, type Language } from "@/lib/translations";
+import { cn } from "@/lib/utils";
 
+type Role = "ARTISAN" | "ADMIN";
+
+/**
+ * Sign in.
+ *
+ * The layout is the reference's split screen — textile plate and quote on the
+ * left, a quiet white panel on the right. The **form is not**: the reference
+ * shows a mobile number and a four-box OTP, and this app has no OTP rail. It
+ * authenticates with email + password against `POST /api/auth/login`, so that
+ * is what the panel asks for. Shipping a non-functional OTP form would look
+ * right and lock every artisan out.
+ *
+ * The role toggle is Artisan / Admin for the same reason: those are the only
+ * two roles the schema has. The reference's third "Facilitator" tab maps to no
+ * distinct login — one ADMIN account opens both the Facilitator and the Nodal
+ * dashboards — so it is not drawn.
+ */
 export default function LoginPage() {
   const router = useRouter();
   const { t, language, changeLanguage } = useLanguage();
-  const [role, setRole] = useState<'ARTISAN' | 'ADMIN'>('ARTISAN');
+  const [role, setRole] = useState<Role>("ARTISAN");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-  });
+  const [formData, setFormData] = useState({ email: "", password: "" });
 
   // "For Admins" on the landing page arrives as /login?role=admin. Read it off
   // the URL in a deferred effect rather than via useSearchParams, so this fully
   // client page needs no Suspense boundary — the pattern the dashboard uses.
   useEffect(() => {
     const kickoff = setTimeout(() => {
-      const requested = new URLSearchParams(window.location.search).get('role');
-      if (requested?.toLowerCase() === 'admin') setRole('ADMIN');
-      else if (requested?.toLowerCase() === 'artisan') setRole('ARTISAN');
+      const requested = new URLSearchParams(window.location.search).get("role");
+      if (requested?.toLowerCase() === "admin") setRole("ADMIN");
+      else if (requested?.toLowerCase() === "artisan") setRole("ARTISAN");
     }, 0);
     return () => clearTimeout(kickoff);
   }, []);
@@ -47,145 +63,205 @@ export default function LoginPage() {
       });
 
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to log in");
 
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to log in");
+      // Check they picked the tab that matches the account.
+      if (data.user.role === "ADMIN" && role === "ARTISAN") {
+        throw new Error("Invalid role. This account belongs to an Admin.");
+      }
+      if (data.user.role === "ARTISAN" && role === "ADMIN") {
+        throw new Error("Invalid role. This account belongs to an Artisan.");
       }
 
-      // Check if they selected the right role tab
-      if (data.user.role === 'ADMIN' && role === 'ARTISAN') {
-        throw new Error(`Invalid role. This account belongs to a Admin.`);
-      } else if (data.user.role === 'ARTISAN' && role === 'ADMIN') {
-        throw new Error(`Invalid role. This account belongs to an Artisan.`);
-      }
-
-      // Success! One ADMIN role opens both admin dashboards; land on Facilitator.
-      if (data.user.role === 'ADMIN') {
-        router.push("/admin/facilitator");
-      } else {
-        router.push("/artisan/dashboard");
-      }
-    } catch (err: any) {
-      setError(err.message);
+      // One ADMIN role opens both admin dashboards; land on Facilitator.
+      router.push(data.user.role === "ADMIN" ? "/admin/facilitator" : "/artisan/dashboard");
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-sans selection:bg-primary/20">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <Link href="/" className="flex items-center justify-center gap-2 mb-6 hover:opacity-80 transition-opacity">
-          <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
-            <span className="text-white font-serif font-bold text-xl">K</span>
-          </div>
-          <span className="font-serif font-bold text-2xl tracking-tight text-gray-900">KARIGARI</span>
-        </Link>
-        <h2 className="mt-6 text-center text-3xl font-serif font-bold text-gray-900">
-          {t('login_welcome')}
-        </h2>
-        <p className="mt-2 text-center text-sm text-gray-600">
-          {t('login_no_account')}{' '}
-          <Link href="/register" className="font-medium text-primary hover:text-primary-dark">
-            {t('login_register_here')}
-          </Link>
-        </p>
+    <div className="min-h-screen bg-[var(--color-background)] font-sans lg:grid lg:grid-cols-2">
+      {/* -------------------------------------------------- Plate */}
+      <div className="relative hidden overflow-hidden lg:block">
+        <Image
+          src="/login-hero.jpg"
+          alt="A hand-painted Pattachitra scroll on cloth, hung on a village wall"
+          fill
+          priority
+          sizes="50vw"
+          className="scale-105 object-cover blur-[2px]"
+        />
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-black/10"
+        />
+        <figure className="absolute inset-x-0 bottom-0 p-12 xl:p-16">
+          <blockquote className="max-w-md text-[17px] leading-relaxed text-white/90">
+            &ldquo;Every thread spun, every shape moulded, is a testament to human ingenuity and
+            the enduring dignity of craft.&rdquo;
+          </blockquote>
+          <figcaption className="kg-label mt-6 flex items-center gap-4 font-medium text-white/70">
+            <span aria-hidden className="block h-px w-10 bg-white/50" />
+            The Artisan Network
+          </figcaption>
+        </figure>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md animate-fade-in-up">
-        <div className="bg-white py-8 px-4 shadow-xl shadow-gray-200/50 sm:rounded-3xl sm:px-10 border border-gray-100">
-          
-          {/* Tabs */}
-          <div className="flex bg-gray-100 p-1 rounded-xl mb-4">
-            <button
-              type="button"
-              onClick={() => setRole('ARTISAN')}
-              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
-                role === 'ARTISAN' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <User size={16} />
-              {t('role_artisan')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setRole('ADMIN')}
-              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
-                role === 'ADMIN' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <ShieldCheck size={16} />
-              {t('role_admin')}
-            </button>
+      {/* -------------------------------------------------- Panel */}
+      <div className="flex min-h-screen flex-col justify-center bg-white px-6 py-12 sm:px-10 lg:px-16 xl:px-24">
+        <div className="mx-auto w-full max-w-[420px]">
+          <Link href="/" className="kg-display block text-2xl leading-none text-gray-900">
+            Karigari
+          </Link>
+
+          <h1 className="kg-display mt-10 text-[28px] leading-tight text-gray-900">
+            {t("login_welcome")}
+          </h1>
+          <p className="mt-2 text-[15px] leading-relaxed text-gray-600">
+            Sign in to manage your craft portfolio and network.
+          </p>
+
+          {/* Segmented role toggle. Real radios, because it is one choice out of
+              a set and a screen reader has to be told that. */}
+          <div
+            role="radiogroup"
+            aria-label="Account type"
+            className="mt-9 grid grid-cols-2 gap-1 rounded-xl bg-[var(--color-pill)] p-1"
+          >
+            {(
+              [
+                { value: "ARTISAN", label: t("role_artisan") },
+                { value: "ADMIN", label: t("role_admin") },
+              ] as { value: Role; label: string }[]
+            ).map((option) => {
+              const active = role === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setRole(option.value)}
+                  className={cn(
+                    "kg-press min-h-[44px] rounded-lg text-[14px] font-semibold transition-colors",
+                    active ? "bg-white text-gray-900 shadow-card" : "text-gray-500 hover:text-gray-800"
+                  )}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
           </div>
 
-          <div className="mb-8"></div>
-
-
-          <form className="space-y-6" onSubmit={handleSubmit}>
+          <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
             {error && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm font-medium border border-red-100">
+              <p
+                role="alert"
+                className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+              >
                 {error}
-              </div>
+              </p>
             )}
 
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">{t('language')}</label>
+            <Field label={t("email_address")} htmlFor="email">
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={formData.email}
+                onChange={handleChange}
+                placeholder="artisan@karigari.com"
+                className={INPUT}
+              />
+            </Field>
+
+            <Field label={t("password")} htmlFor="password">
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={formData.password}
+                onChange={handleChange}
+                placeholder="••••••••"
+                className={INPUT}
+              />
+            </Field>
+
+            <Field label={t("language")} htmlFor="language">
               <select
-                className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all bg-gray-50 text-gray-800 font-medium"
+                id="language"
                 /* Goes through changeLanguage, not localStorage directly: that
                    is what dispatches `language-change`, so every other mounted
                    component re-renders instead of waiting for a reload. */
                 onChange={(e) => changeLanguage(e.target.value as Language)}
                 value={language}
+                className={cn(INPUT, "appearance-none bg-white pr-10")}
               >
                 <option value="en">English</option>
                 <option value="hi">हिन्दी (Hindi)</option>
                 <option value="or">ଓଡ଼ିଆ (Odia)</option>
                 <option value="te">తెలుగు (Telugu)</option>
               </select>
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">{t('email_address')}</label>
-              <input
-                name="email"
-                type="email"
-                required
-                value={formData.email}
-                onChange={handleChange}
-                className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                placeholder="artisan@karigari.com"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">{t('password')}</label>
-              <input
-                name="password"
-                type="password"
-                required
-                value={formData.password}
-                onChange={handleChange}
-                className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary sm:text-sm transition-all"
-                placeholder="••••••••"
-              />
-            </div>
-
-            <div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-xl shadow-md text-sm font-bold text-white bg-primary hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading
-                  ? t('signing_in')
-                  : `${t('sign_in_as')} ${role === 'ADMIN' ? t('role_admin') : t('role_artisan')}`}
-              </button>
-            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="kg-press flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-maroon)] text-[15px] font-semibold text-[#F0A48C] transition-colors hover:bg-[#6B2020] disabled:opacity-60"
+            >
+              {loading && <Loader2 size={17} className="animate-spin" />}
+              {loading ? t("signing_in") : "Verify & Login"}
+            </button>
           </form>
+
+          <div className="mt-12 border-t border-gray-200 pt-8 text-center">
+            <p className="text-[14px] text-gray-600">New to the platform?</p>
+            <div className="mt-4 flex flex-wrap justify-center gap-3">
+              <Link
+                href="/register"
+                className="kg-press inline-flex min-h-[46px] items-center rounded-xl border border-gray-300 px-5 text-[14px] font-semibold text-gray-800 hover:border-gray-400 hover:bg-gray-50"
+              >
+                Register as Artisan
+              </Link>
+              <Link
+                href="/creators"
+                className="kg-press inline-flex min-h-[46px] items-center rounded-xl border border-gray-300 px-5 text-[14px] font-semibold text-gray-800 hover:border-gray-400 hover:bg-gray-50"
+              >
+                Partner with us
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+const INPUT =
+  "block h-[52px] w-full rounded-xl border border-gray-300 bg-white px-4 text-[15px] text-gray-900 placeholder:text-gray-400 transition-colors focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900";
+
+function Field({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={htmlFor} className="mb-2 block text-[13px] font-semibold text-gray-800">
+        {label}
+      </label>
+      {children}
     </div>
   );
 }

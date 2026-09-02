@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { StatCard } from "@/components/ui/StatCard";
 import { AdminShell, TabBar, LiveBadge } from "@/components/AdminShell";
+import { useUrlParam, useUrlTab } from "@/lib/urlTab";
 import { formatRupees } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 
@@ -142,7 +143,10 @@ interface TracePayload {
 
 export default function NodalDashboard() {
   const router = useRouter();
-  const [tab, setTab] = useState<"impact" | "audit">("impact");
+  // The sidebar deep links into a tab, so the tab lives in the URL.
+  const [tab, setTab] = useUrlTab<"impact" | "audit">("impact", ["impact", "audit"] as const);
+  /* The header search hands a patch or product ID straight to the ledger. */
+  const auditSeed = useUrlParam("q");
   const [analytics, setAnalytics] = useState<NodalAnalyticsData | null>(null);
   const [isRefreshing, setRefreshing] = useState(false);
 
@@ -241,7 +245,7 @@ export default function NodalDashboard() {
           <ImpactAnalytics data={analytics} />
         )
       ) : (
-        <GlobalAudit onUnauthorized={() => router.replace("/login")} />
+        <GlobalAudit seed={auditSeed} onUnauthorized={() => router.replace("/login")} />
       )}
     </AdminShell>
   );
@@ -412,7 +416,7 @@ function ImpactAnalytics({ data }: { data: NodalAnalyticsData }) {
                   wrapperStyle={{ fontSize: 12 }}
                 />
                 <Bar dataKey="baseline" fill="#DCD4CE" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="withKarigari" fill="#24332C" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="withKarigari" fill="#1A1A1A" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -518,7 +522,14 @@ function ImpactAnalytics({ data }: { data: NodalAnalyticsData }) {
 /* Tier 2.2 — Traceability & Hash-Ledger Oversight                     */
 /* ------------------------------------------------------------------ */
 
-function GlobalAudit({ onUnauthorized }: { onUnauthorized: () => void }) {
+function GlobalAudit({
+  seed,
+  onUnauthorized,
+}: {
+  /** A term deep-linked from the header search. */
+  seed?: string;
+  onUnauthorized: () => void;
+}) {
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [result, setResult] = useState<TracePayload | null>(null);
@@ -547,9 +558,17 @@ function GlobalAudit({ onUnauthorized }: { onUnauthorized: () => void }) {
   );
 
   useEffect(() => {
-    const kickoff = setTimeout(() => run(""), 0);
+    // A seeded term is traced immediately; without one the ledger opens on its
+    // most recent events.
+    const kickoff = setTimeout(() => {
+      if (seed) {
+        setQuery(seed);
+        setSubmitted(seed);
+      }
+      run(seed || "");
+    }, 0);
     return () => clearTimeout(kickoff);
-  }, [run]);
+  }, [run, seed]);
 
   const search = (q: string) => {
     setQuery(q);

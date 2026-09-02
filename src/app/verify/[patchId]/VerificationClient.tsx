@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
-import { CheckCircle2, ShieldCheck, Clock, MapPin, Scissors, Tag, Info, Mic } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Clock, MapPin, Scissors, Tag, Info, Mic, Sparkles, Scale } from "lucide-react";
 import Link from "next/link";
 import { formatRupees, getListingPrice } from "@/lib/pricing";
 import { Avatar } from "@/components/ui/Avatar";
+import { Card } from "@/components/ui/Card";
+import { VerifiedOriginBadge } from "@/components/ui/Badge";
+import { SectionEyebrow } from "@/components/ui/SectionEyebrow";
+import { SectionLabel } from "@/components/ui/SectionLabel";
+import { BandMarker, ProgressBar } from "@/components/ui/ProgressBar";
+import { captureRefFromUrl } from "@/lib/affiliateRef";
 
 /**
  * Pinned locale AND time zone. `toLocaleDateString()` with neither renders in
@@ -29,6 +35,19 @@ function formatStamp(value: string | Date): string {
 export function VerificationClient({ item, patchId }: { item: any, patchId: string }) {
   const [isPurchased, setIsPurchased] = useState(item.status === 'SOLD_FINAL' || item.status === 'SOLD_MIDDLEMAN');
 
+  /**
+   * The creator who sent this visitor, when the passport was reached through
+   * their link. Read on the client only: the page is server-rendered from the
+   * patch id, and `?ref=` is not part of that identity.
+   */
+  const [ref, setRef] = useState("");
+  useEffect(() => {
+    // Deferred by a macrotask so the effect body performs no synchronous
+    // setState, matching the pattern used across the client pages.
+    const kickoff = setTimeout(() => setRef(captureRefFromUrl()), 0);
+    return () => clearTimeout(kickoff);
+  }, []);
+
   // Money on the passport is only ever money that moved. An advance exists once
   // the artisan has claimed it after verification; before that it is ₹0, not the
   // AI valuation and not a placeholder.
@@ -40,72 +59,152 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
   const artisanName = item.artisan?.name || "Unknown Artisan";
   const artisanProfile = item.artisan?.artisanProfile;
   const photoUrl = artisanProfile?.photoUrl || null;
-  const artisanBio = artisanProfile?.description || "An artisan from Pochampally Cooperative dedicated to handloom crafts.";
-  const artisanTags = artisanProfile?.tags || ["Artisan"];
+  /* Placeholders that named a specific real cooperative used to sit here, so a
+     Rajasthani potter was described as a Pochampally handloom weaver. A profile
+     with nothing written says nothing. */
+  const artisanBio = artisanProfile?.description || "";
+  const artisanTags: string[] = artisanProfile?.tags || [];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center pb-20 font-sans selection:bg-primary/20">
+    <div className="min-h-screen bg-[var(--color-background)] flex flex-col items-center pb-20 font-sans">
       
       {/* Top Banner */}
-      <div className="w-full bg-primary text-white py-8 px-4 flex flex-col items-center justify-center text-center shadow-md relative z-10">
-        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-4 shadow-lg text-green-500 animate-[bounce_2s_infinite]">
-          <ShieldCheck size={40} />
-        </div>
-        <h1 className="font-serif font-bold text-3xl mb-2 tracking-tight">Authentic. Fair. Verified.</h1>
-        <p className="text-primary-light font-medium max-w-sm text-sm">
+      <div className="relative z-10 flex w-full flex-col items-center justify-center bg-primary px-4 pb-16 pt-14 text-center text-white">
+        <span className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10">
+          <ShieldCheck size={26} strokeWidth={1.6} />
+        </span>
+        <SectionEyebrow tone="light">Digital craft passport</SectionEyebrow>
+        <h1 className="kg-display mt-3 text-[32px] leading-tight sm:text-[40px]">
+          Authentic. Fair. Verified.
+        </h1>
+        <p className="mt-4 max-w-sm text-[15px] leading-relaxed text-white/65">
           {isPurchased 
             ? "Thank you for your purchase. Meet the artisan behind your craft."
             : "This craft item is genuine. Verify the texture below to unlock purchase options."}
         </p>
       </div>
 
-      <div className="w-full max-w-md -mt-6 px-4 relative z-20 flex flex-col gap-6">
-        
+      <div className="relative z-20 -mt-10 flex w-full max-w-md flex-col gap-6 px-4">
+
+        {/* Creator endorsement. Above the fold, because the person who sent the
+            buyer here is part of why they trust the piece. */}
+        {ref && (
+          <div className="kg-enter flex items-start gap-2.5 rounded-2xl border border-orange-100 bg-orange-50 px-4 py-3.5">
+            <Sparkles size={18} className="shrink-0 mt-0.5 text-amber-600" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-orange-900 break-words">
+                Curated &amp; Recommended by @{ref}
+              </p>
+              <p className="mt-0.5 text-xs leading-relaxed text-orange-800/80">
+                They earn 5% of this sale, paid direct to their own UPI on delivery. The
+                artisan&rsquo;s share is unchanged.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Main Card */}
-        <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden flex flex-col animate-fade-in-up">
+        <div className="kg-enter flex flex-col overflow-hidden rounded-3xl border border-gray-200/70 bg-card shadow-soft">
           <div className="relative aspect-[4/3] w-full bg-gray-100">
             <Image 
-              src={item.images?.[0] || "/ikat_saree.jpg"} 
+              src={item.images?.[0] || "/ikat_saree.jpg"}
+              unoptimized={String(item.images?.[0] || "").startsWith("data:")} 
               alt={item.craftType} 
               fill 
               sizes="(max-width: 768px) 100vw, 640px"
               className="object-cover" 
               priority
             />
-            <div className="absolute top-4 right-4 flex flex-col gap-2"><div className="bg-white/90 backdrop-blur-sm text-green-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-sm"><CheckCircle2 size={14} /> Karigari Verified Product</div><div className="bg-white/90 backdrop-blur-sm text-blue-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 shadow-sm"><ShieldCheck size={14} /> Karigari Verified Artisan</div></div>
+            <div className="absolute left-4 top-4 flex flex-col items-start gap-2">
+              <VerifiedOriginBadge />
+              <span className="kg-label rounded-full bg-white/90 px-2.5 py-1.5 font-medium text-gray-600 backdrop-blur-sm">
+                ID: {patchId}
+              </span>
+            </div>
           </div>
           
           <div className="p-6">
-            <h2 className="text-2xl font-serif font-bold text-gray-900 mb-1">{item.craftType}</h2>
-            <p className="text-sm text-primary font-bold mb-6 flex items-center gap-1">
-              <MapPin size={14} /> {isPurchased ? (artisanProfile?.location || "Pochampally Weavers Cooperative") : "Geographic Origin Protected"}
+            <h2 className="kg-display mb-2 text-[26px] leading-tight text-gray-900">
+              {item.craftType}
+            </h2>
+            <p className="mb-6 flex items-center gap-1.5 text-[14px] font-medium text-gray-600">
+              <MapPin size={14} className="text-gray-400" />{" "}
+              {isPurchased
+                ? artisanProfile?.location || artisanProfile?.clusterName || "Origin not recorded"
+                : "Geographic Origin Protected"}
             </p>
             
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1">
-                <span className="text-xs text-gray-500 uppercase font-bold tracking-wider flex items-center gap-1">
-                  <Clock size={12} /> Time to Make
+                <span className="kg-label flex items-center gap-1.5 font-medium text-gray-500">
+                  <Clock size={12} /> Time to make
                 </span>
-                <span className="font-medium text-gray-900">{item.laborDays || 9} Days</span>
+                {/* No invented default: a piece captured without a labour
+                    figure says so rather than borrowing a plausible number. */}
+                <span className="font-medium text-gray-900">
+                  {item.laborDays ? `${item.laborDays} Days` : "Not recorded"}
+                </span>
               </div>
               <div className="flex flex-col gap-1">
-                <span className="text-xs text-gray-500 uppercase font-bold tracking-wider flex items-center gap-1">
-                  <Scissors size={12} /> Material Cost
+                <span className="kg-label flex items-center gap-1.5 font-medium text-gray-500">
+                  <Scissors size={12} /> Material cost
                 </span>
-                <span className="font-medium text-gray-900">
-                  {isPurchased ? `₹${item.rawMaterialCost || 2800}` : "Hidden until purchase"}
+                <span className="font-sans font-medium text-gray-900">
+                  {isPurchased ? formatRupees(item.rawMaterialCost) : "Hidden until purchase"}
                 </span>
               </div>
             </div>
           </div>
         </div>
 
+        {/* Fair Value Ledger - the numbers the passport exists to publish. */}
+        <Card pad="lg" className="kg-enter">
+          <SectionLabel>Fair value ledger</SectionLabel>
+
+          <SectionEyebrow>Fair wage floor</SectionEyebrow>
+          {/* Safe in the display face: globals.css keeps Inter last in the serif
+              stack, so U+20B9 falls through to a font that can draw it. */}
+          <p className="kg-display mb-3 mt-1 text-[26px] leading-none text-gray-900">
+            {formatRupees(item.fairWageFloor)}
+          </p>
+          <ProgressBar
+            value={Number(item.fairWageFloor) || 0}
+            max={Number(item.marketPriceMax) || Number(item.fairWageFloor) || 1}
+            tone="success"
+            label="Fair wage floor"
+            className="mb-6"
+          />
+
+          {Number(item.marketPriceMax) > 0 && (
+            <>
+              <SectionEyebrow className="mb-2">Market price band</SectionEyebrow>
+              <BandMarker
+                min={Number(item.marketPriceMin) || 0}
+                max={Number(item.marketPriceMax) || 0}
+                value={listingPrice ?? (Number(item.marketPriceMin) || 0)}
+                minLabel={formatRupees(item.marketPriceMin)}
+                maxLabel={formatRupees(item.marketPriceMax)}
+                caption={`Listed at ${formatRupees(listingPrice)}`}
+              />
+            </>
+          )}
+
+          <div className="mt-6 pt-4 border-t border-gray-100 flex items-center justify-between gap-3">
+            <span className="kg-label flex items-center gap-1.5 font-medium text-gray-500">
+              <Scale size={13} /> Authenticity score
+            </span>
+            <span className="text-sm font-semibold text-gray-900">
+              {item.fairnessScore ? `${Math.round(Number(item.fairnessScore))}%` : "Not scored"}
+            </span>
+          </div>
+        </Card>
+
         {/* The interactive "Verify Authenticity" camera used to live here. The
             authenticity guarantee now comes from the physical QR patch: the
             artisan attaches it, re-photographs the product, and the AI matches
             that photo to the original capture before the item can be sold. */}
         {!isPurchased && (
-          <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6">
+          <div className="rounded-3xl border border-gray-200/70 bg-card p-6 shadow-card">
             <div className="flex items-start gap-3">
               <ShieldCheck size={20} className="shrink-0 mt-0.5 text-primary" />
               <div>
@@ -128,12 +227,14 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
         {isPurchased && (
           <div className="flex flex-col gap-6 animate-fade-in-up">
             {/* Artisan Profile Block */}
-            <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6 flex flex-col items-center text-center">
-              <div className="w-24 h-24 rounded-full overflow-hidden mb-4 border-4 border-primary/20 relative">
+            <div className="flex flex-col items-center rounded-3xl border border-gray-200/70 bg-card p-6 text-center shadow-card">
+              <div className="w-24 h-24 rounded-full overflow-hidden mb-4 border-4 border-gray-100 relative">
                 <Avatar name={artisanName} src={photoUrl} size={96} />
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-1">Crafted by {artisanName}</h3>
-              <p className="text-sm text-gray-500 mb-4 px-2">{artisanBio}</p>
+              {artisanBio && (
+                <p className="text-sm text-gray-500 mb-4 px-2 leading-relaxed">{artisanBio}</p>
+              )}
               
               <div className="flex flex-wrap gap-2 justify-center">
                 {artisanTags.map((tag: string, i: number) => (
@@ -145,7 +246,7 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
             </div>
 
             {/* Fair Pay Confirmation Block */}
-            <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6">
+            <div className="rounded-3xl border border-gray-200/70 bg-card p-6 shadow-card">
               <h3 className="font-bold text-lg text-gray-900 mb-4 flex items-center gap-2">
                 <div className="w-8 h-8 rounded-full bg-green-50 text-green-600 flex items-center justify-center">
                   <CheckCircle2 size={18} />
@@ -186,7 +287,7 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
             </div>
 
             {/* Artisan's Story Block */}
-            <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6">
+            <div className="rounded-3xl border border-gray-200/70 bg-card p-6 shadow-card">
               <h3 className="font-bold text-lg text-gray-900 mb-4 flex items-center gap-2">
                 <div className="w-8 h-8 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center">
                   <Mic size={18} />
@@ -197,14 +298,27 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
               <div className="space-y-4">
                 <div>
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">In their own words</span>
-                  <p className="text-sm text-gray-600 italic bg-gray-50 p-3 rounded-xl border border-gray-100">
-                    "{item.descriptionOriginal || "చేనేత పోచంపల్లి ఇక్కత్ పట్టు చీర"}"
-                  </p>
+                  {/* A hardcoded Telugu sentence used to stand in here, so a
+                      Rajasthani potter's passport quoted a saree in a language
+                      they do not speak. A piece with no recording says so. */}
+                  {item.descriptionOriginal ? (
+                    <p className="text-sm text-gray-600 italic bg-gray-50 p-3 rounded-xl border border-gray-100">
+                      &ldquo;{item.descriptionOriginal}&rdquo;
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-400 italic bg-gray-50 p-3 rounded-xl border border-dashed border-gray-200">
+                      No recording in the artisan&rsquo;s own language was captured for this piece.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">English Translation</span>
-                  <p className="text-md text-primary font-medium">
-                    {item.descriptionEnglish || "Handwoven authentic craft"}
+                  <p className="text-sm text-primary font-medium leading-relaxed">
+                    {item.descriptionEnglish || (
+                      <span className="text-gray-400 italic font-normal">
+                        No English translation was recorded.
+                      </span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -213,7 +327,7 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
         )}
 
         {/* Audit Log Timeline Block */}
-        <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6 animate-fade-in-up mt-6">
+        <div className="kg-enter mt-6 rounded-3xl border border-gray-200/70 bg-card p-6 shadow-card">
           <h3 className="font-bold text-lg text-gray-900 mb-6 flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
               <Clock size={18} />

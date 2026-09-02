@@ -3,7 +3,8 @@ import Stripe from 'stripe';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { getListingPrice } from '@/lib/pricing';
-import { ESCROW_HELD, advanceFor, finalSettlementFor } from '@/lib/escrow';
+import { ESCROW_HELD, advanceFor, creatorCommissionFor, finalSettlementFor } from '@/lib/escrow';
+import { slugifyHandle } from '@/lib/creators';
 
 /**
  * Direct-to-artisan checkout.
@@ -33,6 +34,9 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const craftItemId = typeof body?.craftItemId === 'string' ? body.craftItemId : null;
+    // The creator handle the buyer arrived through, if any. Optional by
+    // definition: most sales have no affiliate at all.
+    const ref = slugifyHandle(typeof body?.ref === 'string' ? body.ref : '');
     if (!craftItemId) {
       return NextResponse.json({ error: 'craftItemId is required.' }, { status: 400 });
     }
@@ -84,6 +88,20 @@ export async function POST(req: Request) {
 
     const artisanUpi = item.artisan.artisanProfile?.upiId ?? '';
 
+    // Resolve the referral before Stripe, so the handle in the session metadata
+    // is one that actually exists. An unknown or deactivated handle is simply
+    // no affiliate — it never blocks a purchase.
+    const creator = ref
+      ? await prisma.creator.findUnique({
+          where: { handle: ref },
+          select: { id: true, handle: true, status: true },
+        })
+      : null;
+    const affiliate = creator && creator.status === 'ACTIVE' ? creator : null;
+    // Funded from the platform side of the split (see src/lib/escrow.ts). The
+    // artisan's 40% advance and ~49.36% settlement are not reduced by a rupee.
+    const affiliateCommission = affiliate ? creatorCommissionFor(price) : null;
+
     const stripe = new Stripe(secretKey);
 
     const base = baseUrl(req);
@@ -107,6 +125,12 @@ export async function POST(req: Request) {
         artisanId: item.artisanId,
         artisanUpi,
         askingPrice: String(price),
+        ...(affiliate
+          ? {
+              affiliateHandle: affiliate.handle,
+              affiliateCommission: String(affiliateCommission),
+            }
+          : {}),
       },
       success_url: `${base}/marketplace?payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}/marketplace/product/${item.id}?payment=cancelled`,
@@ -123,6 +147,12 @@ export async function POST(req: Request) {
         artisanUpiDestination: artisanUpi || null,
         advanceAmount,
         finalSettlementAmount,
+        // Precomputed here so the commission quoted to the creator is the
+        // commission settle-escrow releases, even if the listing price changes
+        // afterwards.
+        affiliateCreatorId: affiliate?.id ?? null,
+        affiliateHandle: affiliate?.handle ?? null,
+        affiliateCommission,
       },
     });
 
@@ -132,7 +162,11 @@ export async function POST(req: Request) {
       actorId: 'STRIPE_CHECKOUT',
       actorRole: 'SYSTEM',
       action: 'ESCROW_HELD',
-      newState: { sessionId: session.id, price },
+      newState: {
+        sessionId: session.id,
+        price,
+        ...(affiliate ? { affiliateHandle: affiliate.handle, affiliateCommission } : {}),
+      },
       comments:
         'Buyer opened a Stripe TEST checkout session. Funds are held in escrow; the artisan VPA on file is locked in as the payout destination. No admin can release or redirect this.',
     });

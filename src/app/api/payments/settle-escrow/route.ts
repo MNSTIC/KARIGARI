@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { getListingPrice } from '@/lib/pricing';
 // The audit entry is written inline via `prisma.auditLog.create` rather than
@@ -6,10 +7,12 @@ import { getListingPrice } from '@/lib/pricing';
 // `$transaction` as the item update: a released tranche must never exist
 // without its log row. The shape written here is identical.
 import {
+  CREATOR_RATE,
   ESCROW_HELD,
   STAGE1_ADVANCE_PAID_40,
   STAGE2_SETTLED_89,
   advanceFor,
+  creatorCommissionFor,
   finalSettlementFor,
   platformFeeFor,
 } from '@/lib/escrow';
@@ -66,6 +69,9 @@ export async function POST(req: Request) {
         salePrice: true,
         standardMarketPrice: true,
         fairWageFloor: true,
+        affiliateCreatorId: true,
+        affiliateHandle: true,
+        affiliateCommission: true,
       },
     });
 
@@ -177,7 +183,29 @@ export async function POST(req: Request) {
     const platformFee =
       price !== null && Number.isFinite(price) ? platformFeeFor(price) : 0;
 
-    await prisma.$transaction([
+    /**
+     * The creator's 5%, on an attributed sale only.
+     *
+     * Funded from the platform-side remainder — the artisan still receives
+     * 89.36% of gross and the 40% dispatch advance was released untouched at
+     * DISPATCH. Paid to the creator's OWN VPA, read here rather than passed in,
+     * so no caller can redirect it. Same honesty framing as the artisan
+     * settlement: Stripe test mode cannot credit an Indian VPA, so this is a
+     * programmatic settlement record, not a confirmed bank credit.
+     */
+    const affiliate = item.affiliateCreatorId
+      ? await prisma.creator.findUnique({
+          where: { id: item.affiliateCreatorId },
+          select: { id: true, handle: true, upiId: true },
+        })
+      : null;
+
+    const creatorCommission = affiliate
+      ? (item.affiliateCommission ??
+        (price !== null && Number.isFinite(price) ? creatorCommissionFor(price) : 0))
+      : 0;
+
+    const settlementWrites: Prisma.PrismaPromise<unknown>[] = [
       prisma.craftItem.update({
         where: { id: item.id },
         data: {
@@ -185,6 +213,7 @@ export async function POST(req: Request) {
           finalPayoutQueued: final,
           salePrice: item.salePrice ?? (price !== null && Number.isFinite(price) ? price : null),
           status: 'SOLD_FINAL',
+          ...(affiliate ? { affiliateCommission: creatorCommission } : {}),
         },
       }),
       prisma.auditLog.create({
@@ -202,13 +231,55 @@ export async function POST(req: Request) {
             'Stage 2 final settlement released programmatically on delivery, direct to the artisan VPA. Total to artisan: 89.36% of gross. Test-mode settlement record — no admin approved or touched this.',
         },
       }),
-    ]);
+    ];
+
+    if (affiliate && creatorCommission > 0) {
+      settlementWrites.push(
+        prisma.creator.update({
+          where: { id: affiliate.id },
+          data: {
+            totalSales: { increment: 1 },
+            earningsTotal: { increment: creatorCommission },
+          },
+        }),
+        prisma.auditLog.create({
+          data: {
+            craftItemId: item.id,
+            actorId: 'SMART_ESCROW_ENGINE',
+            actorRole: 'SYSTEM',
+            action: 'AFFILIATE_COMMISSION_PAID',
+            previousState: { affiliateHandle: item.affiliateHandle },
+            newState: {
+              handle: affiliate.handle,
+              amount: creatorCommission,
+              destination: affiliate.upiId,
+              rate: CREATOR_RATE,
+            },
+            comments:
+              `Creator commission (${Math.round(CREATOR_RATE * 100)}% of gross) released programmatically on delivery, direct to @${affiliate.handle}'s own VPA. Funded from the platform share — the artisan's 89.36% is unchanged. Test-mode settlement record — no admin approved or touched this.`,
+          },
+        })
+      );
+    }
+
+    // One transaction: a released tranche, a bumped creator balance and their
+    // audit rows must all land together or not at all.
+    await prisma.$transaction(settlementWrites);
 
     return NextResponse.json({
       success: true,
       escrowStatus: STAGE2_SETTLED_89,
       paid: final,
       destination,
+      ...(affiliate && creatorCommission > 0
+        ? {
+            affiliate: {
+              handle: affiliate.handle,
+              commission: creatorCommission,
+              destination: affiliate.upiId,
+            },
+          }
+        : {}),
     });
   } catch (error) {
     console.error('Settle escrow error:', error);

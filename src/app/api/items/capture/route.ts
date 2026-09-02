@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import crypto from 'crypto';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { validateArtisanClaim } from '@/lib/benchmarkData';
-import { estimateCraftValuation, FAIR_WAGE_TOLERANCE } from '@/lib/pricing';
+import { estimateCraftValuation, getPricingDiscrepancy } from '@/lib/pricing';
 
 export async function POST(req: Request) {
   try {
@@ -63,16 +63,22 @@ export async function POST(req: Request) {
     const artisanSetPrice = Number.isFinite(requestedPrice) && requestedPrice > 0 ? requestedPrice : null;
     const resolvedAskingPrice = artisanSetPrice ?? standardMarketPrice;
 
-    // Anti-exploitation guardian: an artisan pricing themselves far under their
-    // own fair wage floor is the artisan-facing half of the middleman squeeze.
-    const underpriced =
-      artisanSetPrice !== null && fairWageFloor > 0 && artisanSetPrice < fairWageFloor * FAIR_WAGE_TOLERANCE;
-    const pctBelow = underpriced
-      ? Math.round(((fairWageFloor - artisanSetPrice!) / fairWageFloor) * 100)
-      : 0;
-    const flagReason = underpriced
-      ? `Artisan set price ${Math.round(artisanSetPrice!)}, ${pctBelow}% below AI fair-wage floor ${Math.round(fairWageFloor)}`
-      : null;
+    // Anti-exploitation guardian, both ways. An artisan pricing themselves far
+    // under their own fair wage floor is the artisan-facing half of the
+    // middleman squeeze; one pricing far over the AI market band will either
+    // never sell or will burn the buyer. Both go to a facilitator, and the rule
+    // itself lives in `getPricingDiscrepancy` so capture, the IVR draft, the
+    // sale simulator and the queue can never drift apart.
+    // Only a price the artisan actually typed is tested: the AI's own market
+    // price falling back in is not a decision anyone should be flagged for.
+    const priceVerdict = getPricingDiscrepancy({
+      fairWageFloor,
+      marketPriceMax,
+      standardMarketPrice,
+      askingPrice: artisanSetPrice,
+    });
+    const flagged = artisanSetPrice !== null && priceVerdict.flagged;
+    const flagReason = flagged ? priceVerdict.reason : null;
     
     // Auto-update ArtisanProfile tags with the new craftType
     try {
@@ -123,7 +129,7 @@ export async function POST(req: Request) {
         askingPrice: resolvedAskingPrice,
         creditScore,
         fairnessScore: 95.0,
-        pricingFlag: underpriced,
+        pricingFlag: flagged,
         flagReason,
         status: 'PENDING_VERIFICATION',
       }
@@ -139,7 +145,7 @@ export async function POST(req: Request) {
       comments: `Artisan uploaded ${craftType}. Auto-verified math plausible. Sent to Admin for review.`
     });
 
-    if (underpriced) {
+    if (flagged) {
       await logCraftItemEvent({
         prisma,
         craftItemId: item.id,

@@ -3,20 +3,31 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft,
-  Award,
-  CheckCircle2,
+  ArrowRight,
+  Banknote,
   ChevronDown,
   ChevronUp,
+  CircleSlash,
   ExternalLink,
+  Globe2,
+  Landmark,
   Lock,
   ShieldCheck,
-  Wand2,
+  SlidersHorizontal,
+  Sparkles,
+  Store,
   X,
 } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 import { SchemeFormAssistant, type AssistantScheme } from "@/components/SchemeFormAssistant";
+import { Shell } from "@/components/ui/AppShell";
+import { Card } from "@/components/ui/Card";
+import { DarkCard, PinkButton } from "@/components/ui/DarkCard";
+import { Badge } from "@/components/ui/Badge";
+import { Pill } from "@/components/ui/FilterTabs";
+import { PageLede, PageTitle, SectionEyebrow, SectionHeading } from "@/components/ui/SectionEyebrow";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 
 /**
  * The schemes page renders whatever the server-side eligibility engine
@@ -27,6 +38,26 @@ import { SchemeFormAssistant, type AssistantScheme } from "@/components/SchemeFo
  */
 
 type VerdictStatus = "ELIGIBLE" | "INELIGIBLE" | "INFO_NEEDED";
+
+type Translate = (key: string) => string;
+
+/**
+ * A localised string with the server's English as the fallback.
+ *
+ * The eligibility engine is server-side and language-agnostic on purpose — it
+ * returns published criteria as English strings, and none of them ever passed
+ * through `t()`, which is why switching the globe left every scheme name and
+ * description in English. Only the *presentation* is localised here: nothing
+ * about which schemes an artisan qualifies for is decided in the browser.
+ *
+ * `t` returns the key itself when a dictionary has no entry, so that is the
+ * signal to fall back to whatever the server sent — a scheme seeded with a key
+ * we have not translated yet reads in English rather than blanking out.
+ */
+function localized(t: Translate, key: string, fallback: string): string {
+  const value = t(key);
+  return value === key ? fallback : value;
+}
 
 interface PublicRule {
   id: string;
@@ -91,19 +122,101 @@ interface SchemesResponse {
   schemes: EvaluatedScheme[];
 }
 
-/**
- * Tracker colours follow the states themselves: in-flight is orange, a positive
- * outcome green, money actually paid blue. The ramps are the muted ones
- * globals.css redefines, so this stays inside the KARIGARI palette.
- */
 const STATUS_STYLES: Record<TrackedApplication["status"], string> = {
-  ELIGIBLE: "bg-[var(--color-mint)] text-primary border-[var(--color-sage)]",
+  ELIGIBLE: "bg-[var(--color-pill)] text-gray-800 border-transparent",
   APPLIED: "bg-orange-50 text-orange-700 border-orange-100",
   UNDER_REVIEW: "bg-orange-50 text-orange-700 border-orange-100",
   APPROVED: "bg-green-50 text-green-700 border-green-200",
   REJECTED: "bg-gray-100 text-gray-600 border-gray-200",
   DISBURSED: "bg-blue-50 text-blue-700 border-blue-200",
 };
+
+/**
+ * How far along the tracker each status is, as a percentage.
+ *
+ * Karigari's own record only — the progress bar describes where the artisan is
+ * in *this* app's tracker, not what any government portal has decided.
+ */
+const TRACKER_PROGRESS: Record<TrackedApplication["status"], number> = {
+  ELIGIBLE: 15,
+  APPLIED: 40,
+  UNDER_REVIEW: 65,
+  APPROVED: 85,
+  DISBURSED: 100,
+  REJECTED: 100,
+};
+
+/**
+ * The plate mark on each scheme card.
+ *
+ * Karigari stores no imagery against a scheme, so rather than borrowing an
+ * unrelated craft photo and implying it depicts the programme, each card gets a
+ * large, low-contrast glyph for the kind of body that runs it.
+ */
+const SCHEME_MARK: Record<string, React.ReactNode> = {
+  pm_vishwakarma: <Landmark size={104} strokeWidth={0.6} />,
+  ahvy: <Landmark size={104} strokeWidth={0.6} />,
+  nsfdc: <Banknote size={104} strokeWidth={0.6} />,
+  nbcfdc: <Banknote size={104} strokeWidth={0.6} />,
+  gem_seller: <Store size={104} strokeWidth={0.6} />,
+  ondc: <Globe2 size={104} strokeWidth={0.6} />,
+};
+
+/**
+ * The tracked eyebrow above each scheme title, derived from the scheme key.
+ *
+ * The map holds i18n keys rather than English, so the eyebrow switches with the
+ * globe like everything else on the card. An unknown key falls through to the
+ * generic label instead of rendering a raw key.
+ */
+const SCHEME_TYPE_KEY: Record<string, string> = {
+  pm_vishwakarma: "scheme_type_pm_vishwakarma",
+  ahvy: "scheme_type_ahvy",
+  nsfdc: "scheme_type_nsfdc",
+  nbcfdc: "scheme_type_nbcfdc",
+  gem_seller: "scheme_type_gem_seller",
+  ondc: "scheme_type_ondc",
+};
+
+/**
+ * The headline figure on a scheme card, lifted out of its published benefit
+ * string. No amount is invented: a scheme whose benefit is not monetary gets
+ * the neutral label instead of a fabricated grant.
+ */
+function grantBadge(benefit: string, t: Translate): string {
+  const match = benefit.match(/₹\s?[\d,]+(?:\s?lakh|\s?crore)?/i);
+  return match
+    ? t("schemes_benefit_suffix").replace("{amount}", match[0].replace(/\s+/g, " ").trim())
+    : t("schemes_support_programme");
+}
+
+/**
+ * Profile completeness, from the fields the eligibility engine actually reads.
+ *
+ * Every entry here is a real column on `ArtisanProfile`, so the percentage says
+ * something true: filling the missing ones is what unlocks more schemes.
+ */
+function profileCompletion(profile: ProfileSummary | null, t: Translate) {
+  const fields = [
+    { key: "craftType", label: t("schemes_field_craft_type"), filled: Boolean(profile?.craftType) },
+    { key: "location", label: t("schemes_field_location"), filled: Boolean(profile?.location || profile?.clusterName) },
+    { key: "mobileNumber", label: t("schemes_field_mobile"), filled: Boolean(profile?.mobileNumber) },
+    { key: "socialCategory", label: t("schemes_field_social_category"), filled: Boolean(profile?.socialCategory) },
+    {
+      key: "annualIncome",
+      label: t("schemes_field_annual_income"),
+      filled: profile?.annualIncome !== null && profile?.annualIncome !== undefined,
+    },
+    { key: "aadhaarLast4", label: t("schemes_field_aadhaar"), filled: Boolean(profile?.aadhaarLast4) },
+    { key: "upiId", label: t("schemes_field_bank_upi"), filled: Boolean(profile?.upiId) },
+  ];
+  const filled = fields.filter((f) => f.filled).length;
+  return {
+    fields,
+    pct: Math.round((filled / fields.length) * 100),
+    missing: fields.filter((f) => !f.filled),
+  };
+}
 
 export default function SchemesPage() {
   const { t } = useLanguage();
@@ -112,6 +225,8 @@ export default function SchemesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  /** Hide schemes the artisan has already started tracking. */
+  const [hideTracked, setHideTracked] = useState(false);
 
   /** Scheme awaiting the self-declaration modal. */
   const [applyTarget, setApplyTarget] = useState<EvaluatedScheme | null>(null);
@@ -154,6 +269,9 @@ export default function SchemesPage() {
   }, [data]);
 
   const profile = data?.profileSummary ?? null;
+  const completion = useMemo(() => profileCompletion(profile, t), [profile, t]);
+
+  const shownEligible = hideTracked ? eligible.filter((s) => !s.application) : eligible;
 
   const openApply = (scheme: EvaluatedScheme) => {
     setApplyTarget(scheme);
@@ -193,329 +311,210 @@ export default function SchemesPage() {
   const toAssistantScheme = (scheme: EvaluatedScheme): AssistantScheme => ({
     key: scheme.key,
     name: scheme.name,
+    // The sheet SHOWS the localised name but WRITES the English one into the
+    // downloadable draft: the form is submitted to a government portal that
+    // knows the scheme by its official English title.
+    displayName: localized(t, `scheme_${scheme.key}_name`, scheme.name),
     benefit: scheme.benefit,
     officialUrl: scheme.officialUrl,
     formPath: scheme.formPath,
   });
 
-  const renderCard = (scheme: EvaluatedScheme) => {
-    const isEligible = scheme.verdict.status === "ELIGIBLE";
-    const isOpen = expanded === scheme.key;
-    const app = scheme.application;
-
-    return (
-      <div
-        key={scheme.key}
-        className={cn(
-          "bg-card rounded-2xl border shadow-card p-5 sm:p-6",
-          isEligible ? "border-[var(--color-sage)]" : "border-gray-100"
-        )}
-      >
-        <div className="flex flex-col sm:flex-row gap-4 sm:items-start justify-between">
-          <div className="flex gap-4 min-w-0">
-            <div
-              className={cn(
-                "w-11 h-11 rounded-full flex items-center justify-center shrink-0 border",
-                isEligible
-                  ? "bg-[var(--color-mint)] border-[var(--color-sage)] text-primary"
-                  : "bg-gray-50 border-gray-100 text-gray-400"
-              )}
-            >
-              {isEligible ? <Award size={20} /> : <Lock size={18} />}
-            </div>
-
-            <div className="min-w-0">
-              <h3 className="font-serif font-bold text-primary text-lg mb-1">{scheme.name}</h3>
-              <p className="text-sm text-gray-500 mb-3 max-w-xl leading-relaxed">{scheme.description}</p>
-
-              <div className="inline-flex bg-[var(--color-mint)] text-primary px-3 py-1 rounded-full text-xs font-bold border border-[var(--color-sage)]/50 mb-2">
-                {t("schemes_benefit")}: {scheme.benefit}
-              </div>
-
-              {scheme.note && (
-                <p className="text-xs text-gray-500 italic mt-1 max-w-xl">{scheme.note}</p>
-              )}
-
-              {/* Why this one is blocked — the auditable part of the engine */}
-              {!isEligible && scheme.verdict.failed.length > 0 && (
-                <div className="mt-3 bg-gray-50 border border-gray-100 rounded-xl p-3">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-2">
-                    {scheme.verdict.status === "INFO_NEEDED"
-                      ? t("schemes_info_needed")
-                      : t("schemes_why_blocked")}
-                  </p>
-                  <ul className="space-y-1.5">
-                    {scheme.verdict.failed.map((rule) => (
-                      <li key={rule.id} className="text-xs text-gray-600 leading-relaxed">
-                        <span className="font-bold text-gray-800">{rule.label}</span>
-                        {(rule.needed || rule.actual) && (
-                          <span className="block text-gray-500">
-                            {rule.needed && (
-                              <>
-                                {t("schemes_needs")}: {rule.needed}
-                              </>
-                            )}
-                            {rule.needed && rule.actual ? " · " : ""}
-                            {rule.actual && (
-                              <>
-                                {t("schemes_yours")}: {rule.actual}
-                              </>
-                            )}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                  {scheme.verdict.status === "INFO_NEEDED" && (
-                    <Link
-                      href="/artisan/dashboard"
-                      className="inline-block mt-3 text-xs font-bold text-primary underline underline-offset-2"
-                    >
-                      {t("schemes_complete_profile")}
-                    </Link>
-                  )}
-                </div>
-              )}
-
-              {/* Tracker row — the app's own record, never a government outcome */}
-              {app && (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full border",
-                      STATUS_STYLES[app.status]
-                    )}
-                  >
-                    <CheckCircle2 size={13} />
-                    {t(`schemes_status_${app.status}`)}
-                  </span>
-                  {app.appliedAt && (
-                    <span className="text-xs text-gray-400">
-                      {new Date(app.appliedAt).toLocaleDateString("en-IN")}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* Criteria — every rule, and how it was decided */}
-              <button
-                onClick={() => setExpanded(isOpen ? null : scheme.key)}
-                className="mt-3 flex items-center gap-1 text-xs font-bold text-gray-500 hover:text-primary transition-colors"
-              >
-                {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                {isOpen ? t("schemes_hide_criteria") : t("schemes_show_criteria")}
-              </button>
-
-              {isOpen && (
-                <ul className="mt-3 space-y-2 border-t border-gray-100 pt-3">
-                  {scheme.rules.map((rule) => (
-                    <li key={rule.id} className="text-xs text-gray-600 flex gap-2">
-                      <span className="text-[var(--color-sage)] shrink-0">•</span>
-                      <span>
-                        {rule.label}
-                        <span className="block text-[11px] text-gray-400">
-                          {rule.verifiable
-                            ? t("schemes_verified_from_profile")
-                            : t("schemes_self_declared")}
-                        </span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex flex-col gap-2 mt-2 sm:mt-0 sm:min-w-[190px] shrink-0">
-            <button
-              onClick={() => setAssistantScheme(toAssistantScheme(scheme))}
-              className="bg-primary hover:bg-primary-dark text-white w-full py-3 rounded-xl font-bold shadow-sm transition-colors text-sm flex items-center justify-center gap-2"
-            >
-              <Wand2 size={16} /> {t("scheme_assistant_title")}
-            </button>
-
-            {isEligible && !app && (
-              <button
-                onClick={() => openApply(scheme)}
-                className="bg-white border border-[var(--color-sage)] text-primary hover:bg-[var(--color-mint)] w-full py-2.5 rounded-xl font-bold transition-colors text-sm flex items-center justify-center gap-2"
-              >
-                <ShieldCheck size={15} /> {t("schemes_track")}
-              </button>
-            )}
-
-            <a
-              href={scheme.officialUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-center text-xs font-bold text-gray-500 hover:text-primary transition-colors flex items-center justify-center gap-1.5 py-1"
-            >
-              <ExternalLink size={12} />
-              {scheme.applyMode === "DOWNLOAD_FORM"
-                ? t("schemes_download_form")
-                : t("schemes_direct_apply")}
-            </a>
-            <p className="text-[10px] text-gray-400 text-center leading-tight">
-              {t("schemes_opens_portal")}
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div className="min-h-screen bg-[var(--color-background)] font-sans pb-16">
-      <header className="px-4 sm:px-8 py-4 bg-white border-b border-gray-200 sticky top-0 z-40 flex items-center gap-4">
-        <Link
-          href="/artisan/dashboard"
-          className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
-        >
-          <ArrowLeft size={20} className="text-gray-600" />
-        </Link>
-        <div className="min-w-0">
-          <h1 className="text-xl font-serif font-bold text-primary truncate">{t("schemes_title")}</h1>
-          <p className="text-xs text-gray-500 font-medium truncate">{t("schemes_page_subtitle")}</p>
-        </div>
-      </header>
+    <Shell>
+      <PageTitle>{t("page_schemes_title")}</PageTitle>
+      <PageLede>{t("schemes_page_subtitle")}</PageLede>
 
-      <main className="max-w-4xl mx-auto p-4 sm:p-8 space-y-8">
-        {loading ? (
-          <p className="text-center text-gray-500 py-20">{t("schemes_loading")}</p>
-        ) : error || !data ? (
-          <div className="text-center py-20">
-            <p className="text-gray-500 mb-4">{t("schemes_error")}</p>
-            <button
-              onClick={load}
-              className="bg-primary text-white px-6 py-2.5 rounded-xl font-bold hover:bg-primary-dark transition-colors"
-            >
-              {t("schemes_retry")}
-            </button>
+      {/* ================================================ Eligibility card */}
+      <DarkCard arc className="kg-enter mt-9">
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-center">
+          <div className="min-w-0 flex-1">
+            <SectionEyebrow tone="light">{t("schemes_eligibility_profile")}</SectionEyebrow>
+
+            <div className="mt-4 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+              <span className="kg-display text-[52px] leading-none text-white">
+                {loading ? "—" : `${completion.pct}%`}
+              </span>
+              <span className="kg-display text-[24px] leading-none text-white/90">
+                {t("schemes_profile_complete_label")}
+              </span>
+            </div>
+
+            <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-white/60">
+              {t(eligible.length === 1 ? "schemes_unlocks_one" : "schemes_unlocks_many").replace(
+                "{n}",
+                String(eligible.length)
+              )}{" "}
+              {completion.missing.length > 0
+                ? t("schemes_add_to_be_checked").replace(
+                    "{fields}",
+                    completion.missing
+                      .slice(0, 2)
+                      .map((f) => f.label.toLowerCase())
+                      .join(", ")
+                  )
+                : t("schemes_all_fields_filled")}
+            </p>
+
+            <ul className="mt-6 flex flex-wrap gap-2.5">
+              {completion.fields.map((field) => (
+                <li key={field.key}>
+                  <Pill tone={field.filled ? "onDark" : "onDarkMuted"} className="kg-label font-medium">
+                    {field.filled ? (
+                      <ShieldCheck size={13} className="shrink-0" />
+                    ) : (
+                      <CircleSlash size={13} className="shrink-0" />
+                    )}
+                    {field.label}
+                  </Pill>
+                </li>
+              ))}
+            </ul>
           </div>
-        ) : (
-          <>
-            {/* Eligibility profile — what the engine actually read */}
-            <section className="bg-card rounded-2xl border border-gray-100 shadow-card p-5 sm:p-6">
-              <h2 className="font-serif font-bold text-primary text-lg mb-4">
-                {t("schemes_profile_title")}
-              </h2>
-              <dl className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                {[
-                  { label: t("schemes_profile_craft"), value: profile?.craftType },
-                  { label: t("schemes_profile_cluster"), value: profile?.clusterName || profile?.location },
-                  { label: t("schemes_profile_category"), value: profile?.socialCategory },
-                  {
-                    label: t("schemes_profile_income"),
-                    value:
-                      profile?.annualIncome || profile?.annualIncome === 0
-                        ? `₹${profile.annualIncome.toLocaleString("en-IN")}`
-                        : null,
-                  },
-                  {
-                    label: t("schemes_profile_aadhaar"),
-                    value: profile?.aadhaarLast4 ? `•••• ${profile.aadhaarLast4}` : null,
-                  },
-                ].map((row) => (
-                  <div key={row.label}>
-                    <dt className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-0.5">
-                      {row.label}
-                    </dt>
-                    <dd
-                      className={cn(
-                        "text-sm font-bold",
-                        row.value ? "text-primary" : "text-gray-400 italic font-medium"
-                      )}
-                    >
-                      {row.value || t("schemes_not_set")}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
 
-              {!profile?.socialCategory && (
-                <Link
-                  href="/artisan/dashboard"
-                  className="mt-4 inline-flex items-center gap-2 text-xs font-bold text-primary bg-[var(--color-mint)] px-3 py-2 rounded-lg hover:bg-[var(--color-sage)]/40 transition-colors"
+          <div className="shrink-0">
+            <PinkButton href="/artisan/dashboard?edit=profile" className="w-full lg:w-auto">
+              {t("schemes_update_profile")} <ArrowRight size={15} />
+            </PinkButton>
+          </div>
+        </div>
+      </DarkCard>
+
+      {loading ? (
+        <div className="mt-14 space-y-4" aria-busy="true">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="kg-shimmer h-44 rounded-2xl" />
+          ))}
+        </div>
+      ) : error || !data ? (
+        <Card pad="lg" className="mt-14 border-dashed text-center">
+          <p className="mb-5 text-gray-500">{t("schemes_error")}</p>
+          <button
+            onClick={load}
+            className="kg-press inline-flex min-h-[44px] items-center rounded-xl bg-primary px-6 text-[13px] font-semibold text-white hover:bg-primary-dark"
+          >
+            {t("schemes_retry")}
+          </button>
+        </Card>
+      ) : (
+        <div className="mt-14 grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
+          {/* ------------------------------------------------- Eligible */}
+          <section aria-labelledby="eligible-heading" className="min-w-0">
+            <SectionHeading
+              id="eligible-heading"
+              action={
+                <Pill
+                  icon={<SlidersHorizontal size={14} />}
+                  tone={hideTracked ? "dark" : "neutral"}
+                  onClick={() => setHideTracked((v) => !v)}
                 >
-                  {t("schemes_category_prompt")}
-                </Link>
-              )}
-            </section>
+                  {hideTracked ? t("schemes_showing_new_only") : t("schemes_filter")}
+                </Pill>
+              }
+            >
+              {t("schemes_eligible_for_you")}{" "}
+              <span className="kg-label ml-1 inline-flex h-6 w-6 translate-y-[-3px] items-center justify-center rounded-full bg-primary font-medium text-white">
+                {eligible.length}
+              </span>
+            </SectionHeading>
 
-            {/* Eligible */}
-            <section>
-              <h2 className="font-serif font-bold text-primary text-lg mb-1">
-                {t("schemes_eligible_heading")} ({eligible.length})
-              </h2>
-              <p className="text-sm text-gray-500 mb-4">{t("schemes_eligible_sub")}</p>
-              {eligible.length === 0 ? (
-                <p className="text-sm text-gray-500 italic bg-card border border-dashed border-gray-200 rounded-2xl p-6 text-center">
-                  {t("schemes_none_eligible")}
-                </p>
-              ) : (
-                <div className="space-y-4">{eligible.map(renderCard)}</div>
-              )}
-            </section>
+            {shownEligible.length === 0 ? (
+              <Card pad="lg" className="border-dashed text-center text-[14px] text-gray-500">
+                {eligible.length === 0
+                  ? t("schemes_none_eligible")
+                  : t("schemes_all_started")}
+              </Card>
+            ) : (
+              <div className="kg-stagger space-y-5">
+                {shownEligible.map((scheme) => (
+                  <SchemeCard
+                    key={scheme.key}
+                    scheme={scheme}
+                    expanded={expanded === scheme.key}
+                    onToggle={() => setExpanded(expanded === scheme.key ? null : scheme.key)}
+                    onApply={() => openApply(scheme)}
+                    onAssist={() => setAssistantScheme(toAssistantScheme(scheme))}
+                    t={t}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
 
-            {/* Blocked */}
-            <section>
-              <h2 className="font-serif font-bold text-primary text-lg mb-1">
-                {t("schemes_not_eligible_heading")} ({blocked.length})
-              </h2>
-              <p className="text-sm text-gray-500 mb-4">{t("schemes_not_eligible_sub")}</p>
-              {blocked.length === 0 ? (
-                <p className="text-sm text-gray-500 italic bg-card border border-dashed border-gray-200 rounded-2xl p-6 text-center">
-                  {t("schemes_none_blocked")}
-                </p>
-              ) : (
-                <div className="space-y-4">{blocked.map(renderCard)}</div>
-              )}
-            </section>
-          </>
-        )}
-      </main>
+          {/* --------------------------------------------------- Locked */}
+          <aside aria-labelledby="locked-heading" className="min-w-0">
+            <SectionHeading id="locked-heading" size="sm">
+              <span className="inline-flex items-center gap-2.5">
+                <Lock size={18} strokeWidth={1.7} className="text-gray-500" />
+                {t("schemes_locked_heading")}
+              </span>
+            </SectionHeading>
+
+            {blocked.length === 0 ? (
+              <Card tone="muted" className="text-[13px] text-gray-500">
+                {t("schemes_none_blocked")}
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {blocked.map((scheme) => (
+                  <LockedCard
+                    key={scheme.key}
+                    scheme={scheme}
+                    onAssist={() => setAssistantScheme(toAssistantScheme(scheme))}
+                    t={t}
+                  />
+                ))}
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
 
       {/* Self-declaration modal — the only thing "apply" does is record a row */}
       {applyTarget && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-card rounded-2xl w-full max-w-md overflow-hidden shadow-2xl p-6 relative max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-3xl bg-card p-6 shadow-2xl">
             <button
               onClick={() => setApplyTarget(null)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+              className="absolute right-4 top-4 text-gray-400 hover:text-gray-700"
               aria-label={t("schemes_modal_cancel")}
             >
               <X size={20} />
             </button>
 
-            <h3 className="text-xl font-serif font-bold text-primary mb-1 pr-8">
+            <h3 className="kg-display mb-1 pr-8 text-[22px] text-gray-900">
               {t("schemes_modal_title")}
             </h3>
-            <p className="text-sm font-bold text-gray-600 mb-3">{applyTarget.name}</p>
-            <p className="text-sm text-gray-500 mb-5 leading-relaxed">{t("schemes_modal_intro")}</p>
+            <p className="mb-3 text-sm font-semibold text-gray-700">
+              {localized(t, `scheme_${applyTarget.key}_name`, applyTarget.name)}
+            </p>
+            <p className="mb-5 text-sm leading-relaxed text-gray-500">{t("schemes_modal_intro")}</p>
 
-            <div className="space-y-3 mb-5">
+            <div className="mb-5 space-y-3">
               {applyTarget.verdict.selfDeclare.map((rule) => (
                 <label
                   key={rule.id}
-                  className="flex gap-3 items-start bg-[var(--color-background)] border border-gray-100 rounded-xl p-3 cursor-pointer hover:border-[var(--color-sage)] transition-colors"
+                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-200 bg-[var(--color-background)] p-3 transition-colors hover:border-gray-400"
                 >
                   <input
                     type="checkbox"
                     checked={ticked[rule.id] || false}
                     onChange={(e) => setTicked((prev) => ({ ...prev, [rule.id]: e.target.checked }))}
-                    className="mt-0.5 w-4 h-4 accent-[var(--color-primary)] shrink-0"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-primary)]"
                   />
-                  <span className="text-sm text-gray-700 leading-relaxed">{rule.label}</span>
+                  <span className="text-sm leading-relaxed text-gray-700">
+                    {localized(t, `scheme_rule_${rule.id}`, rule.label)}
+                  </span>
                 </label>
               ))}
             </div>
 
-            <p className="text-xs text-gray-500 bg-[var(--color-mint)]/50 border border-[var(--color-sage)]/40 rounded-xl p-3 mb-5 leading-relaxed">
+            <p className="mb-5 rounded-xl bg-[var(--color-pill)] p-3 text-xs leading-relaxed text-gray-600">
               {t("schemes_modal_honesty")}
             </p>
 
             {applyError && (
-              <p className="text-xs font-bold text-red-700 bg-red-50 border border-red-100 rounded-xl p-3 mb-4">
+              <p className="mb-4 rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-semibold text-red-700">
                 {applyError}
               </p>
             )}
@@ -523,14 +522,14 @@ export default function SchemesPage() {
             <div className="flex gap-3">
               <button
                 onClick={() => setApplyTarget(null)}
-                className="flex-1 py-3 rounded-xl font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+                className="kg-press min-h-[48px] flex-1 rounded-xl border border-gray-300 font-semibold text-gray-700 hover:bg-gray-50"
               >
                 {t("schemes_modal_cancel")}
               </button>
               <button
                 onClick={submitApply}
                 disabled={!allTicked || submitting}
-                className="flex-1 py-3 rounded-xl font-bold bg-primary text-white hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="kg-press min-h-[48px] flex-1 rounded-xl bg-primary text-sm font-semibold text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {submitting
                   ? t("schemes_tracking")
@@ -564,6 +563,230 @@ export default function SchemesPage() {
         }
         onClose={() => setAssistantScheme(null)}
       />
-    </div>
+    </Shell>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One eligible scheme.
+ *
+ * The reference puts a photograph in the left panel. Karigari stores no imagery
+ * against a scheme, so rather than borrowing an unrelated craft photo and
+ * implying it depicts the programme, the panel is a typographic plate carrying
+ * the benefit the scheme actually publishes.
+ */
+function SchemeCard({
+  scheme,
+  expanded,
+  onToggle,
+  onApply,
+  onAssist,
+  t,
+}: {
+  scheme: EvaluatedScheme;
+  expanded: boolean;
+  onToggle: () => void;
+  onApply: () => void;
+  onAssist: () => void;
+  t: (key: string) => string;
+}) {
+  const app = scheme.application;
+
+  return (
+    <article className="kg-lift overflow-hidden rounded-2xl border-l-[3px] border-l-[var(--color-rust)] bg-card shadow-card">
+      <div className="grid sm:grid-cols-[minmax(0,180px)_minmax(0,1fr)]">
+        <div className="relative flex min-h-[150px] flex-col justify-between overflow-hidden bg-[var(--color-gray-100)] p-5">
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -right-6 -top-6 text-gray-300/70"
+          >
+            {SCHEME_MARK[scheme.key] ?? <Landmark size={104} strokeWidth={0.6} />}
+          </span>
+          <SectionEyebrow className="relative">
+            {scheme.applyMode === "DIRECT" ? t("schemes_apply_online") : t("schemes_form_based")}
+          </SectionEyebrow>
+          <span className="kg-label relative inline-flex w-fit items-center rounded-lg bg-primary px-2.5 py-1.5 font-medium text-white">
+            {grantBadge(localized(t, `scheme_${scheme.key}_benefit`, scheme.benefit), t)}
+          </span>
+        </div>
+
+        <div className="min-w-0 p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <SectionEyebrow>
+              {t(SCHEME_TYPE_KEY[scheme.key] ?? "scheme_type_generic")}
+            </SectionEyebrow>
+            <Badge variant="outline" className="shrink-0">
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[var(--color-rust)]" />
+              {scheme.applyMode === "DIRECT"
+                ? t("schemes_direct_benefit")
+                : t("schemes_form_download")}
+            </Badge>
+          </div>
+
+          <h3 className="kg-display mt-2 text-[22px] leading-snug text-gray-900">
+            {localized(t, `scheme_${scheme.key}_name`, scheme.name)}
+          </h3>
+          <p className="mt-2 line-clamp-3 text-[14px] leading-relaxed text-gray-600">
+            {localized(t, `scheme_${scheme.key}_desc`, scheme.description)}
+          </p>
+
+          {scheme.note && (
+            <p className="mt-2.5 text-[12px] leading-relaxed text-gray-500">
+              {localized(t, `scheme_${scheme.key}_note`, scheme.note)}
+            </p>
+          )}
+
+          {/* Tracker row — the app's own record, never a government outcome */}
+          {app && (
+            <div className="mt-4 flex flex-wrap items-center gap-2.5">
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] font-semibold",
+                  STATUS_STYLES[app.status]
+                )}
+              >
+                {t(`schemes_status_${app.status}`)}
+              </span>
+              {app.appliedAt && (
+                <span className="kg-label text-gray-400">
+                  {new Date(app.appliedAt).toLocaleDateString("en-IN")}
+                </span>
+              )}
+              <ProgressBar
+                value={TRACKER_PROGRESS[app.status] ?? 0}
+                label={app.schemeName}
+                size="sm"
+                tone={app.status === "REJECTED" ? "danger" : "primary"}
+                className="mt-1 w-full"
+              />
+            </div>
+          )}
+
+          <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-gray-200/70 pt-4">
+            <button
+              onClick={onToggle}
+              className="kg-press inline-flex items-center gap-1.5 text-[12px] font-semibold text-gray-500 hover:text-gray-900"
+            >
+              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {expanded ? t("schemes_hide_criteria") : t("schemes_show_criteria")}
+            </button>
+
+            <div className="ml-auto flex flex-wrap items-center gap-2.5">
+              {!app && (
+                <button
+                  onClick={onApply}
+                  className="kg-press inline-flex min-h-[42px] items-center gap-1.5 rounded-lg border border-gray-300 px-4 text-[12px] font-semibold text-gray-800 hover:bg-gray-50"
+                >
+                  <ShieldCheck size={14} /> {t("schemes_track")}
+                </button>
+              )}
+              <button
+                onClick={onAssist}
+                className="kg-press kg-label inline-flex min-h-[42px] items-center gap-2 rounded-lg bg-primary px-4 font-medium text-white hover:bg-primary-dark"
+              >
+                <Sparkles size={14} /> {t("schemes_autofill_apply")}
+              </button>
+            </div>
+          </div>
+
+          {expanded && (
+            <ul className="mt-4 space-y-2.5 border-t border-gray-200/70 pt-4">
+              {scheme.rules.map((rule) => (
+                <li key={rule.id} className="flex gap-2.5 text-xs text-gray-600">
+                  <span aria-hidden className="shrink-0 text-gray-300">
+                    •
+                  </span>
+                  <span>
+                    {localized(t, `scheme_rule_${rule.id}`, rule.label)}
+                    <span className="kg-label mt-0.5 block text-gray-400">
+                      {rule.verifiable
+                        ? t("schemes_verified_from_profile")
+                        : t("schemes_self_declared")}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <a
+            href={scheme.officialUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 inline-flex items-center gap-1.5 text-[12px] font-semibold text-gray-500 hover:text-gray-900"
+          >
+            <ExternalLink size={12} />
+            {scheme.applyMode === "DOWNLOAD_FORM"
+              ? t("schemes_download_form")
+              : t("schemes_direct_apply")}
+            <span className="font-normal text-gray-400">· {t("schemes_opens_portal")}</span>
+          </a>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+/** A scheme the artisan does not yet qualify for, and exactly why. */
+function LockedCard({
+  scheme,
+  onAssist,
+  t,
+}: {
+  scheme: EvaluatedScheme;
+  onAssist: () => void;
+  t: (key: string) => string;
+}) {
+  const reason = scheme.verdict.failed[0];
+  const needsInfo = scheme.verdict.status === "INFO_NEEDED";
+
+  return (
+    <article className="rounded-2xl bg-[var(--color-gray-100)] p-5">
+      <h3 className="kg-display text-[18px] leading-snug text-gray-900">
+        {localized(t, `scheme_${scheme.key}_name`, scheme.name)}
+      </h3>
+
+      {reason ? (
+        <div className="mt-3 rounded-xl bg-white/70 p-3.5">
+          <p className="kg-label flex items-center gap-1.5 font-medium text-[var(--color-maroon)]">
+            <CircleSlash size={12} className="shrink-0" />
+            {needsInfo ? t("schemes_info_needed") : t("schemes_why_blocked")}
+          </p>
+          <p className="mt-2 text-[13px] leading-relaxed text-gray-600">
+            {localized(t, `scheme_rule_${reason.id}`, reason.label)}
+            {(reason.needed || reason.actual) && (
+              <span className="mt-1 block text-gray-500">
+                {reason.needed &&
+                  `${t("schemes_needs")}: ${localized(t, `scheme_needs_${reason.id}`, reason.needed)}`}
+                {reason.needed && reason.actual ? " · " : ""}
+                {reason.actual && `${t("schemes_yours")}: ${reason.actual}`}
+              </span>
+            )}
+          </p>
+        </div>
+      ) : (
+        <p className="mt-3 text-[13px] text-gray-500">
+          {localized(t, `scheme_${scheme.key}_desc`, scheme.description)}
+        </p>
+      )}
+
+      {needsInfo ? (
+        <Link
+          href="/artisan/dashboard?edit=profile"
+          className="kg-label mt-4 inline-flex items-center gap-1.5 font-medium text-gray-700 hover:text-gray-900"
+        >
+          {t("schemes_complete_profile")} <ArrowRight size={12} />
+        </Link>
+      ) : (
+        <button
+          onClick={onAssist}
+          className="kg-label mt-4 inline-flex items-center gap-1.5 font-medium text-gray-700 hover:text-gray-900"
+        >
+          {t("schemes_see_requirements")} <ArrowRight size={12} />
+        </button>
+      )}
+    </article>
   );
 }

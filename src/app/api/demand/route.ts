@@ -28,9 +28,45 @@ function trimmed(value: unknown, max = 200): string | null {
   return v ? v.slice(0, max) : null;
 }
 
+/**
+ * Reference photos are data URLs, the same as every other image in this schema
+ * — there is no upload bucket to point at. A rejected image is never fatal: the
+ * demand still posts without one, because losing a buyer's whole request over a
+ * bad file would be the worse outcome.
+ */
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+
+function referenceImage(value: unknown): { url: string | null; error: string | null } {
+  if (typeof value !== 'string' || value.trim() === '') return { url: null, error: null };
+  const url = value.trim();
+  if (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(url)) {
+    return { url: null, error: 'The reference photo must be an image.' };
+  }
+  // base64 is 4 characters per 3 bytes; measuring the payload avoids decoding it.
+  const payload = url.slice(url.indexOf(',') + 1);
+  const bytes = Math.floor((payload.length * 3) / 4);
+  if (bytes > MAX_IMAGE_BYTES) {
+    return { url: null, error: 'The reference photo is larger than 2 MB.' };
+  }
+  return { url, error: null };
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+
+    // One demand by id. The artisan's notification carries `relatedDemandId`
+    // and nothing else, so this is how they read what the buyer actually asked
+    // for — reference photo, material, colour — before accepting.
+    if (id) {
+      const demand = await prisma.demand.findUnique({ where: { id } });
+      if (!demand) {
+        return NextResponse.json({ error: 'Demand not found' }, { status: 404 });
+      }
+      return NextResponse.json({ success: true, demand });
+    }
+
     const status = searchParams.get('status');
     const craftType = searchParams.get('craftType');
     const limit = Math.min(Number(searchParams.get('limit')) || 50, 200);
@@ -84,6 +120,11 @@ export async function POST(req: Request) {
       );
     }
 
+    const reference = referenceImage(body?.referenceImageUrl);
+    if (reference.error) {
+      return NextResponse.json({ error: reference.error }, { status: 400 });
+    }
+
     const demand = await prisma.demand.create({
       data: {
         craftType,
@@ -94,6 +135,12 @@ export async function POST(req: Request) {
         festival: trimmed(body?.festival, 80),
         buyerName: trimmed(body?.buyerName, 120),
         notes: trimmed(body?.notes, 1000),
+        // What the buyer is actually after. The artisan reads these before
+        // accepting, and the matcher ranks against them.
+        referenceImageUrl: reference.url,
+        material: trimmed(body?.material, 120),
+        color: trimmed(body?.color, 80),
+        description: trimmed(body?.description, 1500),
         status: 'OPEN',
       },
     });

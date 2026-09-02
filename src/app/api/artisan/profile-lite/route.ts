@@ -35,15 +35,29 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden. Artisan access required.' }, { status: 403 });
     }
 
+    // `name` and `photoUrl` are here for the app shell's header avatar, which
+    // renders on every artisan page. The only alternative was the full
+    // `/api/artisan/dashboard` payload — the heaviest endpoint in the app —
+    // fetched on every navigation just to draw a 34px circle. Two more columns
+    // on an already-indexed lookup is the cheap answer.
     const profile = await prisma.artisanProfile.findUnique({
       where: { userId: decoded.userId },
-      select: { craftType: true, clusterName: true },
+      select: {
+        craftType: true,
+        clusterName: true,
+        location: true,
+        photoUrl: true,
+        user: { select: { name: true } },
+      },
     });
 
     return NextResponse.json({
       success: true,
       craftType: profile?.craftType || 'General Crafts',
       clusterName: profile?.clusterName || 'Local Artisan Cluster',
+      location: profile?.location || '',
+      name: profile?.user?.name || '',
+      photoUrl: profile?.photoUrl || null,
     });
   } catch (error) {
     console.error('Profile-lite error:', error);

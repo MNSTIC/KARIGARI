@@ -74,13 +74,20 @@ export async function GET() {
     } as const;
 
     const [priceCandidates, voiceItems, clusterArtisans, publishedThisWeek] = await Promise.all([
-      // Anything that either carries a stored flag or has an accepted price we can
-      // re-test on the fly — legacy rows predate `pricingFlag` and must still surface.
+      // Anything that either carries a stored flag or has a price we can re-test
+      // on the fly — legacy rows predate `pricingFlag` and must still surface,
+      // and an over-priced listing trips the ceiling long before it ever sells,
+      // so an unsold `askingPrice` has to be in scope too.
       prisma.craftItem.findMany({
-        where: { OR: [{ pricingFlag: true }, { salePrice: { not: null } }] },
+        where: {
+          OR: [{ pricingFlag: true }, { salePrice: { not: null } }, { askingPrice: { not: null } }],
+        },
         include: artisanInclude,
         orderBy: { createdAt: 'desc' },
-        take: 100,
+        // The flag is computed, not a column, so the cap has to be generous
+        // enough that a genuinely flagged item is never sliced off before the
+        // filter below ever sees it.
+        take: 400,
       }),
       prisma.craftItem.findMany({
         where: { status: 'PENDING_VERIFICATION' },
@@ -107,6 +114,8 @@ export async function GET() {
         catalogMethod: item.catalogMethod,
         voiceLanguage: item.voiceLanguage,
         fairWageFloor: item.fairWageFloor,
+        marketPriceMax: item.marketPriceMax,
+        standardMarketPrice: item.standardMarketPrice,
         salePrice: item.salePrice,
         askingPrice: item.askingPrice,
         resolution: resolutionOf(item.flagReason),

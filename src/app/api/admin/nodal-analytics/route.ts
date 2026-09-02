@@ -10,16 +10,16 @@ export const dynamic = 'force-dynamic';
 type AuthToken = { userId: string; role: string };
 
 const METHOD_COLORS: Record<string, string> = {
-  Voice: '#24332C',
-  Manual: '#8F412F',
+  Voice: '#1A1A1A',
+  Manual: '#C2632F',
   Unrecorded: '#DCD4CE',
 };
 
-const LANGUAGE_COLORS = ['#24332C', '#3D624F', '#4D5D6C', '#8F412F', '#9A7B3F', '#6B635E'];
+const LANGUAGE_COLORS = ['#1A1A1A', '#4A5241', '#4D5D6C', '#C2632F', '#9A7B3F', '#6B635E'];
 const CATEGORY_COLORS: Record<string, string> = {
-  SC: '#8F412F',
+  SC: '#C2632F',
   ST: '#4D5D6C',
-  OBC: '#3D624F',
+  OBC: '#4A5241',
   EWS: '#9A7B3F',
   General: '#A69C95',
   Unrecorded: '#DCD4CE',
@@ -60,7 +60,10 @@ export async function GET() {
           voiceLanguage: true,
           status: true,
           salePrice: true,
+          askingPrice: true,
           fairWageFloor: true,
+          marketPriceMax: true,
+          standardMarketPrice: true,
           advancePaid: true,
           finalPayoutQueued: true,
           pricingFlag: true,

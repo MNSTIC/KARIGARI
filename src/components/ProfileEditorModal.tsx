@@ -222,7 +222,31 @@ export function ProfileEditorModal({ isOpen, onClose, artisanData, onSaved }: Pr
         <div className="p-6 space-y-6 overflow-y-auto">
           <div className="flex flex-col items-center gap-4">
             <div className="w-24 h-24 rounded-full overflow-hidden border-4 border-primary/20 relative group">
-              <Image src={photoUrl} alt="Profile" fill className="object-cover" />
+              {/* `photoUrl` starts as "" for an artisan who has never set a
+                  photo, and next/image rejects an empty src outright
+                  ("An empty string was passed to the src attribute"). Render a
+                  themed placeholder in the same frame instead, and only mount
+                  the image once there is something to show.
+
+                  `unoptimized` because this is a `data:` URL straight out of
+                  FileReader.readAsDataURL — the optimizer cannot fetch one. */}
+              {photoUrl ? (
+                <Image
+                  src={photoUrl}
+                  alt="Profile"
+                  fill
+                  sizes="96px"
+                  /* Only base64 bypasses the optimizer. A stored `/seed/...`
+                     path is a normal file and goes through it as usual —
+                     the same rule every other image in the app follows. */
+                  unoptimized={photoUrl.startsWith("data:")}
+                  className="object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-[var(--color-mint)] text-primary">
+                  <User size={32} />
+                </div>
+              )}
               <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <Upload size={24} className="text-white" />
               </div>

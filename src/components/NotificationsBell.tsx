@@ -2,9 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, CalendarDays, MessageCircle, TrendingUp, AlertTriangle, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Bell,
+  CalendarDays,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  MessageCircle,
+  TrendingUp,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/translations";
+import { DemandRequestCard } from "@/components/ui/DemandRequestCard";
 
 /**
  * Header bell backed by real `Notification` rows.
@@ -53,12 +63,30 @@ function relativeTime(iso: string, t: (k: string) => string): string {
 export function NotificationsBell({
   onNotifications,
   localAlerts = [],
+  triggerClassName,
 }: {
   onNotifications?: (list: ArtisanNotification[]) => void;
   localAlerts?: LocalAlert[];
+  /**
+   * Styling for the bell button itself.
+   *
+   * A prop, not a descendant selector on the parent. The shell used to restyle
+   * this trigger with `[&_button]:h-10 [&_button]:w-10 [&_button]:rounded-full`,
+   * which matched *every* button inside the component — including each
+   * notification row and "mark all read" — and collapsed them into 40px
+   * circles, so their title, timestamp and body painted on top of each other.
+   */
+  triggerClassName?: string;
 }) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
+  /**
+   * The demand whose full request the artisan has expanded.
+   *
+   * Collapsed by default: the dropdown is a 320px column and a reference photo
+   * per row would bury the list. One at a time, opened deliberately.
+   */
+  const [openDemand, setOpenDemand] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<ArtisanNotification[]>([]);
   const [unread, setUnread] = useState(0);
@@ -128,7 +156,10 @@ export function NotificationsBell({
     <div className="relative" ref={containerRef}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="relative text-gray-500 hover:text-gray-900 transition-colors"
+        className={cn(
+          "relative text-gray-500 transition-colors hover:text-gray-900",
+          triggerClassName
+        )}
         aria-label={t("notifications")}
         aria-expanded={open}
       >
@@ -198,14 +229,59 @@ export function NotificationsBell({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
-                      <p className={cn("text-sm truncate", n.read ? "font-medium text-gray-700" : "font-bold text-gray-900")}>
+                      {/* min-w-0 is what makes `truncate` work inside a flex row;
+                          without it the title refuses to shrink and pushes the
+                          timestamp out of the panel. */}
+                      <p
+                        className={cn(
+                          "min-w-0 flex-1 truncate text-sm",
+                          n.read ? "font-medium text-gray-700" : "font-bold text-gray-900"
+                        )}
+                      >
                         {n.title}
                       </p>
-                      <span className="ml-auto text-[10px] text-gray-400 shrink-0">
+                      <span className="shrink-0 text-[10px] text-gray-400">
                         {relativeTime(n.createdAt, t)}
                       </span>
                     </div>
                     <p className="text-xs text-gray-600 leading-relaxed mt-0.5">{n.message}</p>
+                    {/* A demand alert says "40 sarees wanted" and nothing
+                        about which kind. This is where the artisan reads the
+                        buyer's reference photo, material and colour BEFORE
+                        agreeing to anything. */}
+                    {n.relatedDemandId && (
+                      <div className="mt-2">
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenDemand((id) => (id === n.relatedDemandId ? null : n.relatedDemandId));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key !== "Enter" && e.key !== " ") return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setOpenDemand((id) => (id === n.relatedDemandId ? null : n.relatedDemandId));
+                          }}
+                          className="inline-flex cursor-pointer items-center gap-1 text-[11px] font-bold text-primary underline underline-offset-2"
+                        >
+                          {openDemand === n.relatedDemandId ? (
+                            <>
+                              {t("view_request_details")} <ChevronUp size={12} />
+                            </>
+                          ) : (
+                            <>
+                              {t("view_request_details")} <ChevronDown size={12} />
+                            </>
+                          )}
+                        </span>
+                        {openDemand === n.relatedDemandId && (
+                          <DemandRequestCard demandId={n.relatedDemandId} compact className="mt-2" />
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                       {n.channel && (
                         <span className="inline-block text-[9px] font-bold uppercase tracking-wider text-gray-500 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">

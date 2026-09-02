@@ -1,61 +1,308 @@
 @import "tailwindcss";
 
+/* -------------------------------------------------------------------------- */
+/*  KARIGARI — Heritage Tech, editorial light theme                            */
+/*                                                                            */
+/*  Token NAMES are unchanged from the previous theme on purpose: every        */
+/*  `bg-primary`, `text-gray-500` and `border-gray-200` already written across */
+/*  the app keeps working, and only the values move. What changes is the       */
+/*  character — a warm off-white canvas, near-black ink instead of forest      */
+/*  green, and maroon / terracotta as the only two accents.                    */
+/* -------------------------------------------------------------------------- */
+
 @theme {
-  /* Brand */
-  --color-primary: #24332C;
-  --color-primary-dark: #1A2721;
-  --color-primary-light: #3D5145;
+  /* --- Ink -----------------------------------------------------------------
+     `primary` is the charcoal the whole design is built on: dark buttons, the
+     active sidebar pill, the dark feature cards, the footer CTA. */
+  --color-primary: #1A1A1A;
+  --color-primary-dark: #2E2926;
+  --color-primary-light: #4A423C;
 
-  /* Surfaces */
-  --color-background: #FCF8F7;
-  --color-foreground: #211D1B;
+  /* --- Surfaces ----------------------------------------------------------- */
+  --color-background: #F6F3EE;
+  --color-foreground: #1A1A1A;
   --color-card: #FFFFFF;
-  --color-cream: #FCF8F7;
-  --color-sidebar: #F5F1EF;
+  --color-cream: #F6F3EE;
+  /* A shade greyer than the canvas, so the rail reads as chrome not content. */
+  --color-sidebar: #F1EDE6;
 
-  /* Secondary greens */
-  --color-sage: #A9BFB0;
-  --color-mint: #DCEBE0;
+  /* --- Accents -------------------------------------------------------------
+     Maroon carries authority (section rules, urgent notices, category labels).
+     Terracotta carries movement (artisan share, verified dot, up-trends). */
+  --color-maroon: #5A1A1A;
+  --color-maroon-soft: #7E2A22;
+  --color-rust: #C2632F;
+  --color-rust-deep: #B45309;
+  /* The one soft note in the palette: the button on the dark eligibility card. */
+  --color-pink: #F8D9CE;
+  /* Inactive filter pills. */
+  --color-pill: #ECE7E0;
+
+  /* Legacy names, remapped to warm neutrals. These used to be the sage/mint
+     greens; every `bg-[var(--color-mint)]` in the app now renders as the
+     design's neutral pill rather than a green one. */
+  --color-sage: #D9D0C4;
+  --color-mint: #ECE7E0;
 
   /* StatCard accent tokens */
-  --color-stat-teal:   #3D624F;
-  --color-stat-orange: #8F412F;
+  --color-stat-teal:   #4A5241;
+  --color-stat-orange: #C2632F;
   --color-stat-blue:   #4D5D6C;
   --color-stat-brown:  #9A7B3F;
 
-  /* Warm neutral ramp — overrides Tailwind defaults */
-  --color-gray-50:  #FCF8F7;
-  --color-gray-100: #F3EEEB;
-  --color-gray-200: #ECE6E2;
-  --color-gray-300: #DCD4CE;
-  --color-gray-400: #A69C95;
-  --color-gray-500: #6B635E;
-  --color-gray-600: #554E4A;
-  --color-gray-700: #403A37;
-  --color-gray-800: #2E2926;
-  --color-gray-900: #211D1B;
+  /* --- Warm neutral ramp — overrides Tailwind defaults --------------------- */
+  --color-gray-50:  #FAF8F5;
+  --color-gray-100: #F1EDE6;
+  --color-gray-200: #E4DED5;
+  --color-gray-300: #D2CBC1;
+  --color-gray-400: #A39C93;
+  --color-gray-500: #6E675F;
+  --color-gray-600: #55504A;
+  --color-gray-700: #3D3934;
+  --color-gray-800: #2A2724;
+  --color-gray-900: #1A1A1A;
 
-  /* Muted status ramps */
-  --color-red-50: #FADCD9; --color-red-100: #F6C9C3; --color-red-200: #EFB2AA; --color-red-500: #B14B39; --color-red-600: #9E4130; --color-red-700: #863628; --color-red-800: #6E2C20; --color-red-900: #4E1F16;
-  --color-green-50: #E9F1EB; --color-green-100: #D7E6DC; --color-green-200: #C2D8C9; --color-green-300: #A9BFB0; --color-green-400: #6F8E7B; --color-green-500: #3D624F; --color-green-600: #34543F; --color-green-700: #2B4534; --color-green-800: #24382B; --color-green-900: #1B2A20;
-  --color-blue-50: #E7ECF0; --color-blue-100: #D3DCE4; --color-blue-200: #BDCAD5; --color-blue-500: #4D5D6C; --color-blue-600: #42505D; --color-blue-700: #37424D; --color-blue-800: #2C353E;
-  --color-yellow-50: #F3EBD9; --color-yellow-100: #EBDFC4; --color-yellow-500: #9A7B3F; --color-yellow-600: #8A6E38; --color-yellow-700: #7C6231; --color-yellow-800: #63501F;
-  --color-orange-50: #F5E7DF; --color-orange-100: #ECD6C9; --color-orange-500: #B14B39; --color-orange-600: #9B412F; --color-orange-700: #86392A; --color-orange-900: #5A261C;
-  --color-purple-50: #EDE8F0; --color-purple-100: #DED4E4; --color-purple-500: #6B5A78;
+  /* --- Status ramps --------------------------------------------------------
+     Red is the maroon family, orange the terracotta family. Green is a muted
+     olive rather than the old sage: "verified" still has to read differently
+     from "neutral", but nothing in this design is allowed to be bright. */
+  --color-red-50: #FBE9E5; --color-red-100: #F6D6CE; --color-red-200: #EDBCB0; --color-red-500: #8C2B22; --color-red-600: #7A241C; --color-red-700: #5A1A1A; --color-red-800: #4A1414; --color-red-900: #340E0E;
+  --color-green-50: #EFF0E8; --color-green-100: #E2E5D6; --color-green-200: #D0D4C0; --color-green-300: #B4BAA0; --color-green-400: #7C8468; --color-green-500: #566049; --color-green-600: #49523E; --color-green-700: #3C4433; --color-green-800: #30372A; --color-green-900: #232819;
+  --color-blue-50: #E9EDF0; --color-blue-100: #D6DDE4; --color-blue-200: #C0CAD4; --color-blue-500: #4D5D6C; --color-blue-600: #42505D; --color-blue-700: #37424D; --color-blue-800: #2C353E;
+  --color-yellow-50: #F6EEDD; --color-yellow-100: #EDE0C6; --color-yellow-500: #9A7B3F; --color-yellow-600: #8A6E38; --color-yellow-700: #7C6231; --color-yellow-800: #63501F;
+  --color-orange-50: #FBEDE3; --color-orange-100: #F4DCC9; --color-orange-500: #C2632F; --color-orange-600: #AE5527; --color-orange-700: #94481F; --color-orange-900: #5E2C12;
+  --color-purple-50: #EFEAF0; --color-purple-100: #E0D7E2; --color-purple-500: #6B5A78;
+  --color-amber-50: #FBEDE3; --color-amber-200: #E9C9A8; --color-amber-600: #AE5527; --color-amber-800: #7A3C1B; --color-amber-900: #5E2C12;
 
-  --font-sans: var(--font-inter);
-  --font-serif: var(--font-playfair);
+  /* --- Type ----------------------------------------------------------------
+     Fraunces is the display face; Playfair stays behind it as the fallback the
+     app already shipped. Inter is last in the SERIF stack on purpose: browsers
+     fall back per glyph, and Fraunces/Playfair/Georgia all lack U+20B9, so a
+     serif "₹42,500" would otherwise render the currency mark as tofu. With
+     Inter in the stack the digits stay editorial and the rupee still draws. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), var(--font-playfair), Georgia, var(--font-inter), serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "SFMono-Regular", monospace;
 
-  --shadow-soft: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
-  --shadow-card: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-soft: 0 10px 34px -8px rgba(26, 26, 26, 0.13);
+  --shadow-card: 0 1px 2px rgba(26, 26, 26, 0.05), 0 1px 3px rgba(26, 26, 26, 0.035);
 }
 
 :root {
-  --background: #FCF8F7;
-  --foreground: #211D1B;
+  --background: #F6F3EE;
+  --foreground: #1A1A1A;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Editorial primitives                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The tracked uppercase micro-label above every section — "ARTISAN VIEW",
+ * "MONTHLY OVERVIEW", "CENTRAL SCHEME", "ID: …". Set in the mono face, which
+ * is what gives them the drafting-label feel the design is built around.
+ */
+.kg-label {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+/** Big editorial figures and titles. */
+.kg-display {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/**
+ * The "Digitize Craft" card's stacked shadow: a second charcoal layer peeking
+ * out bottom-right, as though a card were sitting on a printed block.
+ * Drawn with a box-shadow rather than a real element so it never affects
+ * layout, and it is a hard (0-blur) offset so it stays graphic, not soft.
+ */
+.kg-offset {
+  box-shadow: 8px 8px 0 0 var(--color-primary);
+}
+@media (max-width: 640px) {
+  .kg-offset { box-shadow: 5px 5px 0 0 var(--color-primary); }
+}
+
+/** The maroon rule under an editorial section heading. */
+.kg-rule-maroon {
+  position: relative;
+}
+.kg-rule-maroon::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -8px;
+  width: 64px;
+  height: 3px;
+  background: var(--color-maroon);
+}
+
+/**
+ * Horizontal scroll containment for wide content — tables, filter rails,
+ * category strips. The page body must never scroll sideways.
+ */
+.kg-scroll-x {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Motion                                                                     */
+/*                                                                             */
+/*  CSS only, on purpose. A motion library would add more bundle weight than    */
+/*  every animation in this app is worth, and these pages are opened on cheap   */
+/*  Android handsets over a weak connection. Durations stay 150-300ms and       */
+/*  ease-out: calm and editorial, never bouncy.                                 */
+/* -------------------------------------------------------------------------- */
+
+@keyframes kg-fade-up {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes kg-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes kg-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+@keyframes kg-slide-in-left {
+  from { transform: translate3d(-100%, 0, 0); }
+  to   { transform: none; }
+}
+
+/**
+ * The entrance every card and section uses.
+ *
+ * `backwards` matters: with a stagger delay the element would otherwise paint
+ * at full opacity for one frame before the animation starts, which reads as a
+ * flash on a slow device.
+ */
+.kg-enter {
+  animation: kg-fade-up 260ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.kg-fade {
+  animation: kg-fade-in 200ms ease-out backwards;
+}
+
+/**
+ * Legacy alias.
+ *
+ * Every modal in the app already marks its entrance with `animate-fade-in-up`.
+ * Pointing it at the same keyframes as `.kg-enter` keeps those forty call sites
+ * working and gives them the redesign's timing, rather than leaving a class
+ * name that resolves to nothing.
+ */
+.animate-fade-in-up {
+  animation: kg-fade-up 260ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.kg-slide-in {
+  animation: kg-slide-in-left 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/**
+ * Stagger without a per-element inline style.
+ *
+ * Applied to a grid or list container: each child gets 45ms more delay than
+ * the last, up to the eighth. Beyond that the delay stops growing, because a
+ * long list would otherwise take seconds to finish appearing.
+ */
+.kg-stagger > * { animation: kg-fade-up 260ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.kg-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.kg-stagger > *:nth-child(2) { animation-delay: 45ms; }
+.kg-stagger > *:nth-child(3) { animation-delay: 90ms; }
+.kg-stagger > *:nth-child(4) { animation-delay: 135ms; }
+.kg-stagger > *:nth-child(5) { animation-delay: 180ms; }
+.kg-stagger > *:nth-child(6) { animation-delay: 225ms; }
+.kg-stagger > *:nth-child(7) { animation-delay: 270ms; }
+.kg-stagger > *:nth-child(n+8) { animation-delay: 315ms; }
+
+/** Loading shimmer. Warmer than a grey pulse and matches the cream canvas. */
+.kg-shimmer {
+  background: linear-gradient(90deg, #EDE8E0 25%, #F8F5F1 50%, #EDE8E0 75%);
+  background-size: 200% 100%;
+  animation: kg-shimmer 1.4s linear infinite;
+}
+
+/** Cards that lift on hover and give a little on press. */
+.kg-lift {
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 200ms ease-out, border-color 200ms ease-out;
+}
+.kg-lift:hover { transform: translate3d(0, -4px, 0); }
+.kg-lift:active { transform: translate3d(0, -1px, 0) scale(0.995); }
+
+/** Nav tabs and pills: a small press, nothing more. */
+.kg-press { transition: transform 150ms ease-out, background-color 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out; }
+.kg-press:active { transform: scale(0.94); }
+
+/**
+ * Long lists skip layout and paint work for rows that are off screen. The
+ * intrinsic size keeps the scrollbar honest so the thumb does not jump.
+ */
+.kg-list-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+}
+
+/**
+ * Horizontal card rails: no visible scrollbar, but the scroll itself stays.
+ *
+ * `scroll-padding-inline` matters. The rails are laid out `-mx-4 px-4` so they
+ * bleed to the screen edge while their first card still lines up with the page
+ * gutter — but snapping ignores that padding and pulls the first card flush to
+ * 0, breaking the alignment with every other section. Matching the padding here
+ * puts the snap point back where the gutter is. `proximity` rather than
+ * `mandatory` so a half-scrolled rail is not yanked around under the thumb.
+ */
+.kg-rail {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 1rem;
+  -webkit-overflow-scrolling: touch;
+}
+.kg-rail::-webkit-scrollbar { display: none; }
+.kg-rail > * { scroll-snap-align: start; }
+
+/**
+ * Someone who has asked their OS to reduce motion gets none of it. Entrances
+ * collapse to an instant, fully-visible state rather than being skipped, so no
+ * element is left at opacity 0.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .kg-enter,
+  .kg-fade,
+  .animate-fade-in-up,
+  .kg-slide-in,
+  .kg-stagger > *,
+  .kg-shimmer {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .kg-lift:hover,
+  .kg-lift:active,
+  .kg-press:active { transform: none !important; }
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

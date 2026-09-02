@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { X, Package, Loader2, AlertTriangle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
+import { X, Package, Loader2, AlertTriangle, ImagePlus, Trash2 } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
 import { upcomingFestivals } from "@/lib/festivals";
 
@@ -25,7 +26,19 @@ export interface PostedDemand {
   notes: string | null;
   status: string;
   createdAt: string;
+  referenceImageUrl?: string | null;
+  material?: string | null;
+  color?: string | null;
+  description?: string | null;
+  matchScore?: number | null;
 }
+
+/**
+ * Matches the server's cap in `POST /api/demand`. Checked here too so the
+ * buyer is told before a multi-megabyte base64 string is posted over what is
+ * often a phone connection.
+ */
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 interface PostDemandModalProps {
   isOpen: boolean;
@@ -42,6 +55,9 @@ const EMPTY = {
   location: "",
   festival: "",
   notes: "",
+  material: "",
+  color: "",
+  description: "",
 };
 
 export function PostDemandModal({
@@ -59,6 +75,10 @@ export function PostDemandModal({
   const setBuyerName = (value: string) => setBuyerNameEdit(value);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Buyer's reference photo, held as a data URL — the same shape every other
+      image in this app is stored in. There is no upload bucket. */
+  const [referenceImage, setReferenceImage] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -77,6 +97,30 @@ export function PostDemandModal({
 
   const set = (key: keyof typeof EMPTY, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  const pickImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset immediately so picking the same file twice still fires a change.
+    e.target.value = "";
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setError(t("demand_image_invalid"));
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setError(t("demand_image_too_large"));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (loaded) => {
+      if (typeof loaded.target?.result !== "string") return;
+      setError(null);
+      setReferenceImage(loaded.target.result);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const submit = async () => {
     setError(null);
@@ -111,6 +155,10 @@ export function PostDemandModal({
           festival: form.festival,
           notes: form.notes,
           buyerName: buyerName.trim() || null,
+          referenceImageUrl: referenceImage,
+          material: form.material,
+          color: form.color,
+          description: form.description,
         }),
       });
       const data = await res.json();
@@ -120,6 +168,7 @@ export function PostDemandModal({
       }
       onPosted(data.demand, data.notified ?? 0);
       setForm(EMPTY);
+      setReferenceImage(null);
       onClose();
     } catch (e) {
       console.error("Failed to post demand", e);
@@ -267,6 +316,92 @@ export function PostDemandModal({
                 placeholder={t("demand_buyer_placeholder")}
               />
             </div>
+          </div>
+
+          {/* What the buyer is actually after. The artisan reads all of this
+              before accepting, and the matcher ranks against it. */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={label} htmlFor="demand-material">
+                {t("demand_material")}
+              </label>
+              <input
+                id="demand-material"
+                className={field}
+                value={form.material}
+                onChange={(e) => set("material", e.target.value)}
+                placeholder={t("demand_material_placeholder")}
+              />
+            </div>
+            <div>
+              <label className={label} htmlFor="demand-color">
+                {t("demand_color")}
+              </label>
+              <input
+                id="demand-color"
+                className={field}
+                value={form.color}
+                onChange={(e) => set("color", e.target.value)}
+                placeholder={t("demand_color_placeholder")}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={label} htmlFor="demand-description">
+              {t("demand_description")}
+            </label>
+            <textarea
+              id="demand-description"
+              rows={3}
+              className={`${field} resize-y`}
+              value={form.description}
+              onChange={(e) => set("description", e.target.value)}
+              placeholder={t("demand_description_placeholder")}
+            />
+          </div>
+
+          <div>
+            <span className={label}>{t("demand_reference_image")}</span>
+            {referenceImage ? (
+              <div className="flex items-center gap-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-gray-100">
+                  {/* Guarded and `unoptimized`: this is a data URL, which the
+                      image optimizer cannot fetch. */}
+                  <Image
+                    src={referenceImage}
+                    alt={t("demand_reference_image")}
+                    fill
+                    sizes="80px"
+                    unoptimized
+                    className="object-cover"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReferenceImage(null)}
+                  className="kg-press inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 size={14} /> {t("demand_remove_image")}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="kg-press flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 bg-gray-50 text-sm font-bold text-gray-600 hover:border-primary hover:text-primary"
+              >
+                <ImagePlus size={17} /> {t("demand_add_image")}
+              </button>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={pickImage}
+            />
+            <p className="mt-1.5 text-xs text-gray-500">{t("demand_reference_hint")}</p>
           </div>
 
           <div>

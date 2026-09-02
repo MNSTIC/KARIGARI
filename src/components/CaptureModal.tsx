@@ -1,13 +1,15 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Mic, UploadCloud, FileText, ArrowRight, X, Sparkles, CheckCircle2, Camera, Trash2, ShieldCheck, Globe, AlertTriangle, Pencil, IndianRupee, TrendingUp, Loader2, RefreshCw } from "lucide-react";
+import { Mic, UploadCloud, FileText, ArrowRight, X, Sparkles, CheckCircle2, Camera, Trash2, ShieldCheck, Globe, AlertTriangle, Pencil, IndianRupee, TrendingUp, Loader2, RefreshCw, CloudOff } from "lucide-react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/translations";
 import { estimateCraftValuation, formatRupees } from "@/lib/pricing";
 import { downscaleImage, enhanceProductPhoto } from "@/lib/imageEnhance";
 import { Avatar } from "@/components/ui/Avatar";
+import { queueCapture, type CapturePayload } from "@/lib/offlineQueue";
+import { refreshQueueCount } from "@/lib/offlineQueueStore";
 
 interface CaptureModalProps {
   isOpen: boolean;
@@ -167,6 +169,14 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
 
   const [isCreatingDraft, setIsCreatingDraft] = useState(false);
   const [createdItemId, setCreatedItemId] = useState<string | null>(null);
+  /**
+   * Set when this capture went to the phone's queue instead of the server, so
+   * the success screen can tell the artisan the truth: it is saved, but not yet
+   * uploaded.
+   */
+  const [savedOffline, setSavedOffline] = useState(false);
+  /** Everything waiting on this device, including the one just queued. */
+  const [queuedCount, setQueuedCount] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -268,29 +278,70 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
 
   // Auto create draft on Step 3 completion (Wait for save button)
   const handleSaveUpload = async () => {
-    if (isCreatingDraft || createdItemId) return;
+    if (isCreatingDraft || createdItemId || savedOffline) return;
     setIsCreatingDraft(true);
     setNotice(null);
+
+    // The English box is what goes out as the ONDC listing; the artisan's own
+    // language version is what the digital passport tells the buyer.
+    const englishListing = (ecommerceDescEnglish.trim() || englishDescription.trim());
+    const localListing = (ecommerceDescLocal.trim() || originalTranscript.trim());
+
+    // One payload, two destinations. The offline branch parks this exact object
+    // in IndexedDB and `offlineSync` POSTs it verbatim later, so a queued craft
+    // can never become a different item from a live one.
+    const payload: CapturePayload = {
+      craftType: craftType || FALLBACK_CRAFT_TYPE,
+      laborDays: laborDays || FALLBACK_LABOR_DAYS,
+      rawMaterialCost: rawMaterialCost || FALLBACK_MATERIAL_COST,
+      askingPrice: hasEnteredPrice ? enteredPrice : null,
+      descriptionOriginal: localListing,
+      descriptionEnglish: englishDescription.trim() || englishListing,
+      tags: [craftType || "ArtisanCraft"],
+      // Already run through `downscaleImage` at capture time, so the queued row
+      // stays small enough for IndexedDB on a low-end handset.
+      images: images,
+      aiGeneratedListing: englishListing,
+    };
+
+    /**
+     * Park the capture on the phone.
+     *
+     * The artisan is told plainly that it is saved but not yet uploaded. If
+     * IndexedDB itself is unusable — private mode, blocked storage — we say so
+     * rather than claiming the craft is safe when it is not.
+     */
+    const saveToPhone = async (): Promise<boolean> => {
+      try {
+        await queueCapture(payload);
+        const pending = await refreshQueueCount();
+        setQueuedCount(pending);
+        setSavedOffline(true);
+        setStep(4);
+        return true;
+      } catch (queueError) {
+        setNotice({
+          tone: "error",
+          title: t('save_failed'),
+          body: (queueError as Error)?.message || t('network_error_retry'),
+        });
+        return false;
+      }
+    };
+
     try {
-      // The English box is what goes out as the ONDC listing; the artisan's own
-      // language version is what the digital passport tells the buyer.
-      const englishListing = (ecommerceDescEnglish.trim() || englishDescription.trim());
-      const localListing = (ecommerceDescLocal.trim() || originalTranscript.trim());
+      // No network: queue instead of failing. This is the whole point of the
+      // offline queue — an artisan in a weaving cluster loses signal constantly
+      // and must never lose a capture to it.
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        await saveToPhone();
+        return;
+      }
 
       const res = await fetch("/api/items/capture", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          craftType: craftType || FALLBACK_CRAFT_TYPE,
-          laborDays: laborDays || FALLBACK_LABOR_DAYS,
-          rawMaterialCost: rawMaterialCost || FALLBACK_MATERIAL_COST,
-          askingPrice: hasEnteredPrice ? enteredPrice : null,
-          descriptionOriginal: localListing,
-          descriptionEnglish: englishDescription.trim() || englishListing,
-          tags: [craftType || "ArtisanCraft"],
-          images: images,
-          aiGeneratedListing: englishListing
-        })
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -298,11 +349,16 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
         setCreatedItemId(data.item.id);
         setStep(4); // Use step 4 as the success screen
       } else {
+        // A rejection the server actually reasoned about (bad math, expired
+        // session). Queueing it would replay the same rejection forever.
         setNotice({ tone: "error", title: t('save_failed'), body: data.error });
       }
     } catch (e) {
       console.error(e);
-      setNotice({ tone: "error", title: t('save_failed'), body: t('network_error_retry') });
+      // The connection died between the `onLine` check and the response. The
+      // craft is still recoverable: queue it rather than making them retype
+      // everything.
+      await saveToPhone();
     } finally {
       setIsCreatingDraft(false);
     }
@@ -772,6 +828,8 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
       setEcommerceDescEnglish("");
       setEcommerceDescLocal("");
       setCreatedItemId(null);
+      setSavedOffline(false);
+      setQueuedCount(0);
       setOriginalTranscript("");
       setEnglishDescription("");
       setSourceLanguage("");
@@ -1141,7 +1199,17 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
                   <div className="grid grid-cols-3 gap-3">
                     {images.map((img, idx) => (
                       <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-gray-200 group">
-                        <Image src={img} alt={`Capture ${idx}`} fill className={cn("object-cover transition-all duration-1000", isVisionVerified ? "brightness-110 contrast-105 saturate-110" : "")} />
+                        {/* Captures are `data:` URLs; the optimizer cannot
+                            fetch one, so this follows the same `unoptimized`
+                            rule as every other data-URL image in the app. */}
+                        <Image
+                          src={img}
+                          alt={`Capture ${idx}`}
+                          fill
+                          sizes="(max-width: 640px) 33vw, 180px"
+                          unoptimized={String(img).startsWith("data:")}
+                          className={cn("object-cover transition-all duration-1000", isVisionVerified ? "brightness-110 contrast-105 saturate-110" : "")}
+                        />
                         <button 
                           onClick={() => removeImage(idx)}
                           className="absolute top-1 right-1 bg-red-500 text-white p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
@@ -1168,7 +1236,7 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
               <h3 className="text-2xl font-bold mb-2">{t('set_your_price')}</h3>
 
               {/* AI guidance first, so the artisan is never guessing blind. */}
-              <div className="bg-[#DCEBE0] border border-primary/15 rounded-2xl px-4 py-3 mb-4 flex gap-3 items-start">
+              <div className="bg-[#ECE7E0] border border-primary/15 rounded-2xl px-4 py-3 mb-4 flex gap-3 items-start">
                 <Sparkles className="shrink-0 mt-0.5 text-primary" size={16} />
                 <div className="text-sm text-primary leading-relaxed">
                   <p className="font-bold">
@@ -1358,15 +1426,35 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
             </div>
           )}
 
-          {/* Success Step */}
+          {/* Success Step. Two truthful endings: uploaded, or saved on the
+              phone and waiting. Never claim an upload that has not happened. */}
           {step === 4 && (
-            <div className="flex flex-col items-center justify-center py-12 text-center animate-fade-in-up">
-              <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mb-6">
-                <CheckCircle2 size={48} className="text-green-500" />
-              </div>
-              <h3 className="text-3xl font-bold mb-3">Upload Successful!</h3>
-              <p className="text-gray-500 mb-8 max-w-sm">Your craft has been saved to your digital portfolio.</p>
-              
+            <div className="flex flex-col items-center justify-center py-12 px-2 text-center animate-fade-in-up">
+              {savedOffline ? (
+                <>
+                  <div className="w-24 h-24 bg-amber-50 rounded-full flex items-center justify-center mb-6">
+                    <CloudOff size={48} className="text-amber-500" />
+                  </div>
+                  <h3 className="text-2xl sm:text-3xl font-bold mb-3">{t('offline_saved_title')}</h3>
+                  <p className="text-gray-600 mb-4 max-w-sm leading-relaxed">
+                    {(queuedCount === 1 ? t('offline_saved_body_one') : t('offline_saved_body_many'))
+                      .replace('{count}', String(queuedCount || 1))}
+                  </p>
+                  <div className="w-full max-w-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 mb-8 text-sm text-left flex gap-2 items-start">
+                    <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                    <p className="leading-relaxed">{t('offline_saved_note')}</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mb-6">
+                    <CheckCircle2 size={48} className="text-green-500" />
+                  </div>
+                  <h3 className="text-2xl sm:text-3xl font-bold mb-3">Upload Successful!</h3>
+                  <p className="text-gray-500 mb-8 max-w-sm">Your craft has been saved to your digital portfolio.</p>
+                </>
+              )}
+
               <button
                 onClick={resetAndClose}
                 className="w-full max-w-sm bg-primary text-white py-4 rounded-2xl font-bold hover:bg-primary-dark transition-all text-lg shadow-xl shadow-primary/20"

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ChevronDown,
+  ChevronUp,
   Package,
   TrendingUp,
   Search,
@@ -20,6 +22,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { LogisticsMap } from "@/components/LogisticsMap";
 import { PostDemandModal, type PostedDemand } from "@/components/PostDemandModal";
+import { OrderTimeline, type TrackPayload } from "@/components/ui/OrderTimeline";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/translations";
 import { Avatar } from "@/components/ui/Avatar";
@@ -84,6 +87,22 @@ export default function BuyerDashboard() {
    */
   const [matches, setMatches] = useState<Record<string, MatchRow[]>>({});
   const [matchError, setMatchError] = useState<Record<string, string>>({});
+  /**
+   * How the last match run actually ranked: 'reference' when the vision pass
+   * ran, 'text' when it fell back. Reported honestly rather than assumed from
+   * whether a photo was attached — a reference photo is only scored visually
+   * when the model is reachable.
+   */
+  const [scoredBy, setScoredBy] = useState<Record<string, "text" | "reference">>({});
+
+  /**
+   * Production progress per demand, from /api/demand/track. Fetched only when
+   * the buyer actually opens the tracker — the board lists every demand on the
+   * platform and pre-fetching a timeline for each would be a query storm.
+   */
+  const [tracking, setTracking] = useState<Record<string, TrackPayload>>({});
+  const [trackOpen, setTrackOpen] = useState<Record<string, boolean>>({});
+  const [trackError, setTrackError] = useState<Record<string, string>>({});
 
   useEffect(() => {
     // Deferred by a macrotask so the effect body performs no synchronous
@@ -185,6 +204,7 @@ export default function BuyerDashboard() {
       const data = await res.json();
       if (data?.success && Array.isArray(data.matches) && data.matches.length > 0) {
         setMatches((prev) => ({ ...prev, [id]: data.matches }));
+        setScoredBy((prev) => ({ ...prev, [id]: data.scoredBy === "reference" ? "reference" : "text" }));
         setQuoteState((prev) => ({ ...prev, [id]: "quoted" }));
       } else {
         // Honest empty state: no artisan currently has matching stock listed.
@@ -196,6 +216,31 @@ export default function BuyerDashboard() {
     }
   };
 
+  /** Load (or reload) the production ladder for one demand. */
+  const loadTracking = async (id: string) => {
+    setTrackError((prev) => ({ ...prev, [id]: "" }));
+    try {
+      const res = await fetch(`/api/demand/track?demandId=${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setTracking((prev) => ({ ...prev, [id]: data as TrackPayload }));
+      } else {
+        setTrackError((prev) => ({ ...prev, [id]: t("track_load_failed") }));
+      }
+    } catch (e) {
+      console.error("Demand tracking failed:", e);
+      setTrackError((prev) => ({ ...prev, [id]: t("track_load_failed") }));
+    }
+  };
+
+  const toggleTracking = (id: string) => {
+    const nowOpen = !trackOpen[id];
+    setTrackOpen((prev) => ({ ...prev, [id]: nowOpen }));
+    if (nowOpen && !tracking[id]) void loadTracking(id);
+  };
+
   // Shipping is quoted off the real order size rather than a fixed sticker price.
   const shipping = selected
     ? {
@@ -205,8 +250,8 @@ export default function BuyerDashboard() {
     : { air: 450, surface: 200 };
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans pb-16">
-      <header className="px-4 sm:px-8 py-4 bg-white border-b border-gray-200 sticky top-0 z-40 flex items-center justify-between gap-4">
+    <div className="min-h-screen bg-[var(--color-background)] font-sans pb-16">
+      <header className="sticky top-0 z-40 flex items-center justify-between gap-4 border-b border-gray-200/60 bg-[var(--color-background)]/90 px-4 py-4 backdrop-blur-md sm:px-8">
         <div className="flex items-center gap-4 min-w-0">
           <KarigariLogo variant="dark" showWordmark={true} size={28} />
           <span className="text-gray-300 font-light text-xl hidden sm:inline">|</span>
@@ -244,7 +289,7 @@ export default function BuyerDashboard() {
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-serif font-bold text-gray-900">{t("my_demand_requests")}</h1>
+            <h1 className="kg-display text-[32px] leading-tight text-gray-900 sm:text-[40px]">{t("my_demand_requests")}</h1>
             <p className="text-sm text-gray-500 mt-1">
               {myDemands.length} {t("posted_by_you")} · {boardStats.openCount} {t("open_on_board")}
             </p>
@@ -331,14 +376,89 @@ export default function BuyerDashboard() {
                           </span>
                         )}
                       </div>
+                      {(demand.material || demand.color) && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {demand.material && (
+                            <span className="rounded-full bg-[var(--color-mint)] px-2.5 py-1 text-[11px] font-bold text-primary">
+                              {demand.material}
+                            </span>
+                          )}
+                          {demand.color && (
+                            <span className="rounded-full bg-[var(--color-mint)] px-2.5 py-1 text-[11px] font-bold text-primary">
+                              {demand.color}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {demand.description && (
+                        <p className="text-sm text-gray-600 mt-2 leading-relaxed">
+                          {demand.description}
+                        </p>
+                      )}
                       {demand.notes && (
                         <p className="text-sm text-gray-600 mt-2 leading-relaxed">{demand.notes}</p>
                       )}
                     </div>
+
+                    {/* The buyer's own reference photo. Guarded: a demand posted
+                        without one renders no <Image> at all. */}
+                    {demand.referenceImageUrl && (
+                      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-gray-100">
+                        <Image
+                          src={demand.referenceImageUrl}
+                          alt={t("demand_reference_image")}
+                          fill
+                          sizes="80px"
+                          unoptimized={demand.referenceImageUrl.startsWith("data:")}
+                          className="object-cover"
+                        />
+                      </div>
+                    )}
                     <span className="text-xs text-gray-400 font-medium shrink-0">
                       {new Date(demand.createdAt).toLocaleDateString("en-GB")}
                     </span>
                   </button>
+
+                  {/* Track is available to anyone looking at the board, but it
+                      is the buyer's own requests it exists for. */}
+                  <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 px-6 py-3">
+                    <button
+                      onClick={() => toggleTracking(demand.id)}
+                      className="kg-press inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 text-xs font-bold text-primary hover:bg-[var(--color-mint)]"
+                    >
+                      <Truck size={14} />
+                      {t("track_order")}
+                      {trackOpen[demand.id] ? (
+                        <ChevronUp size={14} />
+                      ) : (
+                        <ChevronDown size={14} />
+                      )}
+                    </button>
+                    {tracking[demand.id] && (
+                      <span className="text-xs font-medium text-gray-500">
+                        {t("track_units_fulfilled")
+                          .replace("{done}", String(tracking[demand.id].fulfilled))
+                          .replace("{total}", String(tracking[demand.id].requested))}
+                      </span>
+                    )}
+                  </div>
+
+                  {trackOpen[demand.id] && (
+                    <div className="bg-gray-50 p-6">
+                      <h4 className="mb-4 flex items-center gap-2 text-sm font-bold text-gray-700">
+                        <Truck size={16} className="text-primary" /> {t("track_title")}
+                      </h4>
+                      {trackError[demand.id] ? (
+                        <p className="text-sm text-gray-500">{trackError[demand.id]}</p>
+                      ) : tracking[demand.id] ? (
+                        <OrderTimeline data={tracking[demand.id]} />
+                      ) : (
+                        <div className="flex items-center gap-2 py-6 text-sm text-gray-500">
+                          <Loader2 size={16} className="animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {isSelected && (
                     <div className="p-6 bg-gray-50">
@@ -357,8 +477,16 @@ export default function BuyerDashboard() {
                         </div>
                       ) : (
                         <div className="space-y-4">
-                          <div className="flex items-center gap-2 mb-2 text-sm font-bold text-gray-700">
+                          <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-bold text-gray-700">
                             <CheckCircle2 className="text-green-500" size={18} /> {t("match_found")}
+                            {scoredBy[demand.id] && (
+                              <span className="text-xs font-medium text-gray-500">
+                                ·{" "}
+                                {scoredBy[demand.id] === "reference"
+                                  ? t("demand_matched_on_reference")
+                                  : t("demand_matched_on_text")}
+                              </span>
+                            )}
                           </div>
 
                           {/* Real listed stock, straight from the DB. Each row

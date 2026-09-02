@@ -66,9 +66,19 @@ export async function POST(req: Request) {
     // Remainder to be queued to the artisan
     const finalPayoutQueued = Math.max(0, salePrice - advancePaid);
 
-    // Anti-exploitation guardian: a price more than 30% below the AI fair wage
-    // floor means the artisan is very likely being squeezed by a middleman.
-    const discrepancy = getPricingDiscrepancy({ fairWageFloor: item.fairWageFloor, salePrice });
+    // Anti-exploitation guardian, in both directions: far below the fair wage
+    // floor means the artisan is very likely being squeezed by a middleman, and
+    // far above the AI market band means the buyer is the one being gouged. The
+    // market fields have to be passed or the ceiling has nothing to test against.
+    const discrepancy = getPricingDiscrepancy({
+      fairWageFloor: item.fairWageFloor,
+      marketPriceMax: item.marketPriceMax,
+      standardMarketPrice: item.standardMarketPrice,
+      salePrice,
+    });
+    // The fairness score is about the artisan, so only underpricing costs them
+    // points — an over-priced sale did not shortchange the maker.
+    const fairnessPenalty = discrepancy.direction === 'below' ? discrepancy.pctBelow : 0;
 
     const updatedItem = await prisma.craftItem.update({
       where: { id: itemId },
@@ -78,7 +88,7 @@ export async function POST(req: Request) {
         finalPayoutQueued: finalPayoutQueued,
         pricingFlag: discrepancy.flagged,
         flagReason: discrepancy.flagged ? discrepancy.reason : null,
-        fairnessScore: discrepancy.flagged ? Math.max(0, 100 - discrepancy.pctBelow) : (item.fairnessScore ?? 95)
+        fairnessScore: fairnessPenalty > 0 ? Math.max(0, 100 - fairnessPenalty) : (item.fairnessScore ?? 95)
       }
     });
 

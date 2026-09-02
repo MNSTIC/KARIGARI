@@ -45,3 +45,11 @@ next-env.d.ts
 /src/generated/prisma
 .gstack/
 dev.log
+
+# service worker (generated into public/ by @ducanh2912/next-pwa on every build)
+/public/sw.js
+/public/sw.js.map
+/public/workbox-*.js
+/public/workbox-*.js.map
+/public/fallback-*.js
+/public/swe-worker-*.js

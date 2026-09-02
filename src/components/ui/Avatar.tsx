@@ -22,14 +22,14 @@ import { cn } from "@/lib/utils";
  * generated avatars still reads as one product.
  */
 const COLOURS = [
-  "#24332C", // primary
-  "#3D5145", // primary-light
-  "#3D624F", // stat teal
-  "#8F412F", // stat orange
-  "#4D5D6C", // stat blue
-  "#9A7B3F", // stat brown
-  "#6B5A78", // purple
-  "#B14B39", // red
+  "#1A1A1A", // ink
+  "#4A423C", // ink light
+  "#5A1A1A", // maroon
+  "#C2632F", // terracotta
+  "#4D5D6C", // slate
+  "#9A7B3F", // ochre
+  "#4A5241", // olive
+  "#6B5A78", // plum
 ];
 
 /**

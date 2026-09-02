@@ -18,6 +18,14 @@ export interface AssistantScheme {
   key: string;
   name: string;
   benefit: string;
+  /**
+   * The scheme's name in the artisan's own language, for display.
+   *
+   * `name` stays the official English title because that is what gets written
+   * into the downloadable application draft — the government portal receiving
+   * it knows the scheme by that name and by no other.
+   */
+  displayName?: string;
   officialUrl: string;
   formPath?: string;
 }
@@ -238,7 +246,7 @@ export function SchemeFormAssistant({
               <h2 className="font-serif font-bold text-lg text-primary truncate">
                 {t("scheme_assistant_title")}
               </h2>
-              <p className="text-xs text-gray-500 truncate">{scheme.name}</p>
+              <p className="text-xs text-gray-500 truncate">{scheme.displayName || scheme.name}</p>
             </div>
           </div>
           <button

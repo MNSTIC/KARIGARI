@@ -23,11 +23,17 @@ import {
 } from "lucide-react";
 import { StatCard } from "@/components/ui/StatCard";
 import { AdminShell, TabBar, LiveBadge } from "@/components/AdminShell";
+import { useUrlTab } from "@/lib/urlTab";
 import {
   AssistedOnboardingModal,
   type OnboardingArtisan,
 } from "@/components/AssistedOnboardingModal";
-import { formatRupees, FAIR_WAGE_DROP_THRESHOLD_PCT } from "@/lib/pricing";
+import {
+  formatRupees,
+  FAIR_PRICE_RISE_THRESHOLD_PCT,
+  FAIR_WAGE_DROP_THRESHOLD_PCT,
+} from "@/lib/pricing";
+import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 
 const POLL_MS = 15000;
@@ -36,11 +42,16 @@ const POLL_MS = 15000;
 
 interface Discrepancy {
   flagged: boolean;
+  /** Which side of the AI estimate tripped the flag. */
+  direction: "below" | "above" | null;
   pctBelow: number;
+  pctAbove: number;
   reason: string | null;
   fairPrice: number | null;
+  marketReference: number | null;
   acceptedPrice: number | null;
   shortfall: number;
+  overshoot: number;
 }
 
 interface QueueArtisan {
@@ -66,6 +77,8 @@ interface QueueItem {
   catalogMethod: string | null;
   voiceLanguage: string | null;
   fairWageFloor: number | null;
+  marketPriceMax: number | null;
+  standardMarketPrice: number | null;
   salePrice: number | null;
   askingPrice: number | null;
   resolution: "OPEN" | "INVESTIGATING" | "OVERRIDE_APPROVED";
@@ -135,7 +148,8 @@ const errorMessage = (e: unknown) =>
 
 export default function FacilitatorDashboard() {
   const router = useRouter();
-  const [tab, setTab] = useState<"qa" | "cluster">("qa");
+  // The sidebar deep links into a tab, so the tab lives in the URL.
+  const [tab, setTab] = useUrlTab<"qa" | "cluster">("qa", ["qa", "cluster"] as const);
   const [queue, setQueue] = useState<QueuePayload | null>(null);
   const [cluster, setCluster] = useState<ClusterPayload | null>(null);
   const [isRefreshing, setRefreshing] = useState(false);
@@ -379,15 +393,15 @@ function PricingQueue({
       <SectionHeader
         icon={<ShieldAlert size={20} className="text-red-500" />}
         title="Anti-Exploitation Pricing Queue"
-        description={`Listings where the accepted price fell more than ${FAIR_WAGE_DROP_THRESHOLD_PCT}% below the AI fair wage floor. Call the artisan before the listing goes live.`}
+        description={`Listings priced more than ${FAIR_WAGE_DROP_THRESHOLD_PCT}% below the AI fair wage floor (the artisan is being squeezed) or more than ${FAIR_PRICE_RISE_THRESHOLD_PCT}% above the AI market band (the buyer is). Call the artisan before the listing goes live.`}
         count={items.length}
       />
 
       {items.length === 0 ? (
         <EmptyState
           icon={<BadgeCheck size={28} />}
-          title="No exploitation flags open"
-          body="Every accepted price in your cluster is within the fair wage tolerance."
+          title="No pricing flags open"
+          body="Every price in your cluster sits inside its own AI estimate — nothing under the fair wage floor, nothing over the market band."
         />
       ) : (
         <div className="space-y-4">
@@ -435,16 +449,34 @@ function PricingRow({
   busyId: string | null;
   onResolve: (id: string, action: "APPROVE_OVERRIDE" | "INVESTIGATE") => void;
 }) {
+  const { t } = useLanguage();
   const busy = busyId === item.id;
-  const pct = item.discrepancy?.pctBelow ?? 0;
   const investigating = item.resolution === "INVESTIGATING";
   const mobile = item.artisan?.mobileNumber;
+
+  /**
+   * Which way the price broke, and how the whole row is toned.
+   *
+   * Underpricing is red because a wage was lost; over-pricing is amber because
+   * it is a risk to be checked, not a theft. Rendering both in the same red
+   * would tell the facilitator that a gouged buyer and a squeezed artisan are
+   * the same problem, and they are not.
+   */
+  const overpriced = item.discrepancy?.direction === "above";
+  const pct = overpriced
+    ? item.discrepancy?.pctAbove ?? 0
+    : item.discrepancy?.pctBelow ?? 0;
+  const tone = investigating ? "hold" : overpriced ? "over" : "under";
 
   return (
     <div
       className={cn(
         "bg-white rounded-2xl shadow-card border overflow-hidden",
-        investigating ? "border-amber-200" : "border-red-100"
+        tone === "hold"
+          ? "border-amber-200"
+          : tone === "over"
+            ? "border-amber-200"
+            : "border-red-100"
       )}
     >
       <div className="flex flex-col lg:flex-row">
@@ -460,12 +492,16 @@ function PricingRow({
               <span
                 className={cn(
                   "text-[10px] font-bold px-2 py-0.5 rounded-full border",
-                  investigating
-                    ? "bg-amber-50 text-amber-700 border-amber-200"
-                    : "bg-red-50 text-red-700 border-red-200"
+                  tone === "under"
+                    ? "bg-red-50 text-red-700 border-red-200"
+                    : "bg-amber-50 text-amber-700 border-amber-200"
                 )}
               >
-                {investigating ? "On hold — investigating" : `⚑ ${pct}% below fair wage`}
+                {investigating
+                  ? t("flag_on_hold")
+                  : overpriced
+                    ? `⚑ ${t("flag_overpriced")} · ${pct}% ${t("flag_above_market")}`
+                    : `⚑ ${t("flag_underpriced")} · ${pct}% ${t("flag_below_fair_wage")}`}
               </span>
               {item.catalogMethod && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
@@ -478,16 +514,27 @@ function PricingRow({
 
         {/* Price comparison */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-5 lg:w-[36%] border-b lg:border-b-0 lg:border-r border-gray-100">
-          <PriceCell label="AI Fair Price" value={formatRupees(item.fairWageFloor)} />
+          {/* The reference cell swaps with the direction: a shortfall is
+              measured against the floor, an overshoot against the top of the
+              market band, and showing the wrong one would make the third cell
+              look like it did not add up. */}
           <PriceCell
-            label={item.salePrice === null ? "Artisan's Price" : "Accepted Price"}
-            value={formatRupees(item.salePrice ?? item.askingPrice)}
-            tone="danger"
+            label={overpriced ? t("price_ai_market_ceiling") : t("price_ai_fair_price")}
+            value={formatRupees(
+              overpriced ? item.discrepancy?.marketReference : item.fairWageFloor
+            )}
           />
           <PriceCell
-            label="Shortfall"
-            value={formatRupees(item.discrepancy?.shortfall)}
-            tone="danger"
+            label={item.salePrice === null ? t("price_artisan_price") : t("price_accepted_price")}
+            value={formatRupees(item.salePrice ?? item.askingPrice)}
+            tone={overpriced ? "warning" : "danger"}
+          />
+          <PriceCell
+            label={overpriced ? t("price_overshoot") : t("price_shortfall")}
+            value={formatRupees(
+              overpriced ? item.discrepancy?.overshoot : item.discrepancy?.shortfall
+            )}
+            tone={overpriced ? "warning" : "danger"}
           />
         </div>
 
@@ -562,13 +609,17 @@ function PriceCell({
 }: {
   label: string;
   value: string;
-  tone?: "default" | "danger";
+  tone?: "default" | "danger" | "warning";
 }) {
   return (
     <div
       className={cn(
         "rounded-xl p-3 border",
-        tone === "danger" ? "bg-red-50/60 border-red-100" : "bg-gray-50 border-gray-100"
+        tone === "danger"
+          ? "bg-red-50/60 border-red-100"
+          : tone === "warning"
+            ? "bg-amber-50/60 border-amber-100"
+            : "bg-gray-50 border-gray-100"
       )}
     >
       <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1 leading-tight">
@@ -577,7 +628,11 @@ function PriceCell({
       <p
         className={cn(
           "font-bold text-base",
-          tone === "danger" ? "text-red-700" : "text-gray-900"
+          tone === "danger"
+            ? "text-red-700"
+            : tone === "warning"
+              ? "text-amber-700"
+              : "text-gray-900"
         )}
       >
         {value}

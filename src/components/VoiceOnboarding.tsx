@@ -398,14 +398,16 @@ export function VoiceOnboarding({
         onClick={() => (isOpen ? closePanel() : setIsOpen(true))}
         aria-label={isOpen ? "Close voice assistant" : "Open voice assistant"}
         aria-expanded={isOpen}
-        className="fixed bottom-6 right-6 z-[100] w-14 h-14 bg-gradient-to-r from-primary to-green-600 rounded-full shadow-2xl flex items-center justify-center text-white hover:scale-105 transition-transform"
+        /* Lifted above the mobile tab bar; back to the corner once the nav
+           becomes a left rail at md. */
+        className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] md:bottom-6 right-4 md:right-6 z-[60] w-14 h-14 bg-primary hover:bg-primary-dark rounded-full shadow-soft flex items-center justify-center text-white hover:scale-105 transition-all"
       >
         <Mic size={24} />
       </button>
 
       {isOpen && (
-        <div className="fixed bottom-24 right-6 w-80 max-w-[calc(100vw-3rem)] bg-white rounded-3xl shadow-2xl border border-gray-100 z-[100] overflow-hidden flex flex-col animate-fade-in-up">
-          <div className="bg-[#14211B] p-4 text-white flex justify-between items-center">
+        <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] md:bottom-24 right-4 md:right-6 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-3xl shadow-2xl border border-gray-100 z-[60] overflow-hidden flex flex-col animate-fade-in-up">
+          <div className="bg-[#2E2926] p-4 text-white flex justify-between items-center">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
                 <Sparkles size={16} className="text-green-300" />
@@ -471,7 +473,7 @@ export function VoiceOnboarding({
               )}
 
               {responseMsg && (
-                <div className="bg-[#DCEBE0] p-3 rounded-2xl rounded-tl-none text-sm text-[#14211B] shadow-sm w-11/12">
+                <div className="bg-[#ECE7E0] p-3 rounded-2xl rounded-tl-none text-sm text-[#2E2926] shadow-sm w-11/12">
                   {responseMsg}
                 </div>
               )}
@@ -492,7 +494,7 @@ export function VoiceOnboarding({
                 onClick={startListening}
                 disabled={isProcessing}
                 aria-label="Start recording"
-                className="w-14 h-14 bg-[#24332C] hover:bg-[#14211B] disabled:opacity-50 rounded-full flex items-center justify-center text-white shadow-md transition-colors"
+                className="w-14 h-14 bg-[#1A1A1A] hover:bg-[#2E2926] disabled:opacity-50 rounded-full flex items-center justify-center text-white shadow-md transition-colors"
               >
                 <Mic size={24} />
               </button>

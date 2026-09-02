@@ -21,9 +21,21 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
-import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import { CaptureModal } from "@/components/CaptureModal";
 import { formatRupees } from "@/lib/pricing";
+import { Shell } from "@/components/ui/AppShell";
+import { PageLede, PageTitle } from "@/components/ui/SectionEyebrow";
+import { Card } from "@/components/ui/Card";
+import { SectionLabel } from "@/components/ui/SectionLabel";
+import { Badge } from "@/components/ui/Badge";
+import {
+  ARTISAN_SETTABLE_STAGES,
+  ORDER_STAGE_KEYS,
+  resolveStage,
+  stageIndex,
+  type OrderStage,
+} from "@/lib/orderStage";
+import { PillTabs } from "@/components/ui/SegmentedToggle";
 import {
   SYNDICATION_PLATFORMS,
   SYNDICATION_PLATFORM_KEYS,
@@ -58,6 +70,11 @@ interface Listing {
   syndicatedChannels: string[];
   syndicatedAt: string | null;
   createdAt: string;
+  /** Buyer-facing production ladder; null means "derive it from escrow/QA". */
+  productionStage?: string | null;
+  stageUpdatedAt?: string | null;
+  escrowStatus?: string | null;
+  qrVerified?: boolean | null;
 }
 
 interface BoardDemand {
@@ -76,10 +93,49 @@ function rupees(value?: number | null): string {
   return value || value === 0 ? `₹${value.toLocaleString("en-IN")}` : "—";
 }
 
+type StatusFilter = "all" | "live" | "verifying" | "sellable" | "sold";
+
+/**
+ * Where a listing sits against its own AI fair-wage floor.
+ *
+ * This is computed from the two numbers already on the row, not fetched or
+ * invented: an asking price at or above the floor is a low-risk listing, one
+ * meaningfully below it is the artisan under-pricing themselves, which is the
+ * artisan-facing half of the middleman squeeze the platform exists to stop.
+ */
+function marketRisk(item: Listing): { label: string; variant: "success" | "warning" | "danger" } | null {
+  const price = item.askingPrice ?? item.standardMarketPrice;
+  const floor = item.fairWageFloor;
+  if (!price || !floor) return null;
+  if (price >= floor) return { label: "Low", variant: "success" };
+  if (price >= floor * 0.85) return { label: "Med", variant: "warning" };
+  return { label: "High", variant: "danger" };
+}
+
+function matchesFilter(item: Listing, filter: StatusFilter): boolean {
+  switch (filter) {
+    case "live":
+      return item.isListedOnMarketplace || item.isOndcLive;
+    case "verifying":
+      return item.status === "PENDING_VERIFICATION" || item.status === "VERIFIED";
+    case "sellable":
+      return item.status === "SELLABLE";
+    case "sold":
+      return item.status === "SOLD_FINAL" || item.status === "SOLD_MIDDLEMAN";
+    default:
+      return true;
+  }
+}
+
 export default function MarketPage() {
   const { t } = useLanguage();
 
   const [tab, setTab] = useState<"listings" | "buyers" | "syndication">("listings");
+  /** Item whose production stage is being written, so the row can show it. */
+  const [stagingId, setStagingId] = useState<string | null>(null);
+  const [stageNotice, setStageNotice] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
+  /** Status filter across the artisan's own pieces. */
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [artisanId, setArtisanId] = useState<string | null>(null);
   const [listings, setListings] = useState<Listing[]>([]);
   const [drafts, setDrafts] = useState<Listing[]>([]);
@@ -198,38 +254,86 @@ export default function MarketPage() {
     }
   };
 
+  /**
+   * Move one piece along the production ladder.
+   *
+   * Only the two stages an artisan legitimately owns are offered; the server
+   * re-checks that and refuses anything the escrow engine is responsible for.
+   * The buyer's tracker reads the same field, so this is what makes their
+   * timeline advance.
+   */
+  const advanceStage = async (item: Listing, next: OrderStage) => {
+    setStagingId(item.id);
+    setStageNotice(null);
+    try {
+      const res = await fetch("/api/artisan/listings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: item.id, productionStage: next }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        setStageNotice({ tone: "warn", text: data?.error || t("stage_update_failed") });
+        return;
+      }
+      setStageNotice({ tone: "ok", text: t("stage_updated") });
+      await load();
+    } catch (e) {
+      console.error("Stage update failed:", e);
+      setStageNotice({ tone: "warn", text: t("stage_update_failed") });
+    } finally {
+      setStagingId(null);
+    }
+  };
+
   const renderCard = (item: Listing, isDraft: boolean) => {
     const isEditing = editingId === item.id;
     const listingText = item.descriptionEnglish || item.aiGeneratedListing || "";
+    const risk = marketRisk(item);
 
     return (
-      <div
+      <article
         key={item.id}
-        className="bg-card rounded-2xl border border-gray-100 shadow-card overflow-hidden flex flex-col"
+        className="kg-list-item bg-card rounded-2xl border border-gray-100 shadow-card overflow-hidden flex flex-col"
       >
-        <div className="h-44 bg-gray-100 relative">
+        {/* Fixed aspect box: a percentage-height image container is what makes
+            a grid of cards jump as photos decode at different times. */}
+        <div className="relative aspect-[16/10] bg-gray-100">
           {item.images?.[0] ? (
-            <Image src={item.images[0]} fill alt={item.craftType} className="object-cover" />
+            <Image
+              src={item.images[0]}
+              fill
+              alt={item.craftType}
+              sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+              unoptimized={String(item.images[0]).startsWith("data:")}
+              className="object-cover"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-400">
               <Package size={40} />
             </div>
           )}
-          <span
-            className={cn(
-              "absolute top-2 right-2 text-[10px] font-bold px-2 py-1 rounded-full shadow-sm",
-              isDraft ? "bg-white text-gray-600 border border-gray-200" : "bg-primary text-white"
-            )}
-          >
-            {isDraft ? t("awaiting_qa") : t("live_on_ondc")}
+          <span className="absolute top-3 right-3">
+            <Badge
+              variant={isDraft ? "warning" : "solid"}
+              caps
+              icon={isDraft ? <Clock size={11} /> : <CheckCircle2 size={11} />}
+              className="shadow-sm"
+            >
+              {isDraft ? t("awaiting_qa") : t("live_on_ondc")}
+            </Badge>
           </span>
         </div>
 
         <div className="p-5 flex flex-col flex-1">
-          <h3 className="font-serif font-bold text-lg text-primary mb-1">{item.craftType}</h3>
-          {item.patchId && (
-            <p className="text-[11px] font-mono text-gray-400 mb-2 truncate">{item.patchId}</p>
-          )}
+          <h3 className="font-serif font-bold text-lg text-gray-900 mb-1">{item.craftType}</h3>
+          <p className="text-[11px] text-gray-500 mb-3 truncate">
+            {item.patchId ? (
+              <span className="font-mono">{item.patchId}</span>
+            ) : (
+              <span className="italic">{t("pending_admin")}</span>
+            )}
+          </p>
 
           {/* Listing text — the ONDC copy, editable by its own artisan */}
           {isEditing ? (
@@ -290,94 +394,136 @@ export default function MarketPage() {
             </>
           )}
 
-          <div className="mt-auto pt-4 border-t border-gray-100 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-gray-500 font-bold uppercase tracking-wider">{t("valuation")}</span>
-              <span className="text-primary font-bold">
-                {rupees(item.askingPrice ?? item.marketPriceMin ?? item.standardMarketPrice)}
-              </span>
-            </div>
-            {item.fairWageFloor !== null && (
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 font-bold uppercase tracking-wider">
+          <div className="mt-auto pt-4 border-t border-gray-100">
+            <div className="flex items-end justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
                   {t("fair_wage_floor")}
-                </span>
-                <span className="text-gray-700 font-bold">{rupees(item.fairWageFloor)}</span>
+                </p>
+                {/* font-sans: Playfair ships without U+20B9, so a rupee amount
+                    set in the display face renders the mark as tofu. */}
+                <p className="font-sans font-bold text-lg text-gray-900">
+                  {rupees(item.fairWageFloor ?? item.askingPrice ?? item.standardMarketPrice)}
+                </p>
               </div>
-            )}
 
-            {isDraft && <p className="text-[11px] text-gray-400 italic pt-1">{t("draft_hint")}</p>}
+              {risk && (
+                <div className="text-right shrink-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                    Market risk
+                  </p>
+                  <Badge variant={risk.variant} caps>{risk.label}</Badge>
+                </div>
+              )}
+            </div>
+
+            {/* Production stage. Only the steps ahead of where escrow and the
+                QA patch already put this piece are offered — nothing here can
+                claim a dispatch that has not happened. */}
+            {!isDraft && (() => {
+              const current = resolveStage(item);
+              const next = ARTISAN_SETTABLE_STAGES.filter(
+                (stage) => stageIndex(stage) > stageIndex(current)
+              );
+              return (
+                <div className="pt-4">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                    {t("track_title")}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="neutral" caps>{t(ORDER_STAGE_KEYS[current])}</Badge>
+                    {next.map((stage) => (
+                      <button
+                        key={stage}
+                        onClick={() => advanceStage(item, stage)}
+                        disabled={stagingId === item.id}
+                        className="kg-press inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-[var(--color-sage)] px-3 text-[11px] font-bold text-primary hover:bg-[var(--color-mint)] disabled:opacity-50"
+                      >
+                        {stagingId === item.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Clock size={12} />
+                        )}
+                        {t(ORDER_STAGE_KEYS[stage])}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {isDraft && <p className="text-[11px] text-gray-400 italic pt-3">{t("draft_hint")}</p>}
 
             {!isEditing && (
               <button
                 onClick={() => startEdit(item)}
-                className="w-full mt-2 flex items-center justify-center gap-2 text-sm font-bold text-primary border border-[var(--color-sage)] rounded-xl py-2 hover:bg-[var(--color-mint)] transition-colors"
+                className="kg-press w-full mt-4 flex items-center justify-center gap-2 text-sm font-bold text-primary border border-[var(--color-sage)] rounded-xl min-h-[44px] hover:bg-[var(--color-mint)]"
               >
                 <Pencil size={14} /> {t("edit_listing_text")}
               </button>
             )}
           </div>
         </div>
-      </div>
+      </article>
     );
   };
 
+  const visibleListings = listings.filter((item) => matchesFilter(item, statusFilter));
+  const visibleDrafts = drafts.filter((item) => matchesFilter(item, statusFilter));
+
   return (
-    <div className="min-h-screen bg-[var(--color-background)] font-sans pb-12">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 px-4 sm:px-6 py-3 flex items-center gap-4">
-        <Link
-          href="/artisan/dashboard"
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+    <Shell>
+      {/* The lede carries the subtitle now, so the old paragraph beside the
+          action button is gone — it printed the same sentence twice. */}
+      <div className="mb-9 flex flex-wrap items-start justify-between gap-5">
+        <div className="min-w-0">
+          <PageTitle>{t("page_my_crafts_title")}</PageTitle>
+          <PageLede>{t("market_subtitle")}</PageLede>
+        </div>
+        <button
+          onClick={() => setCaptureOpen(true)}
+          aria-label={t("new_listing")}
+          className="kg-press mt-2 flex h-12 shrink-0 items-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-white hover:bg-primary-dark"
         >
-          <ArrowLeft size={20} className="text-gray-700" />
-        </Link>
-        <KarigariLogo variant="dark" showWordmark={true} size={28} />
-      </header>
+          <Plus size={17} /> <span className="hidden sm:inline">{t("new_listing")}</span>
+        </button>
+      </div>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-serif font-bold text-primary flex items-center gap-3">
-              <Globe size={26} className="text-primary-light" />
-              {t("market_title")}
-            </h1>
-            <p className="text-gray-600 mt-2 text-sm">{t("market_subtitle")}</p>
-          </div>
-          <button
-            onClick={() => setCaptureOpen(true)}
-            className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-3 rounded-xl font-bold shadow-sm transition-colors shrink-0"
-          >
-            <Plus size={18} /> {t("new_listing")}
-          </button>
-        </div>
+      {/* Section tabs */}
+      <PillTabs
+        ariaLabel={t("market_title")}
+        value={tab}
+        onChange={setTab}
+        className="mb-4"
+        options={[
+          { value: "listings" as const, label: t("my_listings"), icon: <Package size={14} /> },
+          { value: "syndication" as const, label: "Syndication", icon: <Zap size={14} /> },
+          { value: "buyers" as const, label: t("bulk_buyers"), icon: <TrendingUp size={14} /> },
+        ]}
+      />
 
-        {/* Tabs */}
-        <div className="flex gap-2 sm:gap-3 mb-8 border-b border-gray-200 pb-1 overflow-x-auto">
-          {(
-            [
-              { id: "listings" as const, label: t("my_listings"), icon: <Package size={17} /> },
-              {
-                id: "syndication" as const,
-                label: "Zero-ID Multi-Channel Syndication Hub",
-                icon: <Zap size={17} />,
-              },
-              { id: "buyers" as const, label: t("bulk_buyers"), icon: <TrendingUp size={17} /> },
-            ]
-          ).map((entry) => (
-            <button
-              key={entry.id}
-              onClick={() => setTab(entry.id)}
-              className={cn(
-                "py-3 px-5 rounded-t-xl font-bold flex items-center gap-2 transition-colors whitespace-nowrap text-sm",
-                tab === entry.id
-                  ? "bg-primary text-white shadow-sm"
-                  : "bg-gray-50 text-gray-500 hover:bg-gray-100"
-              )}
-            >
-              {entry.icon} {entry.label}
-            </button>
-          ))}
-        </div>
+      {/* Status filter — only meaningful on the listings tab. Counts come from
+          the real rows, so a filter with nothing behind it reads zero rather
+          than looking broken. */}
+      {tab === "listings" && (
+        <PillTabs
+          ariaLabel="Filter by status"
+          value={statusFilter}
+          onChange={setStatusFilter}
+          className="mb-6"
+          options={([
+            ["all", "All"],
+            ["live", "Live"],
+            ["sellable", "Sellable"],
+            ["verifying", "Verifying"],
+            ["sold", "Sold"],
+          ] as [StatusFilter, string][]).map(([value, label]) => ({
+            value,
+            label,
+            count: [...listings, ...drafts].filter((item) => matchesFilter(item, value)).length,
+          }))}
+        />
+      )}
 
         {loading ? (
           <div className="py-20 flex justify-center">
@@ -387,50 +533,57 @@ export default function MarketPage() {
           <div className="space-y-10">
             {loadFailed && <p className="text-sm text-gray-500">{t("market_load_failed")}</p>}
 
-            <p className="text-xs text-gray-500 bg-[var(--color-mint)]/50 border border-[var(--color-sage)]/40 rounded-xl p-3 flex gap-2 items-start">
-              <Info size={14} className="shrink-0 mt-0.5 text-primary" />
+            <p className="text-xs text-primary bg-[var(--color-mint)]/60 border border-[var(--color-sage)]/50 rounded-xl p-3.5 flex gap-2 items-start leading-relaxed">
+              <Info size={14} className="shrink-0 mt-0.5" />
               {t("publish_explainer")}
             </p>
 
+            {stageNotice && (
+              <p
+                className={cn(
+                  "kg-fade rounded-xl border px-4 py-3 text-sm font-bold",
+                  stageNotice.tone === "ok"
+                    ? "border-green-200 bg-green-50 text-green-800"
+                    : "border-orange-100 bg-orange-50 text-orange-800"
+                )}
+              >
+                {stageNotice.text}
+              </p>
+            )}
+
             {/* Published */}
             <section>
-              <h2 className="text-lg font-serif font-bold text-primary mb-4 border-b border-gray-200 pb-2 flex items-center gap-2">
-                <CheckCircle2 size={18} className="text-primary-light" /> {t("live_listings")}
-              </h2>
-              {listings.length === 0 ? (
-                <p className="text-sm text-gray-500 italic bg-card border border-dashed border-gray-200 rounded-2xl p-8 text-center">
+              <SectionLabel>{t("live_listings")}</SectionLabel>
+              {visibleListings.length === 0 ? (
+                <Card pad="lg" className="border-dashed text-center text-sm text-gray-500 italic">
                   {t("no_listings_yet")}
-                </p>
+                </Card>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {listings.map((item) => renderCard(item, false))}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 kg-stagger">
+                  {visibleListings.map((item) => renderCard(item, false))}
                 </div>
               )}
             </section>
 
             {/* Awaiting QA */}
-            {drafts.length > 0 && (
+            {visibleDrafts.length > 0 && (
               <section>
-                <h2 className="text-lg font-serif font-bold text-primary mb-4 border-b border-gray-200 pb-2 flex items-center gap-2">
-                  <Clock size={18} className="text-gray-400" /> {t("awaiting_qa")}
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {drafts.map((item) => renderCard(item, true))}
+                <SectionLabel>{t("awaiting_qa")}</SectionLabel>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 kg-stagger">
+                  {visibleDrafts.map((item) => renderCard(item, true))}
                 </div>
               </section>
             )}
 
             {/* ONDC context — secondary, and honest about what is connected */}
-            <section className="bg-card rounded-2xl border border-gray-100 shadow-card p-6">
-              <h2 className="text-lg font-serif font-bold text-primary mb-2 flex items-center gap-2">
-                <Globe size={18} className="text-primary-light" /> {t("ondc_title")}
-              </h2>
-              <p className="text-sm text-gray-600 mb-4 leading-relaxed">{t("ondc_body")}</p>
-              <p className="text-sm font-bold text-primary mb-3">
+            <Card tone="muted" pad="lg">
+              <SectionLabel>{t("ondc_title")}</SectionLabel>
+              <p className="text-sm text-gray-600 mb-3 leading-relaxed">{t("ondc_body")}</p>
+              <p className="text-sm font-bold text-primary mb-2">
                 {listings.length} {t("items_live_on_network")}
               </p>
               <p className="text-xs text-gray-500 italic">{t("ondc_status_note")}</p>
-            </section>
+            </Card>
           </div>
         ) : tab === "syndication" ? (
           <SyndicationHub
@@ -500,16 +653,20 @@ export default function MarketPage() {
             )}
           </div>
         )}
-      </main>
 
-      <CaptureModal
-        isOpen={captureOpen}
-        onClose={() => {
-          setCaptureOpen(false);
-          load();
-        }}
-      />
-    </div>
+      {/* Mounted only while open: `dynamic` is not used here, but rendering the
+          modal unconditionally still runs its state and effects on every page
+          view for a surface most visits never open. */}
+      {captureOpen && (
+        <CaptureModal
+          isOpen
+          onClose={() => {
+            setCaptureOpen(false);
+            load();
+          }}
+        />
+      )}
+    </Shell>
   );
 }
 

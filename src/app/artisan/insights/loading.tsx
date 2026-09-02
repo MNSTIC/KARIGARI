@@ -1,5 +1,5 @@
 import { RouteSkeleton } from "@/components/ui/RouteSkeleton";
 
 export default function Loading() {
-  return <RouteSkeleton />;
+  return <RouteSkeleton cards={4} layout="list" />;
 }

@@ -87,15 +87,48 @@ export const CRAFT_IMAGES: CraftImageSpec[] = [
     sublabel: 'Bhuj, Kutch, Gujarat',
     palette: ['#A32E5C', '#2C1226'],
   },
+  {
+    slug: 'madhubani',
+    queries: ['Madhubani painting', 'Mithila painting', 'Madhubani art Bihar'],
+    label: 'Madhubani Painting',
+    sublabel: 'Madhubani, Bihar',
+    palette: ['#B03A2E', '#2B1410'],
+  },
+  {
+    slug: 'bidriware',
+    queries: ['Bidriware', 'Bidri work', 'Bidar metal inlay'],
+    label: 'Bidriware Silver Inlay',
+    sublabel: 'Bidar, Karnataka',
+    palette: ['#2B2B33', '#0E0E14'],
+  },
+  {
+    slug: 'channapatna',
+    queries: ['Channapatna toys', 'Channapatna lacquer toys', 'Indian wooden lacquer toys'],
+    label: 'Channapatna Lacquered Toys',
+    sublabel: 'Channapatna, Karnataka',
+    palette: ['#C2622A', '#3A1E0C'],
+  },
+  {
+    slug: 'pashmina',
+    queries: ['Pashmina shawl', 'Kashmiri shawl', 'Sozni embroidery shawl'],
+    label: 'Kashmiri Pashmina Shawl',
+    sublabel: 'Srinagar, Jammu & Kashmir',
+    palette: ['#4A5D6B', '#161F26'],
+  },
 ];
 
-/** Distinct faces so the six artisans do not all share one portrait. */
+/** Distinct faces so no two artisans share a portrait. One query per artisan. */
 export const PEOPLE_QUERIES = [
   'Indian woman weaver portrait',
   'Indian artisan man portrait',
   'Indian craftsman working portrait',
   'Rajasthan potter portrait',
   'Indian tribal artisan portrait',
+  'Indian woman embroidery artisan',
+  'Bihar folk artist portrait',
+  'Indian metal craftsman portrait',
+  'Karnataka woodworker portrait',
+  'Kashmiri artisan portrait',
 ];
 
 export interface BuildReport {

@@ -1,23 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
-import {
-  ArrowLeft,
-  CheckCircle2,
-  Globe,
-  Info,
-  MapPin,
-  Package,
-  ShieldCheck,
-  X,
-} from "lucide-react";
-import { KarigariLogo } from "@/components/ui/KarigariLogo";
+import { ArrowUpDown, CheckCircle2, Info, ShieldCheck, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
-import { formatRupees } from "@/lib/pricing";
+import { FilterTabs, Pill } from "@/components/ui/FilterTabs";
+import { PageLede, PageTitle } from "@/components/ui/SectionEyebrow";
+import { ProductCard } from "@/components/ui/ProductCard";
 import { useLanguage } from "@/lib/translations";
-import { imageProps, marketPrice, type MarketItem } from "@/lib/marketplace";
+import { categoryFor, marketPrice, type MarketItem } from "@/lib/marketplace";
+import { captureRefFromUrl, trackRef } from "@/lib/affiliateRef";
+import { cn } from "@/lib/utils";
 
 /**
  * The public consumer storefront.
@@ -25,7 +18,14 @@ import { imageProps, marketPrice, type MarketItem } from "@/lib/marketplace";
  * Every card is a real `CraftItem` an artisan has published. Buying goes
  * straight to Stripe test checkout, and the escrow that follows pays the
  * artisan's own VPA — there is no middleman account in between.
+ *
+ * The category rail is built from the crafts that are actually listed, so it
+ * never offers a filter that would return nothing.
  */
+
+type SortKey = "newest" | "price-asc" | "price-desc";
+
+const PAGE_SIZE = 8;
 
 export default function MarketplacePage() {
   const { t } = useLanguage();
@@ -33,6 +33,13 @@ export default function MarketplacePage() {
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [paymentBanner, setPaymentBanner] = useState<"success" | "cancelled" | null>(null);
+  /** The creator whose link brought this shopper here, if any. */
+  const [ref, setRef] = useState("");
+
+  const [category, setCategory] = useState("all");
+  const [sort, setSort] = useState<SortKey>("newest");
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
+  const [visible, setVisible] = useState(PAGE_SIZE);
 
   const load = useCallback(async () => {
     setLoadFailed(false);
@@ -61,9 +68,19 @@ export default function MarketplacePage() {
     return () => clearTimeout(kickoff);
   }, [load]);
 
-  // Read the Stripe return straight off the URL rather than via useSearchParams,
-  // so this fully-client page needs no Suspense boundary — the pattern the
-  // artisan dashboard already uses.
+  // Creator attribution. Read off the URL the same way the payment banner is,
+  // for the same reason: no useSearchParams means no Suspense boundary on this
+  // fully-client page. The click is recorded once per landing.
+  useEffect(() => {
+    const kickoff = setTimeout(() => {
+      const handle = captureRefFromUrl();
+      if (!handle) return;
+      setRef(handle);
+      trackRef(handle);
+    }, 0);
+    return () => clearTimeout(kickoff);
+  }, []);
+
   useEffect(() => {
     const kickoff = setTimeout(() => {
       const params = new URLSearchParams(window.location.search);
@@ -78,165 +95,345 @@ export default function MarketplacePage() {
     return () => clearTimeout(kickoff);
   }, []);
 
+  /** Only categories that have something in them. */
+  const categories = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      const label = categoryFor(item);
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return [
+      { value: "all", label: "All Crafts" },
+      ...[...counts.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([label]) => ({ value: label, label })),
+    ];
+  }, [items]);
+
+  const shown = useMemo(() => {
+    let list = items;
+    if (category !== "all") list = list.filter((item) => categoryFor(item) === category);
+    if (verifiedOnly) list = list.filter((item) => Boolean(item.patchId));
+
+    const sorted = [...list];
+    if (sort === "price-asc" || sort === "price-desc") {
+      sorted.sort((a, b) => {
+        // Items with no price sink to the bottom of either direction rather
+        // than sorting as ₹0 and leading the "cheapest first" view.
+        const pa = marketPrice(a);
+        const pb = marketPrice(b);
+        if (pa === null) return 1;
+        if (pb === null) return -1;
+        return sort === "price-asc" ? pa - pb : pb - pa;
+      });
+    } else {
+      sorted.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+    }
+    return sorted;
+  }, [items, category, verifiedOnly, sort]);
+
+  // A narrower filter must not leave the grid stuck on a page that no longer
+  // exists, so the window resets whenever the result set changes shape.
+  useEffect(() => {
+    setVisible(PAGE_SIZE);
+  }, [category, verifiedOnly, sort]);
+
   return (
-    <div className="min-h-screen bg-[var(--color-background)] font-sans pb-16">
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40 px-4 sm:px-6 py-3 flex items-center gap-4">
-        <Link href="/" className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-          <ArrowLeft size={20} className="text-gray-700" />
-        </Link>
-        <KarigariLogo variant="dark" showWordmark={true} size={28} />
-        <div className="ml-auto flex items-center gap-4">
-          {/* A shopper has no account here, so the switcher has to be reachable
-              from the storefront itself. */}
-          <LanguageSwitcher />
-          <Link
-            href="/login"
-            className="text-sm font-bold text-primary hover:text-primary-dark transition-colors whitespace-nowrap"
-          >
-            {t('artisan_login')}
+    <div className="min-h-screen bg-[var(--color-background)] font-sans">
+      <header className="sticky top-0 z-40 border-b border-gray-200/60 bg-[var(--color-background)]/90 backdrop-blur-md">
+        <div className="mx-auto flex h-[72px] max-w-[1180px] items-center gap-4 px-4 sm:px-6 lg:px-10">
+          <Link href="/" className="flex shrink-0 items-center gap-2.5">
+            <span
+              aria-hidden
+              className="kg-display flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-[17px] text-white"
+            >
+              K
+            </span>
+            <span className="kg-display hidden text-[21px] leading-none text-gray-900 sm:block">
+              Karigari
+            </span>
           </Link>
+
+          <div className="ml-auto flex min-w-0 items-center gap-3 sm:gap-4">
+            {/* A shopper has no account here, so the switcher has to be
+                reachable from the storefront itself. */}
+            <LanguageSwitcher />
+            <Link
+              href="/login"
+              className="whitespace-nowrap text-[14px] font-semibold text-gray-900 hover:underline"
+            >
+              {t("artisan_login")}
+            </Link>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+      <main className="mx-auto max-w-[1180px] px-4 py-10 sm:px-6 sm:py-14 lg:px-10">
         {paymentBanner === "success" && (
-          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-[var(--color-sage)] bg-[var(--color-mint)] p-4 sm:p-5">
-            <CheckCircle2 size={20} className="shrink-0 mt-0.5 text-primary" />
-            <div className="text-sm text-primary">
-              <p className="font-bold">{t('payment_success_title')}</p>
-              <p className="mt-1 leading-relaxed text-primary/80">
-                {t('payment_success_body')}
-              </p>
-            </div>
-            <button
-              onClick={() => setPaymentBanner(null)}
-              aria-label={t('dismiss')}
-              className="ml-auto p-1 text-primary/60 hover:text-primary transition-colors"
-            >
-              <X size={16} />
-            </button>
-          </div>
+          <Banner
+            tone="ok"
+            icon={<CheckCircle2 size={19} />}
+            title={t("payment_success_title")}
+            body={t("payment_success_body")}
+            onDismiss={() => setPaymentBanner(null)}
+            dismissLabel={t("dismiss")}
+          />
         )}
-
         {paymentBanner === "cancelled" && (
-          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-gray-200 bg-card p-4 sm:p-5">
-            <Info size={20} className="shrink-0 mt-0.5 text-gray-400" />
-            <p className="text-sm text-gray-600">{t('payment_cancelled')}</p>
-            <button
-              onClick={() => setPaymentBanner(null)}
-              aria-label={t('dismiss')}
-              className="ml-auto p-1 text-gray-400 hover:text-gray-700 transition-colors"
-            >
-              <X size={16} />
-            </button>
+          <Banner
+            tone="quiet"
+            icon={<Info size={19} />}
+            body={t("payment_cancelled")}
+            onDismiss={() => setPaymentBanner(null)}
+            dismissLabel={t("dismiss")}
+          />
+        )}
+        {ref && (
+          <Banner
+            tone="warm"
+            icon={<Sparkles size={18} />}
+            title={`Curated & recommended by @${ref}`}
+            body="They earn 5% of anything you buy through this link, paid direct to their UPI. The artisan's share is unchanged."
+          />
+        )}
+
+        {/* ------------------------------------------------------ Masthead */}
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <PageTitle>Marketplace</PageTitle>
+            <PageLede>{t("marketplace_subtitle")}</PageLede>
+          </div>
+
+          <div className="flex shrink-0 flex-wrap gap-3">
+            <FilterMenu verifiedOnly={verifiedOnly} onChange={setVerifiedOnly} />
+            <SortMenu sort={sort} onChange={setSort} />
+          </div>
+        </div>
+
+        {/* --------------------------------------------------- Category rail */}
+        {categories.length > 1 && (
+          <div className="mt-10">
+            <FilterTabs
+              options={categories}
+              value={category}
+              onChange={setCategory}
+              ariaLabel="Craft category"
+            />
           </div>
         )}
 
-        <div className="mb-8">
-          <h1 className="text-3xl sm:text-4xl font-serif font-bold text-primary flex items-center gap-3">
-            <Globe size={28} className="text-primary-light" />
-            {t('nav_marketplace')}
-          </h1>
-          <p className="text-gray-600 mt-2 text-sm sm:text-base max-w-2xl leading-relaxed">
-            {t('marketplace_subtitle')}
-          </p>
-        </div>
-
-        <div className="mb-8 grid gap-3 sm:grid-cols-2">
-          <p className="text-xs text-primary bg-[var(--color-mint)]/60 border border-[var(--color-sage)]/50 rounded-xl p-3 flex gap-2 items-start leading-relaxed">
-            <ShieldCheck size={14} className="shrink-0 mt-0.5" />
-            {t('mp_escrow_note')}
-          </p>
-          <p className="text-xs text-gray-500 bg-card border border-gray-200 rounded-xl p-3 flex gap-2 items-start leading-relaxed">
-            <Info size={14} className="shrink-0 mt-0.5 text-gray-400" />
-            {t('mp_prototype_note')}
-          </p>
-        </div>
-
-        {loading ? (
-          <div className="py-20 flex justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-          </div>
-        ) : loadFailed ? (
-          <p className="text-sm text-gray-500 italic bg-card border border-dashed border-gray-200 rounded-2xl p-8 text-center">
-            {t('mp_load_failed')}
-          </p>
-        ) : items.length === 0 ? (
-          <p className="text-sm text-gray-500 italic bg-card border border-dashed border-gray-200 rounded-2xl p-8 text-center">
-            {t('mp_empty')}
-          </p>
-        ) : (
-          <>
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">
-              {items.length} {t('pieces_live')}
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {items.map((item) => (
-                <ProductCard key={item.id} item={item} />
+        {/* -------------------------------------------------------- The grid */}
+        <div className="mt-10">
+          {loading ? (
+            <div className="grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i}>
+                  <div className="kg-shimmer aspect-square rounded-2xl" />
+                  <div className="kg-shimmer mt-4 h-5 w-2/3 rounded" />
+                  <div className="kg-shimmer mt-2 h-3 w-1/2 rounded" />
+                </div>
               ))}
             </div>
-          </>
-        )}
+          ) : loadFailed ? (
+            <EmptyState>
+              {t("mp_load_failed")}
+              <button
+                onClick={load}
+                className="kg-press mt-5 inline-flex min-h-[44px] items-center rounded-xl bg-primary px-6 text-[13px] font-semibold text-white hover:bg-primary-dark"
+              >
+                {t("retry")}
+              </button>
+            </EmptyState>
+          ) : shown.length === 0 ? (
+            <EmptyState>
+              {items.length === 0
+                ? t("mp_empty")
+                : "Nothing in this category yet. Try another craft family."}
+            </EmptyState>
+          ) : (
+            <>
+              <div className="kg-stagger grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
+                {shown.slice(0, visible).map((item) => (
+                  <ProductCard key={item.id} item={item} />
+                ))}
+              </div>
+
+              {visible < shown.length && (
+                <div className="mt-14 flex justify-center">
+                  <button
+                    onClick={() => setVisible((v) => v + PAGE_SIZE)}
+                    className="kg-press kg-label inline-flex min-h-[52px] items-center rounded-full border border-gray-900/25 px-9 font-medium text-gray-900 hover:border-gray-900/60"
+                  >
+                    Load more artifacts
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* --------------------------------------------------- Honest notes */}
+        <div className="mt-16 grid gap-4 border-t border-gray-200/70 pt-10 sm:grid-cols-2">
+          <p className="flex items-start gap-2.5 text-[13px] leading-relaxed text-gray-600">
+            <ShieldCheck size={15} className="mt-0.5 shrink-0 text-gray-400" />
+            {t("mp_escrow_note")}
+          </p>
+          <p className="flex items-start gap-2.5 text-[13px] leading-relaxed text-gray-500">
+            <Info size={15} className="mt-0.5 shrink-0 text-gray-400" />
+            {t("mp_prototype_note")}
+          </p>
+        </div>
       </main>
     </div>
   );
 }
 
-function ProductCard({ item }: { item: MarketItem }) {
-  const { t } = useLanguage();
-  const price = marketPrice(item);
+/* -------------------------------------------------------------------------- */
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-gray-300 p-12 text-center text-[15px] text-gray-500">
+      {children}
+    </div>
+  );
+}
+
+function Banner({
+  tone,
+  icon,
+  title,
+  body,
+  onDismiss,
+  dismissLabel,
+}: {
+  tone: "ok" | "quiet" | "warm";
+  icon: React.ReactNode;
+  title?: string;
+  body: string;
+  onDismiss?: () => void;
+  dismissLabel?: string;
+}) {
+  const TONES = {
+    ok: "border-green-200 bg-green-50 text-green-800",
+    quiet: "border-gray-200 bg-card text-gray-600",
+    warm: "border-orange-100 bg-orange-50 text-orange-900",
+  } as const;
 
   return (
-    <Link
-      href={`/marketplace/product/${item.id}`}
-      className="bg-card rounded-2xl border border-gray-100 shadow-card overflow-hidden flex flex-col hover:shadow-lg hover:-translate-y-0.5 transition-all"
-    >
-      <div className="h-52 bg-gray-100 relative">
-        {item.images?.[0] ? (
-          <Image
-            {...imageProps(item.images[0])}
-            fill
-            alt={item.craftType}
-            className="object-cover"
-            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-400">
-            <Package size={40} />
-          </div>
-        )}
-        {item.patchId && (
-          <span className="absolute top-2 right-2 inline-flex items-center gap-1 bg-primary text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-sm">
-            <CheckCircle2 size={11} /> {t('verified')}
-          </span>
-        )}
+    <div className={cn("mb-8 flex items-start gap-3 rounded-2xl border p-4 sm:p-5", TONES[tone])}>
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <div className="min-w-0 text-[14px] leading-relaxed">
+        {title && <p className="font-semibold">{title}</p>}
+        <p className={title ? "mt-1 opacity-85" : undefined}>{body}</p>
       </div>
+      {onDismiss && (
+        <button
+          onClick={onDismiss}
+          aria-label={dismissLabel}
+          className="ml-auto shrink-0 p-1 opacity-60 transition-opacity hover:opacity-100"
+        >
+          <X size={16} />
+        </button>
+      )}
+    </div>
+  );
+}
 
-      <div className="p-5 flex flex-col flex-1">
-        <h3 className="font-serif font-bold text-lg text-primary mb-1">{item.craftType}</h3>
-        <p className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-3">
-          <MapPin size={11} /> {item.artisan.clusterName} · {item.artisan.name}
-        </p>
+/** Popover menus. Small enough not to warrant a library, real enough to work. */
+function useDismissable(open: boolean, close: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, close]);
+  return ref;
+}
 
-        <div className="flex flex-wrap gap-2 mb-4">
-          {item.isOndcLive && (
-            <span className="bg-[var(--color-mint)] text-primary text-[10px] font-bold px-2 py-1 rounded-md">
-              ONDC
+function FilterMenu({
+  verifiedOnly,
+  onChange,
+}: {
+  verifiedOnly: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useDismissable(open, () => setOpen(false));
+
+  return (
+    <div ref={ref} className="relative">
+      <Pill
+        icon={<SlidersHorizontal size={15} />}
+        onClick={() => setOpen((v) => !v)}
+        tone={verifiedOnly ? "dark" : "neutral"}
+      >
+        Filter
+      </Pill>
+      {open && (
+        <div className="absolute right-0 top-full z-40 mt-2 w-60 rounded-2xl border border-gray-200 bg-white p-2 shadow-soft">
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 hover:bg-gray-50">
+            <input
+              type="checkbox"
+              checked={verifiedOnly}
+              onChange={(e) => onChange(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-primary)]"
+            />
+            <span className="text-[13px] leading-relaxed text-gray-700">
+              <span className="block font-semibold text-gray-900">Verified Origin only</span>
+              Show only pieces whose printed patch has been matched to a re-photograph.
             </span>
-          )}
+          </label>
         </div>
+      )}
+    </div>
+  );
+}
 
-        <div className="mt-auto pt-4 border-t border-gray-100 flex items-end justify-between">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{t('price_label')}</p>
-            {/* font-sans: Playfair ships without U+20B9, so ₹ renders as tofu in serif. */}
-            <p className="text-xl font-sans font-bold text-primary">{formatRupees(price)}</p>
-          </div>
-          <span className="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-primary text-white">
-            View
-          </span>
+function SortMenu({ sort, onChange }: { sort: SortKey; onChange: (next: SortKey) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useDismissable(open, () => setOpen(false));
+
+  const OPTIONS: { value: SortKey; label: string }[] = [
+    { value: "newest", label: "Newest first" },
+    { value: "price-asc", label: "Price: low to high" },
+    { value: "price-desc", label: "Price: high to low" },
+  ];
+
+  return (
+    <div ref={ref} className="relative">
+      <Pill icon={<ArrowUpDown size={15} />} onClick={() => setOpen((v) => !v)}>
+        Sort
+      </Pill>
+      {open && (
+        <div className="absolute right-0 top-full z-40 mt-2 w-52 overflow-hidden rounded-2xl border border-gray-200 bg-white p-1 shadow-soft">
+          {OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+              className={cn(
+                "block w-full rounded-xl px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-gray-50",
+                sort === option.value ? "font-semibold text-gray-900" : "font-medium text-gray-600"
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
-      </div>
-    </Link>
+      )}
+    </div>
   );
 }

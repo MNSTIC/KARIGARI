@@ -60,6 +60,11 @@ model ArtisanProfile {
   giTagCertified  Boolean  @default(false)
   giTagName       String?
 
+  /// Master switch for the creator/influencer affiliate programme. Opt-in, at
+  /// the profile level rather than per item: an artisan who wants promotion
+  /// wants it for their shop, not one saree at a time.
+  promotionOptIn  Boolean  @default(false)
+
   @@index([socialCategory])
 }
 
@@ -121,6 +126,24 @@ model CraftItem {
   finalSettlementAmount  Float?   // final direct-to-artisan tranche (~49.36% of gross)
   artisanUpiDestination  String?  // snapshot of the artisan's own VPA at checkout
 
+  // Creator/influencer attribution. Written by /api/payments/create-checkout
+  // when the buyer arrived through a `?ref=<handle>` link, and paid out by
+  // /api/payments/settle-escrow on DELIVERED. There is no Order table in this
+  // schema — an order IS a CraftItem — so attribution lives on the item.
+  affiliateCreatorId    String?
+  affiliateHandle       String?
+  /// 5% of gross, computed at checkout and paid to the creator's own UPI on
+  /// delivery. Taken from the platform side; the artisan's share is untouched.
+  affiliateCommission   Float?
+
+  // Buyer-facing production tracking. Most of the ladder is derived from
+  // `status`, `escrowStatus` and `qrVerified`; only the step between "accepted"
+  // and "ready for QA" is invisible in those fields, so it is the one an
+  // artisan sets by hand. A null column means "derive it".
+  productionStage     String?   // ACCEPTED | IN_PRODUCTION | QUALITY_CHECK | DISPATCHED | DELIVERED
+  stageUpdatedAt      DateTime?
+  estimatedDeliveryAt DateTime?
+
   // Anti-exploitation pricing guardian (new_admin.md Tier 1.1)
   pricingFlag         Boolean  @default(false)
   flagReason          String?
@@ -140,6 +163,7 @@ model CraftItem {
   @@index([status])
   @@index([createdAt])
   @@index([pricingFlag])
+  @@index([affiliateCreatorId])
 }
 
 model AuditLog {
@@ -187,6 +211,20 @@ model Demand {
   status          String   @default("OPEN") // OPEN | MATCHED | FULFILLED
   createdAt       DateTime @default(now())
 
+  // What the buyer actually wants, in their own words and with a picture.
+  // The board is unauthenticated, so this is the only channel a buyer has to
+  // describe a piece — and it is what the artisan reads before accepting.
+  /// Buyer-supplied reference photo, stored as a data URL like every other
+  /// image in this schema. There is no upload bucket.
+  referenceImageUrl String?
+  material          String?   // "Tussar silk", "Cotton"
+  color             String?   // "Deep maroon"
+  /// Free-text specifics, distinct from the internal `notes` field.
+  description       String?
+  /// AI confidence from the last match run, 0-1. Null when matching has not
+  /// run or the model was unavailable — never a fabricated score.
+  matchScore        Float?
+
   @@index([craftType])
   @@index([status])
   @@index([createdAt])
@@ -213,5 +251,50 @@ model Notification {
   createdAt       DateTime @default(now())
 
   @@index([userId, read])
+  @@index([createdAt])
+}
+
+
+/// A local creator or influencer promoting verified craft.
+///
+/// Non-custodial, exactly like the artisan payout: `upiId` is the creator's own
+/// VPA and the 5% commission is settled straight to it on delivery. Karigari
+/// never holds a creator's money and no admin approves a payout.
+model Creator {
+  id            String   @id @default(uuid())
+  name          String
+  handle        String   @unique          // "shreya_styles"
+  platform      String   @default("INSTAGRAM") // INSTAGRAM | YOUTUBE | NIFT_STUDENT
+  profileUrl    String?
+  photoUrl      String?
+  nicheCategory String                     // "Handloom Sarees" | "Tribal Jewelry" | ...
+  location      String?
+  upiId         String                     // direct VPA for the 5% payout
+  bio           String?
+  totalClicks   Int      @default(0)
+  totalSales    Int      @default(0)
+  earningsTotal Float    @default(0)
+  status        String   @default("ACTIVE")
+  createdAt     DateTime @default(now())
+  clicks        AffiliateClick[]
+
+  @@index([handle])
+  @@index([nicheCategory])
+}
+
+/// One visit that arrived through a creator's `?ref=` link.
+///
+/// `ipHash` is a salted digest, never the address itself: the only question
+/// this table has to answer is "was this the same visitor twice", and storing
+/// a raw IP to answer it would be collecting more than the feature needs.
+model AffiliateClick {
+  id          String   @id @default(uuid())
+  creatorId   String
+  creator     Creator  @relation(fields: [creatorId], references: [id])
+  craftItemId String?
+  ipHash      String?
+  createdAt   DateTime @default(now())
+
+  @@index([creatorId])
   @@index([createdAt])
 }

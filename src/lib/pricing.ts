@@ -2,9 +2,13 @@
  * Anti-exploitation pricing rule (new_admin.md, Tier 1.1).
  *
  * The AI Pricing Assistant computes a `fairWageFloor` from labour days plus raw
- * material cost. If the price the artisan actually accepts falls more than 30%
- * below that floor, a middleman is very likely squeezing them, so the listing is
- * flagged for a facilitator to phone the artisan before it goes live.
+ * material cost, and a market band around it. A price that lands far outside
+ * that estimate is a signal in BOTH directions:
+ *
+ *  - far **below** the floor → a middleman is very likely squeezing the artisan;
+ *  - far **above** the market band → the buyer is being gouged, and the listing
+ *    will either not sell or will sell once and burn the channel. Either way a
+ *    facilitator should phone the artisan before it goes live.
  *
  * This is the single source of truth for the rule. `simulate-sale` persists the
  * verdict onto the row; the facilitator queue also recomputes it on the fly so
@@ -17,34 +21,81 @@ export const FAIR_WAGE_TOLERANCE = 0.7;
 /** Percentage drop that trips the flag, for display in the UI. */
 export const FAIR_WAGE_DROP_THRESHOLD_PCT = Math.round((1 - FAIR_WAGE_TOLERANCE) * 100);
 
+/**
+ * An accepted price above this multiple of the market reference is over-priced.
+ *
+ * Deliberately looser than the floor tolerance. Underpricing is a wage the
+ * artisan will never get back, so 30% is already too much; a high price is a
+ * judgement call that a rare piece may well justify, so it takes 60% over the
+ * top of the estimated band before the queue asks a human about it.
+ */
+export const FAIR_PRICE_CEILING_TOLERANCE = 1.6;
+
+/** Percentage overshoot that trips the flag, for display in the UI. */
+export const FAIR_PRICE_RISE_THRESHOLD_PCT = Math.round((FAIR_PRICE_CEILING_TOLERANCE - 1) * 100);
+
 export interface PricingDiscrepancyInput {
   fairWageFloor?: number | null;
   salePrice?: number | null;
   /** The artisan's own listing price, used before a sale has happened. */
   askingPrice?: number | null;
+  /** Top of the AI market band — the reference the ceiling is measured against. */
+  marketPriceMax?: number | null;
+  /** Mid-point of the AI market band; the ceiling's second choice of reference. */
+  standardMarketPrice?: number | null;
   pricingFlag?: boolean | null;
   flagReason?: string | null;
 }
 
+/** Which side of the estimate the price fell on. `null` when it is inside the band. */
+export type PricingDirection = 'below' | 'above';
+
 export interface PricingDiscrepancy {
-  /** True when the accepted price is more than 30% below the AI fair wage floor. */
+  /** True when the accepted price sits far outside the estimate, either way. */
   flagged: boolean;
+  /** Which side tripped the flag, or null when nothing did. */
+  direction: PricingDirection | null;
   /** How far below the floor the accepted price sits, in whole percent. 0 when not below. */
   pctBelow: number;
+  /** How far above the market reference it sits, in whole percent. 0 when not above. */
+  pctAbove: number;
   /** Human-readable explanation, or null when there is nothing to explain. */
   reason: string | null;
-  /** AI-suggested fair price, or null when the AI never produced one. */
+  /** AI-suggested fair price (the floor), or null when the AI never produced one. */
   fairPrice: number | null;
+  /** Top of the market band the ceiling was tested against, or null. */
+  marketReference: number | null;
   /** The price actually accepted, or null when the item has not sold yet. */
   acceptedPrice: number | null;
   /** Rupees the artisan lost against the fair floor. 0 when not below. */
   shortfall: number;
+  /** Rupees the price sits above the market reference. 0 when not above. */
+  overshoot: number;
+}
+
+/** The zeroed result, so every early return agrees on the shape. */
+function emptyDiscrepancy(item: PricingDiscrepancyInput): PricingDiscrepancy {
+  return {
+    flagged: Boolean(item.pricingFlag),
+    direction: null,
+    pctBelow: 0,
+    pctAbove: 0,
+    reason: item.flagReason ?? null,
+    fairPrice: numberOrNull(item.fairWageFloor),
+    marketReference: null,
+    acceptedPrice: numberOrNull(item.salePrice) ?? numberOrNull(item.askingPrice),
+    shortfall: 0,
+    overshoot: 0,
+  };
 }
 
 /**
- * Compare an item's accepted price against its AI fair wage floor.
+ * Compare an item's accepted price against its AI estimate, in both directions.
+ *
  * Safe on partial rows: missing prices yield an unflagged, zeroed result rather
- * than NaN, so a legacy item never breaks the queue.
+ * than NaN, so a legacy item never breaks the queue, and a row that carries a
+ * stored `pricingFlag`/`flagReason` but no numbers still surfaces with its
+ * persisted verdict intact.
  */
 export function getPricingDiscrepancy(item: PricingDiscrepancyInput): PricingDiscrepancy {
   const fairPrice = numberOrNull(item.fairWageFloor);
@@ -53,32 +104,62 @@ export function getPricingDiscrepancy(item: PricingDiscrepancyInput): PricingDis
   const sold = numberOrNull(item.salePrice);
   const acceptedPrice = sold ?? numberOrNull(item.askingPrice);
 
-  // Nothing to compare against — fall back to whatever was persisted on the row.
-  if (fairPrice === null || fairPrice <= 0 || acceptedPrice === null) {
-    return {
-      flagged: Boolean(item.pricingFlag),
-      pctBelow: 0,
-      reason: item.flagReason ?? null,
-      fairPrice,
-      acceptedPrice,
-      shortfall: 0,
-    };
-  }
+  // The ceiling is measured against the top of the market band where the AI
+  // produced one, because the band is what a buyer would actually pay. Falling
+  // back to the floor would flag every healthy margin as gouging.
+  const marketReference =
+    positiveOrNull(item.marketPriceMax) ??
+    positiveOrNull(item.standardMarketPrice) ??
+    (fairPrice !== null && fairPrice > 0 ? fairPrice * FAIR_PRICE_CEILING_TOLERANCE : null);
 
-  const shortfall = Math.max(0, fairPrice - acceptedPrice);
-  const pctBelow = Math.round((shortfall / fairPrice) * 100);
-  const flagged = acceptedPrice < fairPrice * FAIR_WAGE_TOLERANCE;
+  if (acceptedPrice === null) return emptyDiscrepancy(item);
+
+  const hasFloor = fairPrice !== null && fairPrice > 0;
+  const hasCeiling = marketReference !== null && marketReference > 0;
+  if (!hasFloor && !hasCeiling) return emptyDiscrepancy(item);
+
+  const shortfall = hasFloor ? Math.max(0, fairPrice! - acceptedPrice) : 0;
+  const pctBelow = hasFloor ? Math.round((shortfall / fairPrice!) * 100) : 0;
+
+  const overshoot = hasCeiling ? Math.max(0, acceptedPrice - marketReference!) : 0;
+  const pctAbove = hasCeiling ? Math.round((overshoot / marketReference!) * 100) : 0;
+
+  const underpriced = hasFloor && acceptedPrice < fairPrice! * FAIR_WAGE_TOLERANCE;
+  // Never both: a price cannot be under the floor and over the band at once,
+  // and underpricing is checked first because it is the graver of the two.
+  const overpriced =
+    !underpriced && hasCeiling && acceptedPrice > marketReference! * FAIR_PRICE_CEILING_TOLERANCE;
+
+  const setBy = sold === null ? 'Artisan set price' : 'Accepted price';
+  const direction: PricingDirection | null = underpriced
+    ? 'below'
+    : overpriced
+      ? 'above'
+      : null;
+
+  const reason = underpriced
+    ? `${setBy} ${pctBelow}% below AI fair wage floor`
+    : overpriced
+      ? `${setBy} ${pctAbove}% above fair market range — possible over-pricing / buyer-gouging risk`
+      : item.flagReason ?? null;
 
   return {
-    flagged: flagged || Boolean(item.pricingFlag),
+    flagged: underpriced || overpriced || Boolean(item.pricingFlag),
+    direction,
     pctBelow,
-    reason: flagged
-      ? `${sold === null ? 'Artisan set price' : 'Accepted price'} ${pctBelow}% below AI fair wage floor`
-      : item.flagReason ?? null,
+    pctAbove,
+    reason,
     fairPrice,
+    marketReference,
     acceptedPrice,
     shortfall,
+    overshoot,
   };
+}
+
+function positiveOrNull(value: number | null | undefined): number | null {
+  const n = numberOrNull(value);
+  return n !== null && n > 0 ? n : null;
 }
 
 function numberOrNull(value: number | null | undefined): number | null {

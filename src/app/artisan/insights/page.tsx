@@ -3,9 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { ArrowLeft, TrendingUp, MapPin, Package, Sparkles, Info, X, Building2, Download } from "lucide-react";
+import { TrendingUp, MapPin, Package, Sparkles, Info, X, Building2, Download } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
 import { NotificationsBell, type ArtisanNotification } from "@/components/NotificationsBell";
+import { Shell } from "@/components/ui/AppShell";
+import { PageLede, PageTitle } from "@/components/ui/SectionEyebrow";
+import { Card } from "@/components/ui/Card";
+import { SectionLabel } from "@/components/ui/SectionLabel";
+import { Badge } from "@/components/ui/Badge";
+import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
 import { GovExportModal } from "@/components/GovExportModal";
 import { WhatsAppSimulation, type SimulationDemand } from "@/components/WhatsAppSimulation";
 import type { DemandMarker, HomeMarker } from "@/components/DemandMap";
@@ -89,6 +95,8 @@ export default function InsightsPage() {
   const [loadedAt, setLoadedAt] = useState(0);
   /** The offline-fallback demo plays in a modal, opened from the banner below. */
   const [isWhatsappSimOpen, setIsWhatsappSimOpen] = useState(false);
+  /** Which end of the AI price band the benchmarking card is reading. */
+  const [priceGrade, setPriceGrade] = useState<"master" | "standard">("master");
   /** Government-catalog export (GeM CSV/JSON + this artisan's Beckn payload). */
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [artisanId, setArtisanId] = useState<string | null>(null);
@@ -246,38 +254,64 @@ export default function InsightsPage() {
   const recommendation = insights?.recommendation ?? null;
   const alertsActive = Boolean(insights?.hasMobileNumber);
 
-  return (
-    <div className="min-h-screen bg-[var(--color-background)] font-sans pb-20">
-      <header className="px-4 py-4 bg-white shadow-sm sticky top-0 z-40 flex items-center gap-3">
-        <Link
-          href="/artisan/dashboard"
-          className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
-        >
-          <ArrowLeft size={20} className="text-gray-600" />
-        </Link>
-        <div className="min-w-0">
-          <h1 className="text-xl font-serif font-bold text-primary truncate">{t("market_insights")}</h1>
-          <p className="text-xs text-gray-500 font-medium truncate">{t("market_insights_subtitle")}</p>
-        </div>
-        <div className="ml-auto">
-          <NotificationsBell onNotifications={handleNotifications} />
-        </div>
-      </header>
+  /**
+   * The bell still renders on this page only so the notification list it loads
+   * can be lifted into the SMS simulation below. The visible trigger lives in
+   * the shell header, so this copy is hidden from sight but not from the
+   * accessibility tree's point of view — it is genuinely not interactive here.
+   */
+  const bellSink = (
+    <div className="sr-only" aria-hidden>
+      <NotificationsBell onNotifications={handleNotifications} />
+    </div>
+  );
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+  return (
+    <Shell className="space-y-6">
+      <div className="mb-9">
+        <PageTitle>{t("nav_market_insights")}</PageTitle>
+        <PageLede>{t("market_insights_subtitle")}</PageLede>
+      </div>
+
+        {bellSink}
+
+        {/* ---------------- Global market pulse ---------------- */}
+        <Card
+          pad="lg"
+          tone="muted"
+          className="kg-enter"
+        >
+          {/* The page lede already carries the subtitle; repeating it here read
+              as a duplicated sentence once the page grew its own title. */}
+          <SectionLabel>Global market pulse</SectionLabel>
+
+          <div className="grid grid-cols-3 gap-3">
+            <PulseFigure label={t("open_demands_count")} value={board.length} />
+            <PulseFigure
+              label={t("demands_for_your_craft")}
+              value={insights?.demand.matchingCount ?? 0}
+            />
+            <PulseFigure label={t("units_wanted")} value={insights?.demand.totalQuantity ?? 0} />
+          </div>
+
+          <p className="text-xs text-gray-500 mt-4">
+            Top category for you: <strong className="text-primary">{craft}</strong>
+          </p>
+        </Card>
+
         {/* ---------------- Live demand map ---------------- */}
-        <section className="bg-card rounded-2xl p-5 shadow-card border border-gray-100">
-          <div className="flex justify-between items-start gap-3 mb-5">
+        <Card>
+          <div className="flex justify-between items-start gap-3 mb-4">
             <div className="min-w-0">
-              <h2 className="text-xl font-serif font-bold text-primary mb-1">{t("live_demand_map")}</h2>
+              <h2 className="font-serif font-bold text-xl text-gray-900 mb-1">{t("live_demand_map")}</h2>
               <p className="text-gray-500 text-sm">
                 {t("demand_map_subtitle")} <strong className="text-primary">{craft}</strong>.
               </p>
             </div>
             {freshCount > 0 && (
-              <span className="shrink-0 bg-[var(--color-mint)] text-primary text-xs font-bold px-3 py-1.5 rounded-full animate-fade-in-up">
+              <Badge variant="mint" caps className="shrink-0 kg-fade">
                 {t("new_buyer_demand")}
-              </span>
+              </Badge>
             )}
           </div>
 
@@ -335,10 +369,58 @@ export default function InsightsPage() {
               </ul>
             </div>
           )}
-        </section>
+        </Card>
+
+        {/* ---------------- Price benchmarking ----------------
+            The band is the one the insights engine actually returned for this
+            craft. The toggle switches the end of the band being read, not the
+            numbers: there is no second, invented dataset behind it. */}
+        {recommendation && recommendation.priceMin !== null && recommendation.priceMax !== null && (
+          <Card>
+            <SectionLabel>Price benchmarking</SectionLabel>
+            <p className="text-sm text-gray-600 leading-relaxed mb-4">
+              {t("suggested_price_band")} for <strong className="text-primary">{craft}</strong>.
+            </p>
+
+            <SegmentedToggle
+              ariaLabel="Price grade"
+              value={priceGrade}
+              onChange={setPriceGrade}
+              className="mb-5"
+              options={[
+                { value: "master" as const, label: "Master" },
+                { value: "standard" as const, label: "Standard" },
+              ]}
+            />
+
+            <dl className="space-y-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  {priceGrade === "master" ? "Top of band" : "Base of band"}
+                </dt>
+                <dd className="font-sans font-bold text-xl text-gray-900">
+                  {rupees(priceGrade === "master" ? recommendation.priceMax : recommendation.priceMin)}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3 pt-3 border-t border-gray-100">
+                <dt className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  Full band
+                </dt>
+                <dd className="font-sans font-bold text-sm text-gray-700">
+                  {rupees(recommendation.priceMin)} - {rupees(recommendation.priceMax)}
+                </dd>
+              </div>
+            </dl>
+
+            <p className="text-[11px] text-gray-500 italic mt-4 leading-relaxed">
+              One band from the insights engine, read from either end. Karigari holds no separate
+              master-grade price list, so nothing here is a second opinion dressed up as one.
+            </p>
+          </Card>
+        )}
 
         {/* ---------------- AI recommendation ---------------- */}
-        <section className="bg-primary text-white p-6 rounded-2xl shadow-card relative overflow-hidden">
+        <Card pad="lg" tone="primary" className="relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none" />
 
           <h3 className="text-lg font-serif font-bold mb-3 flex items-center gap-2">
@@ -382,49 +464,45 @@ export default function InsightsPage() {
 
             </>
           )}
-        </section>
+        </Card>
 
         {/* ---------------- List on ONDC ----------------
             Its own section rather than a button buried in the AI card: this is
             an action the artisan takes on their whole catalogue, not a
             follow-up to one recommendation. */}
-        <section className="bg-card p-6 rounded-2xl border border-gray-100 shadow-card">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="min-w-0">
-              <h3 className="text-lg font-serif font-bold text-primary flex items-center gap-2 mb-1">
-                <Package size={18} /> {t("list_on_ondc")}
-              </h3>
-              <p className="text-sm text-gray-500 leading-relaxed">{t("list_on_ondc_subtitle")}</p>
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Card className="flex flex-col">
+            <span className="w-10 h-10 rounded-xl bg-green-50 text-primary flex items-center justify-center mb-3">
+              <Package size={18} />
+            </span>
+            <h3 className="font-bold text-[15px] text-gray-900 mb-1">{t("list_on_ondc")}</h3>
+            <p className="text-xs text-gray-500 leading-relaxed mb-4">{t("list_on_ondc_subtitle")}</p>
             <Link
               href="/artisan/market?tab=syndication"
-              className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-3 rounded-xl font-bold shadow-sm transition-colors shrink-0"
+              className="kg-press mt-auto bg-primary hover:bg-primary-dark text-white min-h-[44px] rounded-xl font-bold text-sm flex items-center justify-center gap-2"
             >
-              <Package size={16} /> {t("list_on_ondc")}
+              {t("list_on_ondc")}
             </Link>
-          </div>
-        </section>
+          </Card>
 
-        {/* ---------------- Government catalog export ---------------- */}
-        <section className="bg-card p-6 rounded-2xl border border-gray-100 shadow-card">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="min-w-0">
-              <h3 className="text-lg font-serif font-bold text-primary flex items-center gap-2 mb-1">
-                <Building2 size={18} /> {t("gov_export_title")}
-              </h3>
-              <p className="text-sm text-gray-500 leading-relaxed">{t("gov_export_subtitle")}</p>
-            </div>
+          {/* ---------------- Government catalog export ---------------- */}
+          <Card className="flex flex-col">
+            <span className="w-10 h-10 rounded-xl bg-green-50 text-primary flex items-center justify-center mb-3">
+              <Building2 size={18} />
+            </span>
+            <h3 className="font-bold text-[15px] text-gray-900 mb-1">{t("gov_export_title")}</h3>
+            <p className="text-xs text-gray-500 leading-relaxed mb-4">{t("gov_export_subtitle")}</p>
             <button
               onClick={() => setIsExportOpen(true)}
-              className="flex items-center justify-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 py-3 rounded-xl font-bold shadow-sm transition-colors shrink-0"
+              className="kg-press mt-auto bg-primary hover:bg-primary-dark text-white min-h-[44px] rounded-xl font-bold text-sm flex items-center justify-center gap-2"
             >
               <Download size={16} /> {t("gov_export_cta")}
             </button>
-          </div>
-        </section>
+          </Card>
+        </div>
 
         {/* ---------------- SMS auto-pilot ---------------- */}
-        <section className="bg-card p-6 rounded-2xl border border-gray-100 shadow-card">
+        <Card pad="lg">
           <div className="flex items-center justify-between gap-3 mb-4">
             <h3 className="text-sm font-bold text-primary uppercase tracking-wider">{t("sms_auto_pilot")}</h3>
             {latestAlert && (
@@ -458,12 +536,11 @@ export default function InsightsPage() {
               {t("run_simulation")}
             </button>
           </div>
-        </section>
+        </Card>
 
         {failed && !insightsLoading && (
           <p className="text-sm text-gray-500 text-center">{t("insights_unavailable")}</p>
         )}
-      </main>
 
       <GovExportModal
         isOpen={isExportOpen}
@@ -506,6 +583,18 @@ export default function InsightsPage() {
           </div>
         </div>
       )}
+    </Shell>
+  );
+}
+
+/** One figure in the market-pulse row. Real counts only, zero included. */
+function PulseFigure({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl bg-card border border-gray-100 px-3 py-3 min-w-0">
+      <p className="font-sans font-bold text-xl text-gray-900">{value}</p>
+      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mt-0.5 leading-tight">
+        {label}
+      </p>
     </div>
   );
 }

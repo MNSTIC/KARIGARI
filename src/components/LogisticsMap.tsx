@@ -24,23 +24,23 @@ export function LogisticsMap() {
         {/* Red Route (Standard/High Carbon) */}
         <path d='M 750,300 Q 500,200 150,350' fill='none' stroke='#B14B39' strokeWidth='4' strokeDasharray='8 8' className='animate-pulse' />
         {/* Green Route (Eco-Friendly / EV / Rail) */}
-        <path d='M 750,300 Q 400,450 150,350' fill='none' stroke='#3D624F' strokeWidth='6' />
+        <path d='M 750,300 Q 400,450 150,350' fill='none' stroke='#4A5241' strokeWidth='6' />
       </svg>
 
       {/* Origin Pin (e.g. Odisha Artisan) */}
       <div className='absolute top-[40%] right-[20%] group z-20 flex flex-col items-center'>
-        <div className='bg-[#14211B] text-white p-2 rounded-full shadow-lg border-2 border-white mb-1'>
+        <div className='bg-[#2E2926] text-white p-2 rounded-full shadow-lg border-2 border-white mb-1'>
           <MapPin size={20} />
         </div>
-        <div className='bg-white px-3 py-1 rounded-full shadow text-xs font-bold whitespace-nowrap text-[#14211B]'>Odisha Cluster</div>
+        <div className='bg-white px-3 py-1 rounded-full shadow text-xs font-bold whitespace-nowrap text-[#2E2926]'>Odisha Cluster</div>
       </div>
 
       {/* Destination Pin (e.g. Mumbai Buyer) */}
       <div className='absolute top-[50%] left-[15%] group z-20 flex flex-col items-center'>
-        <div className='bg-[#24332C] text-white p-2 rounded-full shadow-lg border-2 border-white mb-1'>
+        <div className='bg-[#1A1A1A] text-white p-2 rounded-full shadow-lg border-2 border-white mb-1'>
           <MapPin size={20} />
         </div>
-        <div className='bg-white px-3 py-1 rounded-full shadow text-xs font-bold whitespace-nowrap text-[#24332C]'>Mumbai Hub</div>
+        <div className='bg-white px-3 py-1 rounded-full shadow text-xs font-bold whitespace-nowrap text-[#1A1A1A]'>Mumbai Hub</div>
       </div>
 
       {/* Route Info Cards */}

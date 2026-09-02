@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
+import { ARTISAN_SETTABLE_STAGES, resolveStage, stageIndex, type OrderStage } from '@/lib/orderStage';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,6 +56,10 @@ const LISTING_FIELDS = {
   syndicatedChannels: true,
   syndicatedAt: true,
   createdAt: true,
+  // Buyer-facing production ladder.
+  productionStage: true,
+  stageUpdatedAt: true,
+  estimatedDeliveryAt: true,
 } as const;
 
 /**
@@ -115,10 +120,46 @@ export async function PATCH(req: Request) {
     // Scoped read: an artisan can only ever edit their own item.
     const item = await prisma.craftItem.findFirst({
       where: { id: itemId, artisanId: auth.userId },
-      select: { id: true, craftType: true, descriptionEnglish: true, aiGeneratedListing: true },
+      select: {
+        id: true,
+        craftType: true,
+        descriptionEnglish: true,
+        aiGeneratedListing: true,
+        status: true,
+        escrowStatus: true,
+        qrVerified: true,
+        productionStage: true,
+      },
     });
     if (!item) {
       return NextResponse.json({ error: 'Item not found' }, { status: 404 });
+    }
+
+    /**
+     * Production stage, if the artisan is advancing one.
+     *
+     * Only ACCEPTED and IN_PRODUCTION are settable here. Everything past the
+     * quality check is written by the escrow engine on a real dispatch or
+     * delivery trigger, so an artisan can never tell a buyer a piece shipped
+     * when no money has moved. It also cannot go backwards: whatever the escrow
+     * and verification fields already prove is the floor.
+     */
+    let productionStage: OrderStage | undefined;
+    if (body?.productionStage !== undefined) {
+      const requested = String(body.productionStage) as OrderStage;
+      if (!ARTISAN_SETTABLE_STAGES.includes(requested)) {
+        return NextResponse.json(
+          { error: 'That production stage cannot be set by an artisan.' },
+          { status: 400 }
+        );
+      }
+      if (stageIndex(requested) < stageIndex(resolveStage(item))) {
+        return NextResponse.json(
+          { error: 'This piece is already further along than that.' },
+          { status: 409 }
+        );
+      }
+      productionStage = requested;
     }
 
     const text = (value: unknown, max = 4000): string | undefined =>
@@ -128,9 +169,13 @@ export async function PATCH(req: Request) {
     const descriptionOriginal = text(body?.descriptionOriginal);
     const aiGeneratedListing = text(body?.aiGeneratedListing) ?? descriptionEnglish;
 
-    if (descriptionEnglish === undefined && descriptionOriginal === undefined) {
+    if (
+      descriptionEnglish === undefined &&
+      descriptionOriginal === undefined &&
+      productionStage === undefined
+    ) {
       return NextResponse.json(
-        { error: 'Provide descriptionEnglish and/or descriptionOriginal.' },
+        { error: 'Provide descriptionEnglish, descriptionOriginal and/or productionStage.' },
         { status: 400 }
       );
     }
@@ -144,6 +189,9 @@ export async function PATCH(req: Request) {
         ...(descriptionEnglish !== undefined ? { descriptionEnglish } : {}),
         ...(descriptionOriginal !== undefined ? { descriptionOriginal } : {}),
         ...(aiGeneratedListing !== undefined ? { aiGeneratedListing } : {}),
+        ...(productionStage !== undefined
+          ? { productionStage, stageUpdatedAt: new Date() }
+          : {}),
       },
       select: LISTING_FIELDS,
     });
@@ -153,16 +201,21 @@ export async function PATCH(req: Request) {
       craftItemId: item.id,
       actorId: auth.userId,
       actorRole: 'ARTISAN',
-      action: 'LISTING_TEXT_UPDATED',
+      action: productionStage !== undefined ? 'PRODUCTION_STAGE_UPDATED' : 'LISTING_TEXT_UPDATED',
       previousState: {
         descriptionEnglish: item.descriptionEnglish,
         aiGeneratedListing: item.aiGeneratedListing,
+        productionStage: item.productionStage,
       },
       newState: {
         descriptionEnglish: updated.descriptionEnglish,
         aiGeneratedListing: updated.aiGeneratedListing,
+        productionStage: updated.productionStage,
       },
-      comments: 'Artisan edited their own listing description. This text is what goes out as the ONDC listing.',
+      comments:
+        productionStage !== undefined
+          ? `Artisan advanced this piece to ${productionStage}. The buyer's tracker moves with it.`
+          : 'Artisan edited their own listing description. This text is what goes out as the ONDC listing.',
     });
 
     return NextResponse.json({ success: true, item: updated });
