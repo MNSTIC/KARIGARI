@@ -58,7 +58,7 @@ export function Card({
   /* One shared prop bag across four possible tags: TS cannot narrow the
      per-element event handler types through a dynamic tag, and widening to
      HTMLElement at the boundary is cheaper than four overloads. */
-  const Tag = as as React.ElementType;
+  const Tag = as as any;
 
   return (
     <Tag
