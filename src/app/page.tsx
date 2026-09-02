@@ -6,8 +6,8 @@ import Image from "next/image";
 import dynamic from "next/dynamic";
 import { ArrowRight, HandCoins, MapPin, ShieldCheck, TrendingUp } from "lucide-react";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
-import { SectionEyebrow, SectionHeading } from "@/components/ui/SectionEyebrow";
-import { ProductCard } from "@/components/ui/ProductCard";
+import { SectionEyebrow } from "@/components/ui/SectionEyebrow";
+import { HeritageMarquee } from "@/components/HeritageMarquee";
 import { ARTISAN_TOTAL_RATE } from "@/lib/escrow";
 import { locateCity } from "@/lib/indiaGeo";
 import { marketPrice, type MarketItem } from "@/lib/marketplace";
@@ -23,9 +23,8 @@ import { useLanguage } from "@/lib/translations";
  * rendering invented rows.
  */
 
-/* Leaflet touches `window` at import time and the map is well below the fold,
-   so it is fetched only when this page actually renders it. */
-const DemandMap = dynamic(() => import("@/components/DemandMap"), {
+/* Three.js 3D India model — loaded lazily since it is below the fold. */
+const IndiaMap3D = dynamic(() => import("@/components/IndiaMap3D"), {
   ssr: false,
   loading: () => <div className="kg-shimmer aspect-video w-full rounded-2xl" />,
 });
@@ -115,7 +114,7 @@ export default function LandingPage() {
     return [...groups.values()];
   }, [items]);
 
-  const featured = items.slice(0, 3);
+
 
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-background)] font-sans">
@@ -258,44 +257,35 @@ export default function LandingPage() {
         </section>
 
         {/* --------------------------------------------- Curated Heritage */}
-        <section className="border-t border-gray-200/70 bg-white">
-          <div className="mx-auto max-w-[1180px] px-4 py-20 sm:px-6 sm:py-24 lg:px-10">
-            <SectionHeading
-              action={
-                <Link
-                  href="/marketplace"
-                  className="kg-label inline-flex items-center gap-2 font-medium text-gray-700 hover:text-gray-900"
-                >
-                  View all collections <ArrowRight size={14} />
-                </Link>
-              }
-            >
+        <section className="border-t border-gray-200/70 bg-white overflow-hidden">
+          <div className="mx-auto max-w-[1180px] px-4 pt-16 sm:px-6 sm:pt-20 lg:px-10 flex flex-col items-center">
+            <h2 className="kg-display text-gray-900 leading-tight text-[30px] sm:text-[36px] text-center mb-3">
               Curated Heritage
-            </SectionHeading>
+            </h2>
+            <p className="text-center text-[15px] text-gray-500 mb-12 max-w-2xl">
+              Every piece on the platform, from verified artisan workshops across India
+            </p>
+          </div>
 
-            {!loaded ? (
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {[0, 1, 2].map((i) => (
-                  <div key={i}>
-                    <div className="kg-shimmer aspect-square rounded-2xl" />
-                    <div className="kg-shimmer mt-4 h-5 w-2/3 rounded" />
-                    <div className="kg-shimmer mt-2 h-3 w-1/2 rounded" />
-                  </div>
-                ))}
-              </div>
-            ) : featured.length === 0 ? (
+          {!loaded ? (
+            <div className="flex gap-6 px-6 pb-20 sm:pb-24 overflow-hidden">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="shrink-0 w-[260px]">
+                  <div className="kg-shimmer aspect-[4/5] rounded-2xl" />
+                  <div className="kg-shimmer mt-3 h-4 w-2/3 rounded" />
+                </div>
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="mx-auto max-w-[1180px] px-4 pb-20 sm:px-6 sm:pb-24 lg:px-10">
               <p className="rounded-2xl border border-dashed border-gray-300 p-10 text-center text-[15px] text-gray-500">
                 No pieces are listed on the marketplace yet. The first artisan to publish a
                 verified craft will appear here.
               </p>
-            ) : (
-              <div className="kg-stagger grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {featured.map((item) => (
-                  <ProductCard key={item.id} item={item} />
-                ))}
-              </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <HeritageMarquee items={items} />
+          )}
         </section>
 
         {/* ------------------------------------------- Mapping the Roots */}
@@ -321,7 +311,7 @@ export default function LandingPage() {
             <div className="relative">
               {clusters.length > 0 ? (
                 <>
-                  <DemandMap home={null} demands={clusters} />
+                  <IndiaMap3D home={null} demands={clusters} />
                   <span className="pointer-events-none absolute bottom-4 left-4 z-[400] inline-flex items-center gap-2.5 rounded-xl bg-white px-3 py-2.5 shadow-soft">
                     <span
                       aria-hidden
