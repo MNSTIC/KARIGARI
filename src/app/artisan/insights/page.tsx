@@ -18,10 +18,9 @@ import type { DemandMarker, HomeMarker } from "@/components/DemandMap";
 import { distanceKm, locateCity } from "@/lib/indiaGeo";
 
 /**
- * Three.js 3D India model — only loaded in the browser since it uses WebGL.
- * Everything else on this page renders on the server as usual.
+ * Leaflet map needs browser APIs, so it is loaded dynamically with SSR disabled.
  */
-const IndiaMap3D = dynamic(() => import("@/components/IndiaMap3D"), {
+const DemandMap = dynamic(() => import("@/components/DemandMap"), {
   ssr: false,
   loading: () => (
     <div className="w-full aspect-video rounded-xl border border-gray-200 bg-[var(--color-mint)]/30 animate-pulse" />
@@ -318,7 +317,7 @@ export default function InsightsPage() {
           {boardLoading ? (
             <div className="w-full aspect-video rounded-xl border border-gray-200 bg-[var(--color-mint)]/30 animate-pulse" />
           ) : (
-            <IndiaMap3D home={home} demands={markers} />
+            <DemandMap home={home} demands={markers} />
           )}
 
           {/* Legend */}

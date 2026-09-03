@@ -38,6 +38,10 @@ export interface MarketItem {
     giTagCertified: boolean;
     giTagName: string | null;
   };
+  /** Aggregate rating across `Review` rows for this item. Null when there are none. */
+  avgRating?: number | null;
+  /** How many reviews the aggregate is over. */
+  reviewCount?: number;
 }
 
 /** What the consumer is asked to pay: a sold price if there is one, else the list price. */

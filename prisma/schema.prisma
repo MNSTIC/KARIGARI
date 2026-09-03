@@ -25,6 +25,13 @@ model User {
   craftItems     CraftItem[]
   schemeApplications SchemeApplication[]
   notifications  Notification[]
+  // Cluster-level resource sharing: an artisan may be on either side of a
+  // request (needing wool this week, offering yarn the next), so two relations.
+  resourceRequestsMade     ResourceRequest[] @relation("ResourceRequester")
+  resourceRequestsAccepted ResourceRequest[] @relation("ResourceAccepter")
+  // Demand acceptances — distinct from CraftItem sales. An ArtisanOrder is a
+  // commitment against a buyer's bulk request; a CraftItem is a piece.
+  artisanOrders            ArtisanOrder[]
 
   // Admin fields
   patchBankBalance Int @default(5000)
@@ -65,7 +72,15 @@ model ArtisanProfile {
   /// wants it for their shop, not one saree at a time.
   promotionOptIn  Boolean  @default(false)
 
+  /// Link to the artisan's SHG (Self-Help Group) group page/handle, optional.
+  /// When present it acts as the authoritative cluster key: everyone sharing
+  /// the same link is grouped together, no matter where they physically live.
+  /// When absent the /artisan/cluster page falls back to grouping by `location`
+  /// among other SHG-less artisans.
+  shgGroupLink    String?
+
   @@index([socialCategory])
+  @@index([shgGroupLink])
 }
 
 model CraftItem {
@@ -191,6 +206,7 @@ model CraftItem {
   relatedDemandId     String?
 
   auditLogs           AuditLog[]
+  reviews             Review[]
 
   @@index([artisanId])
   @@index([patchId])
@@ -261,8 +277,105 @@ model Demand {
   /// run or the model was unavailable — never a fabricated score.
   matchScore        Float?
 
+  artisanOrders    ArtisanOrder[]
+
   @@index([craftType])
   @@index([status])
+  @@index([createdAt])
+}
+
+/// One buyer's star + text review of a `CraftItem` they bought.
+///
+/// Buyers have no accounts in this app — the identity is the free-text
+/// `buyerName` captured at Razorpay checkout, matched case-insensitively
+/// against the item's `CraftItem.buyerName`. A row here is only written after
+/// `/api/reviews` has confirmed the same person paid for the piece.
+model Review {
+  id           String    @id @default(uuid())
+  craftItemId  String
+  craftItem    CraftItem @relation(fields: [craftItemId], references: [id])
+  /// The buyer name at the time of purchase — the join key for "did I buy this?".
+  buyerName    String
+  /// Optional; captured for the artisan's records, never shown publicly.
+  buyerContact String?
+  /// 1 to 5. Enforced at the API layer.
+  rating       Int
+  comment      String?
+  /// Optional attached photos, same data-URL convention as everywhere else.
+  images       String[]
+  createdAt    DateTime  @default(now())
+
+  @@index([craftItemId])
+  @@index([createdAt])
+  @@index([craftItemId, buyerName])
+}
+
+/// A material or tool one cluster artisan needs, that another may lend.
+///
+/// `clusterName` here is the RESOLVED cluster key: an SHG link when the
+/// requester belongs to one, otherwise `auto:<location>` — the same string the
+/// cluster page uses to gather members. This keeps the request scoped: never
+/// broadcast to the whole platform.
+model ResourceRequest {
+  id            String    @id @default(uuid())
+  requesterId   String
+  requester     User      @relation("ResourceRequester", fields: [requesterId], references: [id])
+  resourceName  String
+  description   String?
+  quantity      String?
+  /// OPEN | ACCEPTED | FULFILLED | CANCELLED. Enforced at the API layer.
+  status        String    @default("OPEN")
+  acceptedById  String?
+  acceptedBy    User?     @relation("ResourceAccepter", fields: [acceptedById], references: [id])
+  acceptedAt    DateTime?
+  clusterName   String
+  createdAt     DateTime  @default(now())
+
+  @@index([clusterName, status])
+  @@index([requesterId])
+  @@index([createdAt])
+}
+
+/// One artisan's commitment against one buyer `Demand`.
+///
+/// Deliberately distinct from `CraftItem`: an ArtisanOrder is the acceptance
+/// (bulk quantity, agreed price, deadline), while the CraftItems produced
+/// against it stay the sold pieces. A demand can be accepted by more than one
+/// artisan, so this is many-to-many via two rows rather than a shared status.
+model ArtisanOrder {
+  id              String     @id @default(uuid())
+  artisanId       String
+  artisan         User       @relation(fields: [artisanId], references: [id])
+  demandId        String
+  demand          Demand     @relation(fields: [demandId], references: [id])
+  /// ACCEPTED | IN_PROGRESS | COMPLETED | CANCELLED. Set at the API layer.
+  status          String     @default("ACCEPTED")
+  /// Only set when the artisan negotiated; null means they took the listed price.
+  negotiatedPrice Float?
+  /// Defaults to 14 days out at accept time; null when no deadline was set.
+  deadline        DateTime?
+  logs            OrderLog[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([artisanId])
+  @@index([demandId])
+  @@index([status])
+  @@index([artisanId, demandId])
+}
+
+/// A dated update the artisan posts against one ArtisanOrder. Text, photo, or
+/// both. The buyer's tracking view uses this later.
+model OrderLog {
+  id              String       @id @default(uuid())
+  artisanOrderId  String
+  artisanOrder    ArtisanOrder @relation(fields: [artisanOrderId], references: [id])
+  note            String?
+  /// Data-URL, same convention as the rest of the app.
+  imageUrl        String?
+  createdAt       DateTime     @default(now())
+
+  @@index([artisanOrderId])
   @@index([createdAt])
 }
 

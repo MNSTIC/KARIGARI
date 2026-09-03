@@ -23,6 +23,7 @@ import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 import { captureRefFromUrl, currentRef, trackRef } from "@/lib/affiliateRef";
 import { readBuyerContact, readBuyerName, rememberBuyer } from "@/lib/buyerIdentity";
+import { ReviewSection } from "@/components/ReviewSection";
 import { RAZORPAY_LIVE_MODE } from "@/lib/razorpayMode";
 import type { RazorpayFailureResponse, RazorpaySuccessResponse } from "@/types/razorpay";
 
@@ -552,6 +553,11 @@ export function ProductClient({ id }: { id: string }) {
             </div>
           </div>
         )}
+
+        {/* Reviews live below the product body. Kept inside the same page for
+            SEO — a reviewed piece prints its testimonials right on the URL a
+            shopper landed on. */}
+        {item && <ReviewSection craftItemId={item.id} />}
       </main>
     </div>
   );

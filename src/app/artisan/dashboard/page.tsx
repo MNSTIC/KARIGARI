@@ -158,6 +158,23 @@ export default function ArtisanDashboard() {
     return () => clearTimeout(kickoff);
   }, []);
 
+  // Autonomous assistant (F5): the voice route emits
+  // `karigari:assistant-action` on the window; this is the dashboard's half.
+  // Only modal opens are handled here — navigate actions are already routed by
+  // the assistant itself before the event fires.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { type?: string }
+        | undefined;
+      if (!detail) return;
+      if (detail.type === "OPEN_CAPTURE") setIsModalOpen(true);
+      if (detail.type === "OPEN_PROFILE") setIsProfileEditorOpen(true);
+    };
+    window.addEventListener("karigari:assistant-action", handler);
+    return () => window.removeEventListener("karigari:assistant-action", handler);
+  }, []);
+
   // Deep link from the insights map and from the shell's profile button. Read
   // straight off the URL rather than via useSearchParams so this fully-client
   // page needs no Suspense boundary, and drop the param so a refresh does not

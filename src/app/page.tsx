@@ -23,8 +23,9 @@ import { useLanguage } from "@/lib/translations";
  * rendering invented rows.
  */
 
-/* Three.js 3D India model — loaded lazily since it is below the fold. */
-const IndiaMap3D = dynamic(() => import("@/components/IndiaMap3D"), {
+/* The demand map uses Leaflet which requires the window object, so we load it
+   dynamically only on the client. */
+const DemandMap = dynamic(() => import("@/components/DemandMap"), {
   ssr: false,
   loading: () => <div className="kg-shimmer aspect-video w-full rounded-2xl" />,
 });
@@ -311,7 +312,7 @@ export default function LandingPage() {
             <div className="relative">
               {clusters.length > 0 ? (
                 <>
-                  <IndiaMap3D home={null} demands={clusters} />
+                  <DemandMap home={null} demands={clusters} />
                   <span className="pointer-events-none absolute bottom-4 left-4 z-[400] inline-flex items-center gap-2.5 rounded-xl bg-white px-3 py-2.5 shadow-soft">
                     <span
                       aria-hidden

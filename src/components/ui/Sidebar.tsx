@@ -8,6 +8,7 @@ import {
   Banknote,
   Bell,
   Boxes,
+  ClipboardList,
   Eye,
   LayoutGrid,
   Megaphone,
@@ -18,6 +19,7 @@ import {
   Sparkles,
   Store,
   TrendingUp,
+  Users,
   X,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
@@ -83,6 +85,8 @@ const ARTISAN_GROUPS: NavGroup[] = [
   {
     heading: "shell_group_my_workshop",
     items: [
+      { href: "/artisan/orders", label: "nav_orders", icon: <ClipboardList size={19} strokeWidth={1.6} /> },
+      { href: "/artisan/cluster", label: "nav_cluster", icon: <Users size={19} strokeWidth={1.6} /> },
       { href: "/artisan/earnings", label: "nav_earnings", icon: <Banknote size={19} strokeWidth={1.6} /> },
       { href: "/artisan/marketing", label: "nav_influencer_marketing", icon: <Megaphone size={19} strokeWidth={1.6} /> },
       { href: "/artisan/notifications", label: "nav_notifications", icon: <Bell size={19} strokeWidth={1.6} /> },

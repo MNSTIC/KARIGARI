@@ -5,6 +5,7 @@ import Image from "next/image";
 import { X, Package, Loader2, AlertTriangle, ImagePlus, Trash2 } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
 import { upcomingFestivals } from "@/lib/festivals";
+import { DemandRecommendation } from "@/components/DemandRecommendation";
 
 /**
  * Buyer-side form behind "Post New Demand".
@@ -360,6 +361,18 @@ export function PostDemandModal({
               placeholder={t("demand_description_placeholder")}
             />
           </div>
+
+          {/* Live AI verdict on the form as it stands. Silent when the required
+              fields are not yet filled, so a half-typed row does not nag. */}
+          <DemandRecommendation
+            craftType={form.craftType}
+            quantity={Number(form.quantity) || 0}
+            targetPriceMin={Number(form.targetPriceMin) || undefined}
+            targetPriceMax={Number(form.targetPriceMax) || undefined}
+            material={form.material}
+            color={form.color}
+            description={form.description}
+          />
 
           <div>
             <span className={label}>{t("demand_reference_image")}</span>

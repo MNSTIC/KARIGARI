@@ -39,6 +39,81 @@ const VOICE_CONFIG = {
 /** Give up rather than leave the artisan holding a phone to their ear. */
 const GEMINI_TIMEOUT_MS = 20_000;
 
+/**
+ * The discriminated shape the client dispatches.
+ *
+ * Kept on the server so keyword fallback and future Gemini structured output
+ * agree on names. `NONE` is deliberately a first-class value rather than
+ * `undefined`, so the client never has to distinguish "no action" from "action
+ * missing from response".
+ */
+export type AssistantAction =
+  | { type: 'OPEN_CAPTURE' }
+  | { type: 'OPEN_PROFILE' }
+  | { type: 'NAVIGATE'; path: string }
+  | { type: 'OPEN_DEMAND' }
+  | { type: 'FILL_FIELD'; field: string; value: string }
+  | { type: 'SUBMIT_FORM' }
+  | { type: 'NONE' };
+
+/** Where a page name maps to. Read below by both intent branches. */
+const NAV_PATHS: Record<string, string> = {
+  dashboard: '/artisan/dashboard',
+  home: '/artisan/dashboard',
+  orders: '/artisan/orders',
+  cluster: '/artisan/cluster',
+  schemes: '/artisan/schemes',
+  earnings: '/artisan/earnings',
+  learn: '/artisan/learn',
+  insights: '/artisan/insights',
+  materials: '/artisan/materials',
+  marketing: '/artisan/marketing',
+  notifications: '/artisan/notifications',
+  market: '/artisan/market',
+  marketplace: '/artisan/market',
+  news: '/artisan/news',
+};
+
+/**
+ * Cheap keyword intent extractor. Runs on the raw transcript, so it works with
+ * or without Gemini. Deliberately conservative: unrecognised speech becomes
+ * `NONE`, and the client keeps the assistant open for another turn.
+ */
+function deriveAction(rawTranscript: string): AssistantAction {
+  const text = rawTranscript.trim().toLowerCase();
+  if (!text) return { type: 'NONE' };
+
+  // Capture-modal shortcuts. Handled first because "new item" also contains
+  // "item" which could false-match a marketplace intent.
+  if (/(capture|draft|new item|new listing|upload.*(craft|product)|add.*(item|craft))/.test(text)) {
+    return { type: 'OPEN_CAPTURE' };
+  }
+
+  if (/(profile|my profile|edit profile|my account)/.test(text)) {
+    return { type: 'OPEN_PROFILE' };
+  }
+
+  if (/(post.*demand|new demand|create.*demand|buy.*request|raise.*demand)/.test(text)) {
+    return { type: 'OPEN_DEMAND' };
+  }
+
+  // "take me to <page>" / "open <page>" / "go to <page>".
+  const nav = text.match(/(?:take me to|go to|open|show|navigate to|show me)\s+(?:the\s+)?([a-z]+)/);
+  const targetWord = nav?.[1] || text.match(/^(?:my\s+)?([a-z]+)\s+page$/)?.[1];
+  if (targetWord && NAV_PATHS[targetWord]) {
+    return { type: 'NAVIGATE', path: NAV_PATHS[targetWord] };
+  }
+
+  // A bare page word ("orders", "cluster") still counts as intent when the
+  // artisan is on a different route — the caller decides via `currentRoute`
+  // whether to act.
+  for (const [word, path] of Object.entries(NAV_PATHS)) {
+    if (new RegExp(`\\b${word}\\b`).test(text)) return { type: 'NAVIGATE', path };
+  }
+
+  return { type: 'NONE' };
+}
+
 /** Base64 audio ceiling (~6 MB of raw audio). The client caps recordings well below this. */
 const MAX_AUDIO_CHARS = 8_000_000;
 
@@ -223,6 +298,9 @@ export async function POST(req: Request) {
       notice: rules ? undefined : notice,
       language: languageName,
       engine: rules ? 'rules' : 'fallback',
+      // Intent from what the artisan said, so the client can still act on
+      // "take me to orders" even when Gemini is offline.
+      action: deriveAction(rules?.transcript || ''),
     });
   };
 
@@ -343,12 +421,20 @@ export async function POST(req: Request) {
     const reply = (parsed.reply || '').trim();
     if (!reply) throw new Error('Empty reply from Gemini');
 
+    const resolvedTranscript = (
+      parsed.transcript || (hasTranscript ? String(transcript) : '')
+    ).trim();
+
     return NextResponse.json({
       success: true,
-      transcript: (parsed.transcript || (hasTranscript ? String(transcript) : '')).trim() || null,
+      transcript: resolvedTranscript || null,
       reply,
       language: parsed.language || languageName,
       engine: 'gemini',
+      // Derived from what the artisan actually said, not what Gemini replied —
+      // an intent to open the capture form does not depend on Gemini having
+      // named the modal in its answer.
+      action: deriveAction(resolvedTranscript),
     });
   } catch (error) {
     // Degrade to a rules answer rather than showing a broken UI. Deliberately

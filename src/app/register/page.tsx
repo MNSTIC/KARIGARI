@@ -33,6 +33,7 @@ export default function RegisterPage() {
     aadhaarLast4: "",
     annualIncome: "",
     clusterName: "",
+    shgGroupLink: "",
     gender: "",
   });
 
@@ -302,13 +303,30 @@ export default function RegisterPage() {
                 </div>
 
                 <Field
-                  label="Link to SHG group (optional)"
+                  label="Cluster name (optional)"
                   htmlFor="clusterName"
                   icon={<User size={13} />}
-                  hint="Joining an SHG allows community support while retaining individual decision power via SMS."
+                  hint="A cooperative or village weaving group you belong to."
                 >
                   <input id="clusterName" name="clusterName" type="text" value={formData.clusterName}
                     onChange={handleChange} placeholder="e.g. Pochampally Weavers" className={INPUT} />
+                </Field>
+
+                <Field
+                  label="Link to SHG group (optional)"
+                  htmlFor="shgGroupLink"
+                  icon={<User size={13} />}
+                  hint="Joining an SHG groups you with everyone sharing this link on the Cluster page, whatever their location."
+                >
+                  <input
+                    id="shgGroupLink"
+                    name="shgGroupLink"
+                    type="url"
+                    value={formData.shgGroupLink}
+                    onChange={handleChange}
+                    placeholder="https://shg.example.com/group/..."
+                    className={INPUT}
+                  />
                 </Field>
               </div>
             )}

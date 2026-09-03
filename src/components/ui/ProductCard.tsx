@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Package } from "lucide-react";
 import { PatchIdChip, VerifiedOriginBadge } from "@/components/ui/Badge";
+import { StarRating } from "@/components/ui/StarRating";
 import { artisanSharePctFor } from "@/lib/escrow";
 import { imageProps, marketPrice, type MarketItem } from "@/lib/marketplace";
 import { formatRupees } from "@/lib/pricing";
@@ -36,6 +37,10 @@ export function ProductCard({
   const price = marketPrice(item);
   const share = artisanSharePctFor(price);
   const region = item.artisan.location || item.artisan.clusterName;
+  // Aggregate rating comes from /api/items/market; a card with no reviews yet
+  // shows no stars rather than a hollow row of five zeros.
+  const avgRating = item.avgRating ?? null;
+  const reviewCount = item.reviewCount ?? 0;
 
   return (
     <Link
@@ -74,6 +79,15 @@ export function ProductCard({
             {formatRupees(price)}
           </span>
         </div>
+
+        {avgRating !== null && (
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <StarRating rating={avgRating} size={12} />
+            <span className="text-[11px] font-medium text-gray-500">
+              {avgRating.toFixed(1)} · {reviewCount}
+            </span>
+          </div>
+        )}
 
         <p className="mt-2 text-[13px] leading-relaxed text-gray-500">
           <span className="text-gray-600">Artisan:</span> {item.artisan.name}

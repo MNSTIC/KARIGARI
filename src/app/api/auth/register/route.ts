@@ -8,7 +8,7 @@ import { normalizeGender } from '@/lib/gender';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { name, email, password, role, craftType, location, experienceYears, aadhaarLast4, annualIncome, clusterName, gender, photoUrl } = body;
+    const { name, email, password, role, craftType, location, experienceYears, aadhaarLast4, annualIncome, clusterName, shgGroupLink, gender, photoUrl } = body;
 
     // Validation
     if (!name || !email || !password || !role) {
@@ -51,6 +51,12 @@ export async function POST(req: Request) {
               aadhaarLast4: aadhaarLast4,
               annualIncome: Number(annualIncome) || 0,
               clusterName: clusterName || 'Independent',
+              // Optional at signup — becomes the cluster key on the /artisan/cluster
+              // page when set, otherwise the page falls back to grouping by location.
+              shgGroupLink:
+                typeof shgGroupLink === 'string' && shgGroupLink.trim()
+                  ? shgGroupLink.trim().slice(0, 500)
+                  : null,
               gender: normalizedGender,
               // Optional at signup. Left null when they skip it, so <Avatar />
               // draws their initials rather than a stock stranger's face.

@@ -8,6 +8,7 @@ import { useLanguage } from "@/lib/translations";
 import { estimateCraftValuation, formatRupees } from "@/lib/pricing";
 import { downscaleImage, enhanceProductPhoto } from "@/lib/imageEnhance";
 import { Avatar } from "@/components/ui/Avatar";
+import { SmartDraftAssistant, type SmartDraftExtracted } from "@/components/SmartDraftAssistant";
 import { queueCapture, type CapturePayload } from "@/lib/offlineQueue";
 import { refreshQueueCount } from "@/lib/offlineQueueStore";
 
@@ -128,6 +129,49 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
   // Step 3 price-setting. Kept as a string so the field can be cleared without
   // snapping back to 0, and so a blank means "use the AI suggestion".
   const [askingPrice, setAskingPrice] = useState<string>("");
+
+  // F5 — the assistant may push field values here. Ignored while the modal is
+  // shut, so a stale broadcast cannot open it or write into a fresh session.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { field?: string; value?: string }
+        | undefined;
+      if (!detail?.field || typeof detail.value !== "string") return;
+      switch (detail.field) {
+        case "craftType":
+          setCraftType(detail.value);
+          break;
+        case "description":
+        case "englishDescription":
+          setEnglishDescription(detail.value);
+          break;
+        case "laborDays": {
+          const n = Number(detail.value);
+          if (Number.isFinite(n)) setLaborDays(Math.max(0, Math.round(n)));
+          break;
+        }
+        case "rawMaterialCost": {
+          const n = Number(detail.value);
+          if (Number.isFinite(n)) setRawMaterialCost(Math.max(0, Math.round(n)));
+          break;
+        }
+        case "askingPrice":
+          setAskingPrice(detail.value);
+          break;
+        case "technique":
+          setTechnique(detail.value);
+          break;
+        default:
+          // Unknown fields are ignored on purpose — a mis-labelled event
+          // must never silently land in the wrong state.
+          break;
+      }
+    };
+    window.addEventListener("karigari:fill-field", handler);
+    return () => window.removeEventListener("karigari:fill-field", handler);
+  }, [isOpen]);
   const [priceTouched, setPriceTouched] = useState(false);
   
   // Dual Camera State
@@ -979,6 +1023,26 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
                 )}
                 <div ref={messagesEndRef} />
               </div>
+
+              {/* F6 — Smart Draft Assistant. Sits between the chat scroll and
+                  the input, so a follow-up question is impossible to miss. Only
+                  fires once craftType + a real description are on the record;
+                  fully skippable. */}
+              {!isProcessed && (
+                <SmartDraftAssistant
+                  craftType={craftType}
+                  // englishDescription is state that mirrors the parsed
+                  // transcript, so it is safe to read during render — the ref
+                  // holding the raw running transcript is deliberately not.
+                  description={englishDescription}
+                  onExtracted={(data: SmartDraftExtracted) => {
+                    // Only adopt what the voice-parse pipeline did not already
+                    // set — never overwrite the artisan's chosen values.
+                    if (data.technique && !technique) setTechnique(data.technique);
+                    if (data.craftType && !craftType) setCraftType(data.craftType);
+                  }}
+                />
+              )}
 
               {/* Input Area */}
               {!isProcessed && (

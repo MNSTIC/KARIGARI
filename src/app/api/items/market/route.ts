@@ -68,7 +68,10 @@ const PUBLIC_ITEM_SELECT = {
 type PublicItem = Prisma.CraftItemGetPayload<{ select: typeof PUBLIC_ITEM_SELECT }>;
 
 /** Flatten the profile onto `artisan` so the storefront reads one shape. */
-function format(item: PublicItem) {
+function format(
+  item: PublicItem,
+  rating?: { avg: number | null; count: number }
+) {
   const profile = item.artisan.artisanProfile;
   return {
     ...item,
@@ -82,6 +85,10 @@ function format(item: PublicItem) {
       giTagCertified: profile?.giTagCertified ?? false,
       giTagName: profile?.giTagName || null,
     },
+    // Undefined when never reviewed — kept out of the payload rather than sent
+    // as a 0 that a card could render as five empty stars.
+    avgRating: rating?.avg ?? null,
+    reviewCount: rating?.count ?? 0,
   };
 }
 
@@ -115,7 +122,16 @@ export async function GET(req: Request) {
       if (!item) {
         return NextResponse.json({ success: false, error: 'Item not found' }, { status: 404 });
       }
-      return NextResponse.json({ success: true, item: format(item), currentUserId: userId });
+      const stats = await prisma.review.aggregate({
+        where: { craftItemId: id },
+        _avg: { rating: true },
+        _count: { id: true },
+      });
+      return NextResponse.json({
+        success: true,
+        item: format(item, { avg: stats._avg.rating, count: stats._count.id }),
+        currentUserId: userId,
+      });
     }
 
     const listedOnly = url.searchParams.get('listed') === '1';
@@ -126,9 +142,24 @@ export async function GET(req: Request) {
       select: PUBLIC_ITEM_SELECT,
     });
 
+    // Ratings in one aggregate rather than N queries. Cards on the grid stay
+    // an O(1) DB hit no matter how big the marketplace grows.
+    const itemIds = items.map((item) => item.id);
+    const stats = itemIds.length
+      ? await prisma.review.groupBy({
+          by: ['craftItemId'],
+          where: { craftItemId: { in: itemIds } },
+          _avg: { rating: true },
+          _count: { id: true },
+        })
+      : [];
+    const ratings = new Map(
+      stats.map((row) => [row.craftItemId, { avg: row._avg.rating, count: row._count.id }])
+    );
+
     return NextResponse.json({
       success: true,
-      items: items.map(format),
+      items: items.map((item) => format(item, ratings.get(item.id))),
       currentUserId: userId,
     });
   } catch (error) {

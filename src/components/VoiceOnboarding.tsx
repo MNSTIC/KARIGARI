@@ -165,6 +165,14 @@ export function VoiceOnboarding({
       notice?: string;
       engine?: string;
       error?: string;
+      action?:
+        | { type: "OPEN_CAPTURE" }
+        | { type: "OPEN_PROFILE" }
+        | { type: "NAVIGATE"; path: string }
+        | { type: "OPEN_DEMAND" }
+        | { type: "FILL_FIELD"; field: string; value: string }
+        | { type: "SUBMIT_FORM" }
+        | { type: "NONE" };
     }) => {
       setStatusMsg("");
       if (!data?.success || !data.reply) {
@@ -179,6 +187,32 @@ export function VoiceOnboarding({
       setNotice(hasRealAnswer ? null : data.notice ?? null);
       setResponseMsg(data.reply);
       speakText(data.reply);
+
+      // Dispatch the intent the API extracted. Two channels rather than one
+      // fat event: field-fills go to whatever open form is listening,
+      // everything else is a global "navigate/open modal" broadcast.
+      const action = data.action;
+      if (!action || action.type === "NONE") return;
+      if (typeof window === "undefined") return;
+
+      if (action.type === "FILL_FIELD") {
+        window.dispatchEvent(
+          new CustomEvent("karigari:fill-field", {
+            detail: { field: action.field, value: action.value },
+          })
+        );
+        return;
+      }
+
+      window.dispatchEvent(
+        new CustomEvent("karigari:assistant-action", { detail: action })
+      );
+
+      // NAVIGATE is handled here rather than by each page, so it works from
+      // any route the assistant is opened on.
+      if (action.type === "NAVIGATE" && action.path && action.path !== window.location.pathname) {
+        window.location.href = action.path;
+      }
     },
     [language, speakText]
   );
