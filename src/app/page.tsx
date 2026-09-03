@@ -406,8 +406,8 @@ export default function LandingPage() {
             <SectionEyebrow>Honest by default</SectionEyebrow>
             <p className="mt-4 max-w-xs text-[13px] leading-relaxed text-gray-500">
               Provenance is a printed patch ID checked against a re-photograph — not a blockchain.
-              Payments run through Stripe in test mode, so each settlement is recorded
-              programmatically rather than as a confirmed bank credit.
+              Payments run through Razorpay; the artisan payout rails are not wired, so each
+              settlement is recorded programmatically rather than as a confirmed bank credit.
             </p>
           </div>
         </div>

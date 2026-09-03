@@ -118,15 +118,39 @@ model CraftItem {
   syndicatedAt         DateTime?
 
   // Non-custodial escrow. No admin or facilitator ever writes these: they are
-  // set by /api/payments/create-checkout (hold) and /api/payments/settle-escrow
+  // set by /api/payments/create-order (hold) and /api/payments/settle-escrow
   // (programmatic release on dispatch / delivery).
+  /// DEPRECATED. Left in place so rows written before the Razorpay migration
+  /// keep their history; nothing reads or writes it any more.
   stripeSessionId        String?
+  /// Razorpay order, created at checkout by /api/payments/create-order.
+  razorpayOrderId        String?
+  /// Written ONLY by /api/payments/verify-payment, and only once the HMAC
+  /// signature checks out. A row carrying these has a payment Razorpay itself
+  /// vouched for — never one the browser merely claimed.
+  razorpayPaymentId      String?
+  razorpaySignature      String?
+  paidAt                 DateTime?
+  /// What was ACTUALLY charged, in paise. This is the ₹1 demo charge (see
+  /// DEMO_CHARGE_PAISE in src/lib/razorpay.ts) and is deliberately NOT the
+  /// price shown to the buyer — `salePrice` carries that, and every escrow
+  /// tranche and earnings figure is computed from it.
+  paidAmountPaise        Int?
   escrowStatus           String?  // ESCROW_HELD | STAGE1_ADVANCE_PAID_40 | STAGE2_SETTLED_89
   advanceAmount          Float?   // 40% of gross, computed at checkout
   finalSettlementAmount  Float?   // final direct-to-artisan tranche (~49.36% of gross)
   artisanUpiDestination  String?  // snapshot of the artisan's own VPA at checkout
 
-  // Creator/influencer attribution. Written by /api/payments/create-checkout
+  /// How the two tranches left the platform: RAZORPAYX for a real UPI payout,
+  /// SIMULATED for a recorded settlement with no bank credit behind it. Written
+  /// by /api/payments/settle-escrow. Never claim a SIMULATED row was paid.
+  payoutMode             String?  // RAZORPAYX | SIMULATED
+  /// RazorpayX payout ids (`pout_…`), or `SIM_<itemId>-STAGEn` when simulated.
+  stage1PayoutRef        String?
+  stage2PayoutRef        String?
+  creatorPayoutRef       String?
+
+  // Creator/influencer attribution. Written by /api/payments/create-order
   // when the buyer arrived through a `?ref=<handle>` link, and paid out by
   // /api/payments/settle-escrow on DELIVERED. There is no Order table in this
   // schema — an order IS a CraftItem — so attribution lives on the item.
@@ -156,6 +180,16 @@ model CraftItem {
   /// Null for every item captured inside the app.
   ivrCallSid          String?
 
+  // Who bought it. Buyers have no account in this app — the storefront is
+  // unauthenticated — so a purchase carries the same free-text identity the
+  // demand board uses (`Demand.buyerName`), captured at the Razorpay modal.
+  // That name is what /api/buyer/orders looks an order up by.
+  buyerName           String?
+  buyerContact        String?
+  /// The bulk request this purchase was made against, when the buyer arrived
+  /// from a demand match. Null for an ordinary storefront sale.
+  relatedDemandId     String?
+
   auditLogs           AuditLog[]
 
   @@index([artisanId])
@@ -164,6 +198,8 @@ model CraftItem {
   @@index([createdAt])
   @@index([pricingFlag])
   @@index([affiliateCreatorId])
+  @@index([buyerName])
+  @@index([relatedDemandId])
 }
 
 model AuditLog {

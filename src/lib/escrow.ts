@@ -1,6 +1,6 @@
 /**
  * Non-custodial escrow unit economics — the single source of truth for the
- * split, shared by `/api/payments/create-checkout` and
+ * split, shared by `/api/payments/create-order` and
  * `/api/payments/settle-escrow` so the amount quoted at checkout is the amount
  * released on dispatch.
  *
@@ -9,11 +9,13 @@
  * two tranches are released by machine on `DISPATCH` and `DELIVERED`, and the
  * destination is always the artisan's own registered VPA.
  *
- * HONESTY: Stripe runs in TEST mode and Stripe cannot settle to an Indian VPA
- * in test, so the transfers are recorded as programmatic settlement records.
- * The escrow state machine, the ledger fields and the immutable audit trail are
- * real; the bank credit itself is simulated. Never label these as a confirmed
- * bank credit.
+ * HONESTY: no payout rail is wired. Razorpay Checkout COLLECTS money into the
+ * platform's own merchant account; paying it back out to an artisan's VPA needs
+ * RazorpayX / Route, which this deployment does not use. So the transfers below
+ * are recorded as programmatic settlement records. The escrow state machine,
+ * the ledger fields and the immutable audit trail are real; the bank credit
+ * itself is simulated. Never label these as a confirmed bank credit — that
+ * stays true whether the keys are test or live.
  *
  * Of every ₹100 a buyer pays:
  *   ₹40.00  Stage 1 — fair-wage advance, released on dispatch

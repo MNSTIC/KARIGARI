@@ -386,9 +386,9 @@ export default function EarningsPage() {
       )}
 
       <p className="text-[11px] text-gray-500 italic mt-6 leading-relaxed">
-        Prototype: Stripe runs in TEST mode and real UPI payout rails are not wired, so each
-        tranche is recorded as a programmatic settlement (test) — direct to your VPA, zero
-        middleman. The escrow states and the audit trail are real; the bank credit is simulated.
+        Prototype: real UPI payout rails are not wired, so each tranche is recorded as a
+        programmatic settlement (test) — direct to your VPA, zero middleman. The escrow states and
+        the audit trail are real; the bank credit is simulated.
       </p>
     </Shell>
   );

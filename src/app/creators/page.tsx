@@ -472,8 +472,8 @@ function RegisterPanel({ onRegistered }: { onRegistered: () => void }) {
         {stats?.payoutUpi && (
           <p className="text-[11px] text-gray-500 mt-4 leading-relaxed">
             Commission is paid to <span className="font-mono font-bold">{stats.payoutUpi}</span> on
-            delivery. Stripe runs in test mode here, so each payout is recorded as a programmatic
-            settlement rather than a confirmed bank credit.
+            delivery. Creator payout rails are not wired on this deployment, so each payout is
+            recorded as a programmatic settlement rather than a confirmed bank credit.
           </p>
         )}
 
@@ -631,7 +631,7 @@ function RegisterPanel({ onRegistered }: { onRegistered: () => void }) {
 
         <p className="text-[11px] text-gray-500 leading-relaxed">
           The 5% comes out of Karigari&rsquo;s own share, never the artisan&rsquo;s. Payouts are
-          recorded on delivery as programmatic settlements — Stripe is in test mode on this
+          recorded on delivery as programmatic settlements — no payout rail is wired on this
           deployment, so no bank credit is claimed.
         </p>
       </form>

@@ -16,6 +16,7 @@ import {
   Loader2,
   BellRing,
   LogOut,
+  ShoppingBag,
 } from "lucide-react";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import Image from "next/image";
@@ -23,14 +24,16 @@ import Link from "next/link";
 import { LogisticsMap } from "@/components/LogisticsMap";
 import { PostDemandModal, type PostedDemand } from "@/components/PostDemandModal";
 import { OrderTimeline, type TrackPayload } from "@/components/ui/OrderTimeline";
+import { BuyerOrders } from "@/components/BuyerOrders";
+import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
+import { BUYER_NAME_KEY, DEFAULT_BUYER, readBuyerName } from "@/lib/buyerIdentity";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/translations";
 import { Avatar } from "@/components/ui/Avatar";
 import { cn } from "@/lib/utils";
 
-/** Buyers have no account yet — the display name is remembered in this browser only. */
-const BUYER_NAME_KEY = "karigari_buyer_name";
-const DEFAULT_BUYER = "Rajesh Retailers";
+/** Which half of the buyer board is showing. */
+type BuyerTab = "board" | "orders";
 
 /**
  * Prices render in the sans face on purpose.
@@ -71,6 +74,9 @@ export default function BuyerDashboard() {
   const { t } = useLanguage();
 
   const [buyerName, setBuyerName] = useState(DEFAULT_BUYER);
+  const [tab, setTab] = useState<BuyerTab>("board");
+  /** Reported up by <BuyerOrders>, purely so the heading can count them. */
+  const [orderCount, setOrderCount] = useState(0);
   const [demands, setDemands] = useState<PostedDemand[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -108,8 +114,14 @@ export default function BuyerDashboard() {
     // Deferred by a macrotask so the effect body performs no synchronous
     // setState — same pattern the schemes page uses.
     const kickoff = setTimeout(() => {
-      const saved = localStorage.getItem(BUYER_NAME_KEY);
+      const saved = readBuyerName();
       if (saved) setBuyerName(saved);
+      // `?tab=orders` is how the product page sends a buyer here after paying.
+      // Read off the URL rather than via useSearchParams, so this page needs
+      // no Suspense boundary.
+      if (new URLSearchParams(window.location.search).get("tab") === "orders") {
+        setTab("orders");
+      }
     }, 0);
     return () => clearTimeout(kickoff);
   }, []);
@@ -287,21 +299,44 @@ export default function BuyerDashboard() {
       )}
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+        {/* The board a buyer posts requests on, and the orders they have
+            actually paid for. Two views of the same identity, so they share
+            the buyer-name state rather than living on separate routes. */}
+        <SegmentedToggle<BuyerTab>
+          options={[
+            { value: "board", label: t("tab_demand_board"), icon: <Package size={14} /> },
+            { value: "orders", label: t("tab_my_orders"), icon: <ShoppingBag size={14} /> },
+          ]}
+          value={tab}
+          onChange={setTab}
+          ariaLabel={t("tab_demand_board")}
+          className="mb-7 max-w-md"
+        />
+
         <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="kg-display text-[32px] leading-tight text-gray-900 sm:text-[40px]">{t("my_demand_requests")}</h1>
+            <h1 className="kg-display text-[32px] leading-tight text-gray-900 sm:text-[40px]">
+              {tab === "board" ? t("my_demand_requests") : t("my_orders_title")}
+            </h1>
             <p className="text-sm text-gray-500 mt-1">
-              {myDemands.length} {t("posted_by_you")} · {boardStats.openCount} {t("open_on_board")}
+              {tab === "board"
+                ? `${myDemands.length} ${t("posted_by_you")} · ${boardStats.openCount} ${t("open_on_board")}`
+                : t("my_orders_subtitle").replace("{count}", String(orderCount))}
             </p>
           </div>
-          <button
-            onClick={() => setIsFormOpen(true)}
-            className="bg-primary-dark text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-primary transition-colors flex items-center gap-2"
-          >
-            <Package size={16} /> {t("post_new_demand")}
-          </button>
+          {tab === "board" && (
+            <button
+              onClick={() => setIsFormOpen(true)}
+              className="bg-primary-dark text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-primary transition-colors flex items-center gap-2"
+            >
+              <Package size={16} /> {t("post_new_demand")}
+            </button>
+          )}
         </div>
 
+        {tab === "orders" ? (
+          <BuyerOrders buyerName={buyerName} onCount={setOrderCount} />
+        ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-6">
             {loading && (
@@ -552,8 +587,11 @@ export default function BuyerDashboard() {
                                     </p>
                                   )}
                                 </div>
+                                {/* `?demand=` rides through to create-order and
+                                    verify-payment, so the purchase shows up
+                                    under this request in My Orders. */}
                                 <Link
-                                  href={`/marketplace/product/${match.id}`}
+                                  href={`/marketplace/product/${match.id}?demand=${encodeURIComponent(demand.id)}`}
                                   className="text-xs font-bold bg-primary text-white px-4 py-2 rounded-lg hover:bg-primary-dark transition-colors whitespace-nowrap shrink-0"
                                 >
                                   {t("view_listing")}
@@ -673,6 +711,7 @@ export default function BuyerDashboard() {
             </div>
           </div>
         </div>
+        )}
       </main>
 
       <PostDemandModal

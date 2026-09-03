@@ -416,7 +416,7 @@ export default function ArtisanDashboard() {
             )}
 
             <p className="mt-4 text-[11px] leading-relaxed text-gray-500">
-              Prototype: Stripe runs in TEST mode and real UPI payout rails are not wired, so each
+              Prototype: real UPI payout rails are not wired, so each
               tranche is recorded as a programmatic settlement (test) — direct to your VPA, zero
               middleman. The escrow states and the audit trail are real; the bank credit is
               simulated.

@@ -60,7 +60,14 @@ export function stageIndex(stage: OrderStage): number {
 function derivedStage(item: StageInput): OrderStage {
   const status = String(item.status ?? '');
 
-  if (item.escrowStatus === STAGE2_SETTLED_89 || SOLD_STATUSES.has(status)) return 'DELIVERED';
+  if (item.escrowStatus === STAGE2_SETTLED_89) return 'DELIVERED';
+  // A sold status means delivered only when escrow is not still holding the
+  // money. A verified Razorpay payment marks the piece SOLD_FINAL the instant
+  // it is paid for, and that is the START of the buyer's ladder, not the end —
+  // reading it as DELIVERED would tell a buyer their piece had arrived before
+  // the artisan had even begun. Items sold through the admin's own sale flow
+  // carry no escrow row at all, so they are unaffected.
+  if (SOLD_STATUSES.has(status) && item.escrowStatus !== ESCROW_HELD) return 'DELIVERED';
   if (item.escrowStatus === STAGE1_ADVANCE_PAID_40) return 'DISPATCHED';
   if (item.qrVerified === true) return 'QUALITY_CHECK';
   // Money is held but nothing has shipped: the piece is committed and being

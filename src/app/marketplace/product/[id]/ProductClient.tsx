@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import Script from "next/script";
 import {
   ArrowLeft,
+  CheckCircle2,
   Info,
   Loader2,
   MapPin,
@@ -20,13 +22,28 @@ import { imageProps, marketPrice, type MarketItem } from "@/lib/marketplace";
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 import { captureRefFromUrl, currentRef, trackRef } from "@/lib/affiliateRef";
+import { readBuyerContact, readBuyerName, rememberBuyer } from "@/lib/buyerIdentity";
+import { RAZORPAY_LIVE_MODE } from "@/lib/razorpayMode";
+import type { RazorpayFailureResponse, RazorpaySuccessResponse } from "@/types/razorpay";
 
 /**
  * One published craft item, and the direct-to-artisan buy button.
  *
- * "Buy Now" opens a Stripe TEST checkout session. What follows is the
- * non-custodial escrow: the artisan's own VPA is locked in as the destination
- * before anything moves, and neither tranche passes through an admin.
+ * "Buy Now" opens the Razorpay Standard Checkout modal. There is no redirect:
+ * the payment happens in an overlay on this page, and the sale is only booked
+ * once `/api/payments/verify-payment` has checked Razorpay's own signature
+ * server-side. What follows is the non-custodial escrow: the artisan's own VPA
+ * is locked in as the destination before anything moves, and neither tranche
+ * passes through an admin.
+ *
+ * The buyer is charged ₹1 whatever the piece costs; the constant that decides
+ * it lives in src/lib/razorpay.ts. Everything shown on this page is the real
+ * listing price, and so is everything the escrow ladder and the artisan's
+ * earnings are computed from.
+ *
+ * The note under the button keys off `RAZORPAY_LIVE_MODE`, because in live
+ * mode that ₹1 is a real debit and telling a paying buyer "no live charge is
+ * made" would be false.
  */
 export function ProductClient({ id }: { id: string }) {
   const { t } = useLanguage();
@@ -37,8 +54,17 @@ export function ProductClient({ id }: { id: string }) {
   const [buying, setBuying] = useState(false);
   const [buyError, setBuyError] = useState<string | null>(null);
   const [cancelled, setCancelled] = useState(false);
+  /** True once checkout.js has defined `window.Razorpay`. Gates the button. */
+  const [checkoutReady, setCheckoutReady] = useState(false);
+  /** Set after the server has verified the signature — never on the modal alone. */
+  const [paid, setPaid] = useState(false);
+  /** Free-text buyer identity; the storefront has no accounts. */
+  const [buyerName, setBuyerName] = useState("");
+  const [buyerContact, setBuyerContact] = useState("");
   /** The creator credited for this visit — from `?ref=` or the stored session. */
   const [ref, setRef] = useState("");
+  /** The bulk demand this purchase fulfils, when arrived at from /buyer. */
+  const [demandId, setDemandId] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -79,11 +105,21 @@ export function ProductClient({ id }: { id: string }) {
     return () => clearTimeout(kickoff);
   }, [id]);
 
-  // Read the Stripe cancel return straight off the URL rather than via
-  // useSearchParams, so this page needs no Suspense boundary.
+  // The demand this purchase fulfils, and the buyer identity this browser
+  // already knows. Read straight off the URL rather than via useSearchParams,
+  // so this page needs no Suspense boundary.
+  //
+  // `?payment=cancelled` is a leftover from the old redirect checkout. Nothing
+  // produces it any more, but an old bookmark still lands here, so it is
+  // honoured rather than ignored.
   useEffect(() => {
     const kickoff = setTimeout(() => {
+      setBuyerName(readBuyerName());
+      setBuyerContact(readBuyerContact());
+
       const params = new URLSearchParams(window.location.search);
+      const demand = params.get("demand");
+      if (demand) setDemandId(demand);
       if (params.get("payment") !== "cancelled") return;
       setCancelled(true);
       params.delete("payment");
@@ -93,28 +129,124 @@ export function ProductClient({ id }: { id: string }) {
     return () => clearTimeout(kickoff);
   }, []);
 
+  // checkout.js may already be on the page from an earlier visit in this SPA
+  // session, in which case <Script onReady> is the only signal that fires —
+  // but a hard refresh with a warm HTTP cache can also define the global before
+  // React mounts. Check once on mount so the button is never stuck disabled.
+  useEffect(() => {
+    const kickoff = setTimeout(() => {
+      if (typeof window !== "undefined" && window.Razorpay) setCheckoutReady(true);
+    }, 0);
+    return () => clearTimeout(kickoff);
+  }, []);
+
+  /**
+   * Open the Razorpay modal — then let the SERVER decide whether a sale happened.
+   *
+   * The modal's own success callback proves nothing on its own; it is only the
+   * trigger to ask `/api/payments/verify-payment` to check the signature. The
+   * page shows a sale as complete when, and only when, that route says so.
+   */
   const buyNow = async () => {
     if (!item) return;
     setBuying(true);
     setBuyError(null);
+    setCancelled(false);
+
     try {
-      const res = await fetch("/api/payments/create-checkout", {
+      const res = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // The creator handle rides along so create-checkout can attach the
+        // The creator handle rides along so create-order can attach the
         // attribution before the escrow row is written.
         body: JSON.stringify({ craftItemId: item.id, ref: ref || undefined }),
       });
       const data = await res.json();
-      if (!res.ok || !data?.success || !data.url) {
-        setBuyError(data?.error || t('checkout_failed'));
+      if (!res.ok || !data?.success || !data.orderId) {
+        setBuyError(data?.error || t("checkout_failed"));
+        setBuying(false);
         return;
       }
-      window.location.href = data.url;
+
+      const Checkout = window.Razorpay;
+      if (!Checkout) {
+        setBuyError(t("checkout_script_failed"));
+        setBuying(false);
+        return;
+      }
+
+      const rzp = new Checkout({
+        key: data.keyId,
+        order_id: data.orderId,
+        // ₹1 by design — see src/lib/razorpay.ts. The price above is real.
+        amount: data.amount,
+        currency: data.currency,
+        name: "KARIGARI",
+        description: item.craftType,
+        image: "/icons/karigari-logo.png",
+        prefill: {
+          name: buyerName || undefined,
+          contact: buyerContact || undefined,
+        },
+        theme: { color: "#24332C" },
+        // UPI first. It is how this audience actually pays, and it is the one
+        // method whose QR the escrow story is demonstrated with. Everything
+        // Razorpay would otherwise offer stays available underneath.
+        config: {
+          display: {
+            blocks: {
+              upi: { name: "Pay by UPI", instruments: [{ method: "upi" }] },
+            },
+            sequence: ["block.upi"],
+            preferences: { show_default_blocks: true },
+          },
+        },
+        handler: async (response: RazorpaySuccessResponse) => {
+          try {
+            const verify = await fetch("/api/payments/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ...response,
+                craftItemId: item.id,
+                buyerName: buyerName || undefined,
+                buyerContact: buyerContact || undefined,
+                relatedDemandId: demandId || undefined,
+              }),
+            });
+            const result = await verify.json();
+            if (!verify.ok || !result?.success) {
+              setBuyError(result?.error || t("payment_verify_failed"));
+              return;
+            }
+            // Remembered so the My Orders tab on /buyer finds this purchase.
+            rememberBuyer(buyerName, buyerContact);
+            setPaid(true);
+            void load();
+          } catch (error) {
+            console.error("Payment verification failed:", error);
+            setBuyError(t("payment_verify_failed"));
+          } finally {
+            setBuying(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setBuying(false);
+            setCancelled(true);
+          },
+        },
+      });
+
+      rzp.on("payment.failed", (response: RazorpayFailureResponse) => {
+        setBuying(false);
+        setBuyError(response?.error?.description || t("payment_failed"));
+      });
+
+      rzp.open();
     } catch (error) {
       console.error("Checkout failed:", error);
-      setBuyError(t('checkout_failed'));
-    } finally {
+      setBuyError(t("checkout_failed"));
       setBuying(false);
     }
   };
@@ -127,6 +259,16 @@ export function ProductClient({ id }: { id: string }) {
 
   return (
     <div className="min-h-screen bg-[var(--color-background)] font-sans pb-16">
+      {/* Loaded once per page. `onReady` fires both on a fresh load and when the
+          script is already cached from an earlier visit, which is what makes it
+          the right signal to ungate the buy button. */}
+      <Script
+        src="https://checkout.razorpay.com/v1/checkout.js"
+        strategy="afterInteractive"
+        onReady={() => setCheckoutReady(true)}
+        onError={() => setBuyError(t("checkout_script_failed"))}
+      />
+
       <header className="sticky top-0 z-40 border-b border-gray-200/60 bg-[var(--color-background)]/90 backdrop-blur-md">
         <div className="mx-auto flex h-[72px] max-w-[1180px] items-center gap-3 px-4 sm:px-6 lg:px-10">
           <Link
@@ -303,25 +445,109 @@ export function ProductClient({ id }: { id: string }) {
                 </p>
               )}
 
-              <button
-                onClick={buyNow}
-                disabled={buying || price === null}
-                className="kg-press mt-5 flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl bg-primary px-6 text-[15px] font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {buying ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" /> {t('opening_stripe')}
-                  </>
-                ) : price === null ? (
-                  t('price_not_set')
-                ) : (
-                  t('buy_now_stripe')
-                )}
-              </button>
+              {paid ? (
+                /* Shown only after the server verified the signature. */
+                <div className="mt-5 rounded-2xl border border-[var(--color-sage)] bg-[var(--color-mint)] p-5">
+                  <p className="flex items-center gap-2 text-sm font-bold text-primary">
+                    <CheckCircle2 size={18} className="shrink-0" />
+                    {t(RAZORPAY_LIVE_MODE ? 'payment_success_title_live' : 'payment_success_title')}
+                  </p>
+                  <p className="mt-2 text-[13px] leading-relaxed text-primary/85">
+                    {t(RAZORPAY_LIVE_MODE ? 'payment_success_body_live' : 'payment_success_body')}
+                  </p>
+                  <Link
+                    href="/buyer?tab=orders"
+                    className="kg-press mt-4 inline-flex min-h-[44px] items-center rounded-xl bg-primary px-5 text-[13px] font-semibold text-white hover:bg-primary-dark"
+                  >
+                    {t('view_my_orders')}
+                  </Link>
+                </div>
+              ) : (
+                <>
+                  {/* Buyers have no account here, so the name is asked for
+                      inline. It is what My Orders looks the purchase up by. */}
+                  <div className="mt-5 rounded-2xl border border-gray-200 bg-white p-4">
+                    <label
+                      htmlFor="buyer-name"
+                      className="kg-label block font-medium text-gray-500"
+                    >
+                      {t('buyer_name_label')}
+                    </label>
+                    <input
+                      id="buyer-name"
+                      value={buyerName}
+                      onChange={(event) => setBuyerName(event.target.value)}
+                      placeholder={t('buyer_name_placeholder')}
+                      autoComplete="name"
+                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-gray-200 px-3 text-[14px] text-gray-900 outline-none focus:border-primary"
+                    />
 
-              <p className="text-[11px] text-gray-500 mt-3 flex gap-2 items-start leading-relaxed">
-                <Info size={12} className="shrink-0 mt-0.5 text-gray-400" />
-                {t('stripe_test_note')}
+                    <label
+                      htmlFor="buyer-contact"
+                      className="kg-label mt-3 block font-medium text-gray-500"
+                    >
+                      {t('buyer_contact_label')}
+                    </label>
+                    <input
+                      id="buyer-contact"
+                      value={buyerContact}
+                      onChange={(event) => setBuyerContact(event.target.value)}
+                      placeholder={t('buyer_contact_placeholder')}
+                      inputMode="tel"
+                      autoComplete="tel"
+                      className="mt-1.5 min-h-[44px] w-full rounded-xl border border-gray-200 px-3 text-[14px] text-gray-900 outline-none focus:border-primary"
+                    />
+
+                    <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
+                      {t('buyer_identity_note')}
+                    </p>
+                  </div>
+
+                  {/* The escrow promise, restated where the decision is made
+                      rather than only in the trust panel further up. */}
+                  <p className="mt-4 flex items-start gap-2 text-[12px] font-medium leading-relaxed text-primary">
+                    <ShieldCheck size={13} className="mt-0.5 shrink-0 text-[var(--color-rust)]" />
+                    {t('escrow_hold_note')}
+                  </p>
+
+                  <button
+                    onClick={buyNow}
+                    disabled={buying || price === null || !checkoutReady || !buyerName.trim()}
+                    className="kg-press mt-4 flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl bg-primary px-6 text-[15px] font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {buying ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" /> {t('opening_razorpay')}
+                      </>
+                    ) : price === null ? (
+                      t('price_not_set')
+                    ) : !checkoutReady ? (
+                      t('checkout_loading')
+                    ) : (
+                      t('buy_now')
+                    )}
+                  </button>
+                </>
+              )}
+
+              {/* In live mode this is a real-money warning, not a footnote, so
+                  it gets the weight of one. */}
+              <p
+                className={cn(
+                  "mt-3 flex items-start gap-2 text-[11px] leading-relaxed",
+                  RAZORPAY_LIVE_MODE
+                    ? "rounded-xl border border-amber-200 bg-amber-50 p-3 font-medium text-amber-900"
+                    : "text-gray-500"
+                )}
+              >
+                <Info
+                  size={12}
+                  className={cn(
+                    "mt-0.5 shrink-0",
+                    RAZORPAY_LIVE_MODE ? "text-amber-600" : "text-gray-400"
+                  )}
+                />
+                {t(RAZORPAY_LIVE_MODE ? 'razorpay_live_note' : 'razorpay_test_note')}
               </p>
             </div>
           </div>

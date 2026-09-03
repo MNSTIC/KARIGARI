@@ -1,0 +1,12 @@
+Original seeded artisan VPAs, replaced by yugankrout@oksbi (2026-09-03).
+Restore by pasting these back into prisma/seed.ts ARTISANS in order.
+lakshmimeher@okhdfcbank
+raghunathm@okaxis
+anithareddy@ybl
+imrankhokhar@okhdfcbank
+budhramv@ybl
+jethibenr@okaxis
+sunainajha@okicici
+shaukatqadri@okhdfcbank
+girijaachar@ybl
+ghulamwani@okaxis

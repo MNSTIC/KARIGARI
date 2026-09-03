@@ -10,14 +10,15 @@ import { ProductCard } from "@/components/ui/ProductCard";
 import { useLanguage } from "@/lib/translations";
 import { categoryFor, marketPrice, type MarketItem } from "@/lib/marketplace";
 import { captureRefFromUrl, trackRef } from "@/lib/affiliateRef";
+import { RAZORPAY_LIVE_MODE } from "@/lib/razorpayMode";
 import { cn } from "@/lib/utils";
 
 /**
  * The public consumer storefront.
  *
- * Every card is a real `CraftItem` an artisan has published. Buying goes
- * straight to Stripe test checkout, and the escrow that follows pays the
- * artisan's own VPA — there is no middleman account in between.
+ * Every card is a real `CraftItem` an artisan has published. Buying opens the
+ * Razorpay test modal on the product page itself, and the escrow that follows
+ * pays the artisan's own VPA — there is no middleman account in between.
  *
  * The category rail is built from the crafts that are actually listed, so it
  * never offers a filter that would return nothing.
@@ -81,6 +82,9 @@ export default function MarketplacePage() {
     return () => clearTimeout(kickoff);
   }, []);
 
+  // Legacy return path. The Razorpay modal never leaves the product page, so
+  // nothing produces `?payment=` any more — but an old bookmark or a shared
+  // link still can, and it should read as an outcome rather than as noise.
   useEffect(() => {
     const kickoff = setTimeout(() => {
       const params = new URLSearchParams(window.location.search);
@@ -173,8 +177,8 @@ export default function MarketplacePage() {
           <Banner
             tone="ok"
             icon={<CheckCircle2 size={19} />}
-            title={t("payment_success_title")}
-            body={t("payment_success_body")}
+            title={t(RAZORPAY_LIVE_MODE ? "payment_success_title_live" : "payment_success_title")}
+            body={t(RAZORPAY_LIVE_MODE ? "payment_success_body_live" : "payment_success_body")}
             onDismiss={() => setPaymentBanner(null)}
             dismissLabel={t("dismiss")}
           />
@@ -280,7 +284,7 @@ export default function MarketplacePage() {
           </p>
           <p className="flex items-start gap-2.5 text-[13px] leading-relaxed text-gray-500">
             <Info size={15} className="mt-0.5 shrink-0 text-gray-400" />
-            {t("mp_prototype_note")}
+            {t(RAZORPAY_LIVE_MODE ? "mp_live_note" : "mp_prototype_note")}
           </p>
         </div>
       </main>
