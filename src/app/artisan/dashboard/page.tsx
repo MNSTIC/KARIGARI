@@ -286,13 +286,22 @@ export default function ArtisanDashboard() {
           />
 
           <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <StatTile label={t("items_sold")} value={dashboardData?.itemsSold ?? 0} />
+            <StatTile
+              label={t("items_sold")}
+              value={dashboardData?.itemsSold ?? 0}
+              icon={<Image src="/icons/items-sold.jpg" alt="" width={28} height={28} className="mix-blend-multiply" />}
+            />
             <StatTile
               label={t("pending_verification_label")}
               value={tiles.pending}
               delta={tiles.capped ? t("of_your_10_recent") : null}
+              icon={<Image src="/icons/pending-verification.jpg" alt="" width={28} height={28} className="mix-blend-multiply" />}
             />
-            <StatTile label={t("govt_schemes_active")} value={tiles.schemes} />
+            <StatTile
+              label={t("govt_schemes_active")}
+              value={tiles.schemes}
+              icon={<Image src="/icons/govt-schemes.jpg" alt="" width={28} height={28} className="mix-blend-multiply" />}
+            />
           </div>
         </div>
 
@@ -691,7 +700,7 @@ function CraftThumb({ src, alt }: { src?: string | null; alt?: string }) {
         alt={alt || ""}
         fill
         sizes="64px"
-        unoptimized={src.startsWith("data:")}
+        unoptimized={src.startsWith("data:") || src.startsWith("/api/")}
         className="object-cover"
       />
     </span>
@@ -848,7 +857,7 @@ function DetailsModal({ item, onClose }: { item: any, onClose: () => void }) {
               alt={item.craftType}
               fill
               sizes="(max-width: 640px) 100vw, 512px"
-              unoptimized={heroImage.startsWith('data:')}
+              unoptimized={heroImage.startsWith('data:') || heroImage.startsWith('/api/')}
               className="object-cover"
             />
             <span className="absolute left-3 top-3">
@@ -951,7 +960,7 @@ function DetailsModal({ item, onClose }: { item: any, onClose: () => void }) {
                   sizes="(max-width: 640px) 100vw, 512px"
                   /* Real uploads arrive as data URLs, seeded ones as /seed paths.
                      Only the former cannot go through the optimizer. */
-                  unoptimized={patchPhoto.startsWith('data:')}
+                  unoptimized={patchPhoto.startsWith('data:') || patchPhoto.startsWith('/api/')}
                   className="object-cover"
                 />
               </div>

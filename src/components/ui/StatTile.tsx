@@ -31,9 +31,9 @@ export function StatTile({ label, value, icon, delta, className }: StatTileProps
         className
       )}
     >
-      <div className="flex items-start gap-2">
+      <div className="flex items-center gap-2">
+        {icon && <span className="shrink-0">{icon}</span>}
         <span className="kg-label min-w-0 flex-1 font-medium text-gray-500">{label}</span>
-        {icon && <span className="shrink-0 text-gray-400">{icon}</span>}
       </div>
 
       <div className="mt-4">
