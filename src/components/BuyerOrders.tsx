@@ -336,7 +336,7 @@ export function BuyerOrders({
                     alt=""
                     fill
                     sizes="64px"
-                    unoptimized={order.image.startsWith("data:")}
+                    unoptimized={order.image.startsWith("data:") || order.image.startsWith("/api/")}
                     className="object-cover"
                   />
                 </div>
@@ -385,7 +385,9 @@ export function BuyerOrders({
             </div>
 
             <div className="bg-gray-50 p-5 sm:p-6">
-              <OrderTimeline data={order} />
+              {/* My Orders — the buyer bought these pieces, so they may see
+                  each piece's private patch ID here (and nowhere public). */}
+              <OrderTimeline data={order} showPatchId />
               <p className="mt-3 text-[11px] leading-relaxed text-gray-500">
                 {t("order_charged_note")}
               </p>
@@ -437,7 +439,7 @@ export function BuyerOrders({
                                 alt=""
                                 fill
                                 sizes="96px"
-                                unoptimized={update.imageUrl.startsWith("data:")}
+                                unoptimized={update.imageUrl.startsWith("data:") || update.imageUrl.startsWith("/api/")}
                                 className="object-cover"
                               />
                             </div>

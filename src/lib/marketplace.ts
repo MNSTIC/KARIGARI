@@ -6,7 +6,14 @@ import { getListingPrice } from '@/lib/pricing';
  */
 export interface MarketItem {
   id: string;
-  patchId: string | null;
+  /**
+   * Whether the piece carries a verified patch (i.e. it has a real patchId).
+   * The raw patch ID is a PRIVATE unique identifier and is deliberately NOT
+   * shipped to the public storefront — only this boolean, so the marketplace
+   * can show a "verified origin" badge and offer a verified-only filter
+   * without exposing the ID to anyone browsing.
+   */
+  verified: boolean;
   craftType: string;
   descriptionOriginal: string | null;
   descriptionEnglish: string | null;
@@ -59,7 +66,7 @@ export function marketPrice(item: {
  * cannot fetch. Same guard the facilitator queue already uses.
  */
 export function imageProps(src: string) {
-  return { src, unoptimized: src.startsWith('data:') };
+  return { src, unoptimized: src.startsWith('data:') || src.startsWith('/api/') };
 }
 
 /**

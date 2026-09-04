@@ -59,7 +59,6 @@ function priceLabel(demand: PostedDemand): string {
 interface MatchRow {
   id: string;
   craftType: string;
-  patchId: string | null;
   image: string | null;
   price: number;
   fairWageFloor: number | null;
@@ -447,7 +446,7 @@ export default function BuyerDashboard() {
                           alt={t("demand_reference_image")}
                           fill
                           sizes="80px"
-                          unoptimized={demand.referenceImageUrl.startsWith("data:")}
+                          unoptimized={demand.referenceImageUrl.startsWith("data:") || demand.referenceImageUrl.startsWith("/api/")}
                           className="object-cover"
                         />
                       </div>
@@ -577,7 +576,7 @@ export default function BuyerDashboard() {
                                       alt={match.craftType}
                                       fill
                                       sizes="64px"
-                                      unoptimized={match.image.startsWith("data:")}
+                                      unoptimized={match.image.startsWith("data:") || match.image.startsWith("/api/")}
                                       className="object-cover"
                                     />
                                   </div>
@@ -586,11 +585,9 @@ export default function BuyerDashboard() {
                                   <p className="text-sm font-bold text-gray-900 truncate">
                                     {match.craftType}
                                   </p>
-                                  {match.patchId && (
-                                    <p className="text-[11px] font-mono text-gray-400 truncate">
-                                      {match.patchId}
-                                    </p>
-                                  )}
+                                  {/* Patch ID is private — the buyer sees it in
+                                      My Orders only after they buy this piece,
+                                      never while browsing matches. */}
                                 </div>
                                 {/* `?demand=` rides through to create-order and
                                     verify-payment, so the purchase shows up

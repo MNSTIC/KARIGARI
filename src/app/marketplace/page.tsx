@@ -117,7 +117,7 @@ export default function MarketplacePage() {
   const shown = useMemo(() => {
     let list = items;
     if (category !== "all") list = list.filter((item) => categoryFor(item) === category);
-    if (verifiedOnly) list = list.filter((item) => Boolean(item.patchId));
+    if (verifiedOnly) list = list.filter((item) => item.verified);
 
     const sorted = [...list];
     if (sort === "price-asc" || sort === "price-desc") {

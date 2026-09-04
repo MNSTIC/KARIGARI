@@ -59,7 +59,7 @@ export default function LandingPage() {
     const clusters = new Set(
       items.map((item) => item.artisan.location || item.artisan.clusterName).filter(Boolean)
     );
-    const verified = items.filter((item) => item.patchId).length;
+    const verified = items.filter((item) => item.verified).length;
     return [
       { value: String(items.length), label: "Pieces listed" },
       { value: String(artisans.size), label: "Verified artisans" },

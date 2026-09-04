@@ -73,8 +73,13 @@ function format(
   rating?: { avg: number | null; count: number }
 ) {
   const profile = item.artisan.artisanProfile;
+  // The raw patch ID is private. Strip it from the public payload entirely and
+  // ship only a boolean, so a browsing visitor cannot read another piece's ID
+  // out of the network response.
+  const { patchId, ...rest } = item;
   return {
-    ...item,
+    ...rest,
+    verified: Boolean(patchId),
     artisan: {
       id: item.artisan.id,
       name: item.artisan.name,

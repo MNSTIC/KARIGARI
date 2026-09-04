@@ -116,7 +116,10 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         craftType: row.craftType,
-        patchId: row.patchId,
+        // The public demand-board tracker never exposes the raw patch ID — it is
+        // private to the artisan and to the buyer who bought the piece (whose My
+        // Orders view is served by /api/buyer/orders, which keeps it).
+        patchId: null,
         image: row.images?.[0] ?? null,
         artisanName: row.artisan.name,
         stage,

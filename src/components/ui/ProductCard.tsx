@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Package } from "lucide-react";
-import { PatchIdChip, VerifiedOriginBadge } from "@/components/ui/Badge";
+import { VerifiedOriginBadge } from "@/components/ui/Badge";
 import { StarRating } from "@/components/ui/StarRating";
 import { artisanSharePctFor } from "@/lib/escrow";
 import { imageProps, marketPrice, type MarketItem } from "@/lib/marketplace";
@@ -64,7 +64,7 @@ export function ProductCard({
           </span>
         )}
 
-        {item.patchId && <VerifiedOriginBadge className="absolute left-3 top-3" />}
+        {item.verified && <VerifiedOriginBadge className="absolute left-3 top-3" />}
       </div>
 
       <div className="flex flex-1 flex-col pt-4">
@@ -101,18 +101,22 @@ export function ProductCard({
           )}
         </p>
 
-        {/* Stacked rather than side by side: at four columns the share and a
-            full patch ID do not both fit on one line, and truncating either of
-            them is worse than a second line. */}
+        {/* The raw patch ID is a private unique identifier — shown only to the
+            artisan who made the piece and the buyer who bought it, never on the
+            public marketplace. Here we surface only whether the piece carries a
+            verified origin, not the ID itself. */}
         <div className="mt-auto border-t border-gray-200/80 pt-3.5">
           <p className="kg-label font-medium text-[var(--color-rust)]">
             Artisan Share: {share.toFixed(2)}%
           </p>
-          {item.patchId ? (
-            <PatchIdChip patchId={item.patchId} className="mt-1.5 block" />
-          ) : (
-            <p className="kg-label mt-1.5 text-gray-300">Awaiting patch</p>
-          )}
+          <p
+            className={cn(
+              "kg-label mt-1.5",
+              item.verified ? "font-medium text-[var(--color-primary)]" : "text-gray-300"
+            )}
+          >
+            {item.verified ? "Verified origin" : "Awaiting verification"}
+          </p>
         </div>
       </div>
     </Link>

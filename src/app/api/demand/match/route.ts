@@ -399,7 +399,8 @@ export async function GET(req: Request) {
     const matches = ranked.map(({ row, price, matchScore }) => ({
       id: row.id,
       craftType: row.craftType,
-      patchId: row.patchId,
+      // Raw patch ID is private — a buyer browsing matches (pre-purchase) never
+      // receives it. They see it in My Orders only after buying the piece.
       image: row.images?.[0] ?? null,
       price,
       fairWageFloor: row.fairWageFloor,

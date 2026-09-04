@@ -14,7 +14,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { PatchIdChip, VerifiedOriginBadge } from "@/components/ui/Badge";
+import { VerifiedOriginBadge } from "@/components/ui/Badge";
 import { SectionEyebrow } from "@/components/ui/SectionEyebrow";
 import { artisanSharePctFor } from "@/lib/escrow";
 import { formatRupees } from "@/lib/pricing";
@@ -369,7 +369,7 @@ export function ProductClient({ id }: { id: string }) {
                   stay removed: what Karigari can actually attest to is that this
                   piece carries a patch ID matched against a re-photograph. */}
               <div className="mb-4 flex flex-wrap items-center gap-2.5">
-                {item.patchId && <VerifiedOriginBadge className="shadow-none" />}
+                {item.verified && <VerifiedOriginBadge className="shadow-none" />}
                 {item.isOndcLive && (
                   <span className="kg-label rounded-full bg-[var(--color-pill)] px-2.5 py-1.5 font-medium text-gray-700">
                     {t('live_on_ondc')}
@@ -399,7 +399,10 @@ export function ProductClient({ id }: { id: string }) {
                 <span className="kg-label font-medium text-[var(--color-rust)]">
                   Artisan Share: {artisanSharePctFor(price).toFixed(2)}%
                 </span>
-                {item.patchId && <PatchIdChip patchId={item.patchId} />}
+                {/* The raw patch ID is private — shown to the buyer only after
+                    purchase (My Orders). Public detail page shows a verified
+                    origin badge, never the ID. */}
+                {item.verified && <VerifiedOriginBadge />}
               </div>
 
               {item.fairWageFloor !== null && (
@@ -417,14 +420,11 @@ export function ProductClient({ id }: { id: string }) {
                 </div>
               )}
 
-              {item.patchId && (
-                <Link
-                  href={`/verify/${item.patchId}`}
-                  className="mt-6 w-fit text-[13px] font-semibold text-gray-900 underline underline-offset-4"
-                >
-                  {t('view_passport')}
-                </Link>
-              )}
+              {/* The Digital Craft Passport is reached through the item's own
+                  patch ID, which is private (buyer's My Orders after purchase,
+                  or the artisan's dashboard). It is deliberately NOT linked on
+                  the public marketplace, so the ID is not exposed in a URL to
+                  anyone browsing before buying. */}
 
               {/* Trust line */}
               <div className="mt-7 flex items-start gap-2.5 rounded-2xl bg-[var(--color-gray-100)] p-4">

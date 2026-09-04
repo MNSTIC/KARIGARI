@@ -152,7 +152,19 @@ function StageLadder({ current }: { current: OrderStage }) {
   );
 }
 
-export function OrderTimeline({ data }: { data: TrackPayload }) {
+export function OrderTimeline({
+  data,
+  showPatchId = false,
+}: {
+  data: TrackPayload;
+  /**
+   * The patch ID is a private unique identifier. It renders ONLY when the
+   * viewer is entitled to it — the buyer in their own My Orders after purchase.
+   * The public demand-board tracker leaves it off (default), so a browsing
+   * visitor never sees another piece's ID.
+   */
+  showPatchId?: boolean;
+}) {
   const { t } = useLanguage();
   const bulk = data.requested > 1;
 
@@ -215,7 +227,7 @@ export function OrderTimeline({ data }: { data: TrackPayload }) {
                   alt=""
                   fill
                   sizes="44px"
-                  unoptimized={item.image.startsWith("data:")}
+                  unoptimized={item.image.startsWith("data:") || item.image.startsWith("/api/")}
                   className="object-cover"
                 />
               </div>
@@ -229,7 +241,7 @@ export function OrderTimeline({ data }: { data: TrackPayload }) {
               <p className="truncate text-sm font-bold text-gray-900">{item.craftType}</p>
               <p className="truncate text-xs text-gray-500">
                 {item.artisanName}
-                {item.patchId && (
+                {showPatchId && item.patchId && (
                   <span className="ml-2 font-mono text-[10px] text-gray-400">{item.patchId}</span>
                 )}
               </p>
