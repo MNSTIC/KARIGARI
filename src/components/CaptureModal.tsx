@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Mic, UploadCloud, FileText, ArrowRight, X, Sparkles, CheckCircle2, Camera, Trash2, ShieldCheck, Globe, AlertTriangle, Pencil, IndianRupee, TrendingUp, Loader2, RefreshCw, CloudOff } from "lucide-react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,8 @@ import { useLanguage } from "@/lib/translations";
 import { estimateCraftValuation, formatRupees } from "@/lib/pricing";
 import { downscaleImage, enhanceProductPhoto } from "@/lib/imageEnhance";
 import { Avatar } from "@/components/ui/Avatar";
-import { SmartDraftAssistant, type SmartDraftExtracted } from "@/components/SmartDraftAssistant";
+// SmartDraftAssistant was retired in V8.1 — its questions now render inline
+// in the main chat via `runSmartDraft` below.
 import { queueCapture, type CapturePayload } from "@/lib/offlineQueue";
 import { refreshQueueCount } from "@/lib/offlineQueueStore";
 
@@ -126,20 +127,36 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
   const [primaryInputMethod, setPrimaryInputMethod] = useState<"voice" | "text">("text");
 
   /**
-   * V7 — SmartDraft owns the visible follow-up whenever it engages. Parent
-   * suppresses its legacy voice-parse question in `applyParse`, and Next is
-   * gated on the assistant reaching complete (or the artisan hitting Skip).
+   * V8.1 — Smart-draft runs INLINE in the main chat, no separate assistant
+   * card. State machine:
+   *   smartDraftStarted  → we committed to a follow-up when base facts landed
+   *                        (set synchronously; Next gate + Voice-Scribe Output
+   *                        stay closed until the round completes).
+   *   smartDraftPending  → last AI turn asked a question and we're waiting
+   *                        for the artisan's answer through the same chat
+   *                        input. While true, voice-parse is bypassed so the
+   *                        answer does not re-parse as a fresh product.
+   *   smartDraftComplete → AI is satisfied / cap hit / failure. Terminal.
    *
-   * `smartDraftActive` flips true the moment SmartDraftAssistant's initial
-   * call resolves — meaning it will show a bubble; parent must not push a
-   * second one. Stays false when Gemini is unconfigured (assistant never
-   * engages), in which case the legacy 3-fact gate is the whole story.
+   * History rides in a ref so intermediate turns do not trigger re-renders.
    */
-  const [smartDraftActive, setSmartDraftActive] = useState(false);
+  // `smartDraftStarted` is set SYNCHRONOUSLY the instant base facts land and we
+  // commit to asking a follow-up — so the Next gate stays closed and the
+  // Voice-Scribe Output card stays hidden across the async round-trip, with no
+  // one-frame flash of "done" before the first question arrives.
+  const [smartDraftStarted, setSmartDraftStarted] = useState(false);
+  const [smartDraftPending, setSmartDraftPending] = useState(false);
   const [smartDraftComplete, setSmartDraftComplete] = useState(false);
-  /** Cached so a stale ref inside `applyParse` cannot re-open the suppression. */
-  const smartDraftActiveRef = useRef(false);
-  smartDraftActiveRef.current = smartDraftActive;
+  const smartDraftStartedRef = useRef(false);
+  smartDraftStartedRef.current = smartDraftStarted;
+  const smartDraftPendingRef = useRef(false);
+  smartDraftPendingRef.current = smartDraftPending;
+  const smartDraftCompleteRef = useRef(false);
+  smartDraftCompleteRef.current = smartDraftComplete;
+  const smartDraftHistoryRef = useRef<{ questions: string[]; answers: string[] }>({
+    questions: [],
+    answers: [],
+  });
 
   /** Artisan location from their profile — fed to SmartDraft for the GI guard. */
   const [artisanLocation, setArtisanLocation] = useState<string | null>(null);
@@ -517,9 +534,9 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
    */
   const step1GateSatisfied = useMemo(() => {
     if (!isProcessed) return false;
-    if (!smartDraftActive) return true; // Assistant never engaged.
-    return smartDraftComplete;
-  }, [isProcessed, smartDraftActive, smartDraftComplete]);
+    if (!smartDraftStarted) return true; // Follow-up never kicked off (Gemini off / desc too short).
+    return smartDraftComplete; // Started → must reach complete (all questions answered).
+  }, [isProcessed, smartDraftStarted, smartDraftComplete]);
 
   const enteredPrice = Number(askingPrice);
   const hasEnteredPrice = askingPrice.trim() !== "" && Number.isFinite(enteredPrice) && enteredPrice > 0;
@@ -634,6 +651,111 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
   };
   
   /**
+   * V8.1 — Inline smart-draft. Renders assistant/user bubbles into the SAME
+   * chat stream the base voice-parse uses, so there is only ONE questioner
+   * on screen. Route input to this instead of voice-parse whenever
+   * `smartDraftPending` is true.
+   *
+   * `userAnswer` is the artisan's reply to the previous AI question. Only
+   * the initial round (kicked off from `applyParse` after base facts land)
+   * omits it.
+   */
+  const runSmartDraft = useCallback(
+    async (opts: { craftType: string; description: string; userAnswer?: string }) => {
+      const ct = (opts.craftType || "").trim();
+      const desc = (opts.description || "").trim();
+      // Nothing to ask about — release the gate so the artisan can proceed.
+      if (!ct || desc.length < 5) {
+        setSmartDraftPending(false);
+        setSmartDraftComplete(true);
+        return;
+      }
+
+      if (opts.userAnswer) {
+        smartDraftHistoryRef.current.answers.push(opts.userAnswer);
+      }
+
+      const maxRounds = primaryInputMethod === "voice" ? 2 : 3;
+
+      setIsProcessingAI(true);
+      try {
+        const res = await fetch("/api/items/smart-draft", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            craftType: ct,
+            description: desc,
+            previousQuestions: smartDraftHistoryRef.current.questions,
+            previousAnswers: smartDraftHistoryRef.current.answers,
+            maxRounds,
+            artisanLocation: artisanLocation || undefined,
+          }),
+        });
+        const data = await res.json();
+
+        const extracted = data?.extractedData || {};
+        if (extracted.technique && !technique) setTechnique(extracted.technique);
+        if (extracted.material) {
+          setCraftDetails((prev) => {
+            if (!prev) return extracted.material as string;
+            return prev.toLowerCase().includes(String(extracted.material).toLowerCase())
+              ? prev
+              : `${prev}, ${extracted.material}`;
+          });
+        }
+        if (
+          typeof extracted.estimatedLaborDays === "number" &&
+          extracted.estimatedLaborDays > 0 &&
+          (!laborDays || laborDays <= 0)
+        ) {
+          setLaborDays(Math.round(extracted.estimatedLaborDays));
+        }
+
+        // Only surface a verification note that flags a REAL issue. The model
+        // sometimes narrates "no mismatch detected", which is noise — drop any
+        // note that reads as an all-clear.
+        const note =
+          typeof data?.verificationNote === "string" ? data.verificationNote.trim() : "";
+        const noteIsAllClear = /\bno\b.*\b(mismatch|issue|concern|problem)\b/i.test(note);
+        if (note && !noteIsAllClear) {
+          setMessages((prev) => [
+            ...prev,
+            { id: `verify-${Date.now()}`, role: "assistant", text: `⚠️ ${note}` },
+          ]);
+        }
+
+        // A question keeps the gate CLOSED regardless of which status the model
+        // stamped it with (need_more_info OR verification_needed). Only an
+        // explicit "complete" / readyToProceed with no question opens the gate.
+        const rawQuestion =
+          typeof data?.question === "string" ? data.question.trim() : "";
+        const explicitlyDone =
+          data?.status === "complete" || data?.readyToProceed === true;
+        const nextQuestion = !explicitlyDone ? rawQuestion : "";
+
+        if (nextQuestion) {
+          smartDraftHistoryRef.current.questions.push(nextQuestion);
+          setMessages((prev) => [
+            ...prev,
+            { id: `ai-sd-${Date.now()}`, role: "assistant", text: nextQuestion },
+          ]);
+          setSmartDraftPending(true);
+        } else {
+          setSmartDraftPending(false);
+          setSmartDraftComplete(true);
+        }
+      } catch (error) {
+        console.warn("Smart draft turn failed:", error);
+        setSmartDraftPending(false);
+        setSmartDraftComplete(true);
+      } finally {
+        setIsProcessingAI(false);
+      }
+    },
+    [primaryInputMethod, artisanLocation, technique, laborDays]
+  );
+
+  /**
    * Send a finished recording to Groq Whisper via /api/items/voice-parse.
    *
    * Replaces the browser's SpeechRecognition, which barely supports Odia or
@@ -679,7 +801,7 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
       }
 
       // A successful voice round flips the primary input method — used by
-      // SmartDraftAssistant to pick the stricter (2-round) follow-up cap.
+      // the smart-draft round cap (voice → 2, text → 3).
       setPrimaryInputMethod("voice");
 
       // The route merged `context` with this turn's transcript; keep the merged
@@ -694,6 +816,20 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
         setMessages(prev => prev.map(m => (m.id === bubbleId ? { ...m, text: spoken } : m)));
       }
       liveBubbleIdRef.current = null;
+
+      // V8.1 — When the AI already asked a follow-up, this recording is the
+      // answer to it. Skip re-parsing (which would clobber craftType with
+      // "Muga silk, pit loom") and feed the transcript to smart-draft.
+      if (smartDraftPendingRef.current) {
+        setSmartDraftPending(false);
+        setIsProcessingAI(false);
+        await runSmartDraft({
+          craftType,
+          description: englishDescription,
+          userAnswer: spoken || result.data.englishDescription || "",
+        });
+        return;
+      }
 
       applyParse(result.data);
     } catch (err) {
@@ -747,34 +883,57 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
     if (data?.technique) setTechnique(data.technique);
 
     if (missing.length > 0) {
-      // V7 — SmartDraftAssistant owns the visible follow-up the moment it
-      // engages. Only fall back to the legacy voice-parse question when the
-      // assistant will NOT run (Gemini unconfigured, or description still
-      // too short for it to fire). Otherwise the artisan sees two questioners
-      // at once — that was the whole bug this revamp exists to fix.
-      if (!smartDraftActiveRef.current) {
-        const question =
-          (typeof data?.followUpQuestion === 'string' && data.followUpQuestion.trim()) ||
-          t('provide_missing_hint');
-        setMessages((prev) => [
-          ...prev,
-          { id: `ask-${Date.now()}`, role: 'assistant', text: question },
-        ]);
-      }
+      // Base 3 facts still incomplete. Smart-draft only takes over AFTER
+      // this gate passes, so there is no dual-questioner risk here — always
+      // ask for what's missing so the artisan is not stuck guessing.
+      const question =
+        (typeof data?.followUpQuestion === 'string' && data.followUpQuestion.trim()) ||
+        t('provide_missing_hint');
+      setMessages((prev) => [
+        ...prev,
+        { id: `ask-${Date.now()}`, role: 'assistant', text: question },
+      ]);
       return false;
     }
 
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `sum-${Date.now()}`,
-        role: 'assistant',
-        text:
-          `${t('ai_understood')} ${data.craftType} · ${data.laborDays} ${t('days')} · ₹${data.rawMaterialCost}` +
-          (data.technique ? ` · ${data.technique}` : ''),
-      },
-    ]);
     setIsProcessed(true);
+
+    // V8.1 — Base 3 facts landed. Hand the mic to the product-aware smart-draft
+    // in the SAME chat stream. Fires only when not already started/complete/
+    // pending — a fresh voice round after the AI already asked must not re-kick.
+    const nextCraftType = (data.craftType || craftType || "").trim();
+    const nextDescription = (data.englishDescription || englishDescription || "").trim();
+    const willAsk =
+      !smartDraftStartedRef.current &&
+      !smartDraftCompleteRef.current &&
+      !smartDraftPendingRef.current &&
+      nextCraftType.length > 0 &&
+      nextDescription.length >= 5;
+
+    // The "Got it — …" acknowledgment only makes sense once questioning is
+    // over. When a follow-up is about to be asked, skip it and let the chat
+    // go straight to the question; the Voice-Scribe Output card carries the
+    // same recap when Step 1 finally completes.
+    if (!willAsk) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `sum-${Date.now()}`,
+          role: 'assistant',
+          text:
+            `${t('ai_understood')} ${data.craftType} · ${data.laborDays} ${t('days')} · ₹${data.rawMaterialCost}` +
+            (data.technique ? ` · ${data.technique}` : ''),
+        },
+      ]);
+    }
+
+    if (willAsk) {
+      // Synchronous flag → the Next gate + Voice-Scribe Output stay closed
+      // until the follow-up round finishes, no flash of the summary.
+      setSmartDraftStarted(true);
+      smartDraftStartedRef.current = true;
+      void runSmartDraft({ craftType: nextCraftType, description: nextDescription });
+    }
     return true;
   };
 
@@ -884,7 +1043,9 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
   }, [step, priceResearch, priceResearchLoading, priceResearchError]);
 
   const toggleListening = async () => {
-    if (isProcessed) return;
+    // Mic stays usable through the smart-draft Q&A — an artisan can speak the
+    // answer to a follow-up. Only locks once Step 1 is fully satisfied.
+    if (step1GateSatisfied) return;
 
     if (isListening && mediaRecorder) {
       mediaRecorder.stop();
@@ -949,7 +1110,9 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
   };
 
   const processWithAI = async () => {
-    if (!inputText.trim() || isProcessed) return;
+    // Answers to the smart-draft follow-up still flow through here while
+    // isProcessed is already true — gate on the full readiness flag instead.
+    if (!inputText.trim() || step1GateSatisfied) return;
     
     if (isListening && mediaRecorder) {
       mediaRecorder.stop();
@@ -959,8 +1122,23 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
     const userMessage = inputText;
     setMessages(prev => [...prev, { id: Date.now().toString(), role: "user", text: userMessage }]);
     setInputText("");
+
+    // V8.1 — If the AI is waiting for an answer to its consolidated follow-up,
+    // route the reply STRAIGHT to smart-draft and skip voice-parse for this
+    // turn. Otherwise the answer ("Muga silk, pit loom") would be re-parsed
+    // as a new product and clobber craftType.
+    if (smartDraftPendingRef.current) {
+      setSmartDraftPending(false);
+      await runSmartDraft({
+        craftType,
+        description: englishDescription,
+        userAnswer: userMessage,
+      });
+      return;
+    }
+
     setIsProcessingAI(true);
-    
+
     try {
       // Append this turn, then re-parse everything said so far.
       const combined = [conversationTextRef.current, userMessage]
@@ -1096,8 +1274,10 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
     setTimeout(() => {
       setStep(1);
       setIsProcessed(false);
-      setSmartDraftActive(false);
+      setSmartDraftStarted(false);
+      setSmartDraftPending(false);
       setSmartDraftComplete(false);
+      smartDraftHistoryRef.current = { questions: [], answers: [] };
       setImages([]);
       setLaborDays(0);
       setRawMaterialCost(0);
@@ -1217,8 +1397,10 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
                   </div>
                 )}
 
-                {/* Final Result Bubble */}
-                {isProcessed && (
+                {/* Final Result Bubble — the Voice-Scribe Output. V8.1: held
+                    back until the smart-draft follow-up is fully answered, so
+                    the artisan sees the questions first, then the summary. */}
+                {step1GateSatisfied && (
                   <div className="flex gap-4 max-w-[90%] animate-fade-in-up">
                     <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center shrink-0 mt-1 shadow-sm shadow-green-500/20">
                       <CheckCircle2 size={16} className="text-white" />
@@ -1265,46 +1447,15 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
                   the input, so a follow-up question is impossible to miss. Only
                   fires once craftType + a real description are on the record;
                   fully skippable. */}
-              {/* V7 — stays mounted until smartDraftComplete (independent of
-                  the base-facts `isProcessed` flag) so its consolidated
-                  follow-up survives past the base-fact summary bubble. */}
-              {!smartDraftComplete && (
-                <SmartDraftAssistant
-                  craftType={craftType}
-                  description={englishDescription}
-                  inputMethod={primaryInputMethod}
-                  artisanLocation={artisanLocation}
-                  onReadyChange={setSmartDraftActive}
-                  onComplete={() => setSmartDraftComplete(true)}
-                  onExtracted={(data: SmartDraftExtracted) => {
-                    // Only adopt what the voice-parse pipeline did not already
-                    // set — never overwrite the artisan's chosen values.
-                    if (data.technique && !technique) setTechnique(data.technique);
-                    if (data.craftType && !craftType) setCraftType(data.craftType);
-                    if (data.material) {
-                      // Material feeds Step-3 pricing via the same detail
-                      // string the vision pass uses. Append rather than
-                      // overwrite so a genuine capture note is kept.
-                      setCraftDetails((prev) => {
-                        if (!prev) return data.material as string;
-                        return prev.toLowerCase().includes(String(data.material).toLowerCase())
-                          ? prev
-                          : `${prev}, ${data.material}`;
-                      });
-                    }
-                    if (
-                      typeof data.estimatedLaborDays === 'number' &&
-                      data.estimatedLaborDays > 0 &&
-                      (!laborDays || laborDays <= 0)
-                    ) {
-                      setLaborDays(Math.round(data.estimatedLaborDays));
-                    }
-                  }}
-                />
-              )}
+              {/* V8.1 — Smart-draft's follow-up now rides in the main chat
+                  stream above (assistant bubbles pushed by `runSmartDraft`),
+                  and the artisan answers through the same input below. No
+                  separate card. */}
 
-              {/* Input Area */}
-              {!isProcessed && (
+              {/* Input Area — V8.1: stays visible through the smart-draft Q&A
+                  (gated on step1GateSatisfied, not the base-facts isProcessed),
+                  so the artisan can answer every follow-up before the summary. */}
+              {!step1GateSatisfied && (
                 <div className="p-3 bg-white border-t border-gray-100 rounded-xl relative shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)]">
                   {/* What is still needed before Step 2 opens. Shown only once
                       something has been parsed, so the artisan is not greeted

@@ -133,8 +133,9 @@ export async function POST(req: Request) {
     // this and go straight through.
     const giMatch = findGiLabel(`${craftType} ${description}`);
     const giRegionOk = giMatch ? locationMatchesGi(giMatch, artisanLocation) : true;
+    const giMismatch = Boolean(giMatch && !giRegionOk);
     const giHint =
-      giMatch && !giRegionOk
+      giMatch && giMismatch
         ? [
             '',
             'GI CONTEXT (server-detected — do NOT rewrite this):',
@@ -227,29 +228,42 @@ export async function POST(req: Request) {
         specialNotes: trimmed(extractedRaw.specialNotes, 500) || null,
       };
 
-      const status =
+      const rawStatus =
         parsed.status === 'need_more_info' ||
         parsed.status === 'complete' ||
         parsed.status === 'verification_needed'
           ? parsed.status
           : 'complete';
 
+      const question = trimmed(parsed.question, 300);
+      const hasQuestion = Boolean(question);
+
+      // A question ALWAYS keeps the artisan in Step 1, whatever label the model
+      // stamped it with — the earlier bug forwarded it only under
+      // `need_more_info`, so a `verification_needed` question was silently
+      // dropped and the gate opened with a dangling question on screen.
+      // Conversely, no question means proceed, whatever the status — never trap.
+      const status: DraftResponse['status'] = hasQuestion
+        ? rawStatus === 'complete'
+          ? 'need_more_info'
+          : rawStatus
+        : rawStatus;
+
       const response: DraftResponse = {
         success: true,
         status,
         extractedData,
-        readyToProceed:
-          status === 'need_more_info'
-            ? Boolean(parsed.readyToProceed) && Boolean(parsed.question) === false
-            : true,
+        readyToProceed: !hasQuestion,
       };
-      const question = trimmed(parsed.question, 300);
-      if (status === 'need_more_info' && question) {
-        response.question = question;
-        response.readyToProceed = false;
+      if (hasQuestion) response.question = question;
+
+      // Only surface a verification note when the SERVER actually detected a
+      // real GI region mismatch. The model otherwise narrates "no mismatch
+      // detected", which is noise the artisan should never see.
+      if (giMismatch) {
+        const verificationNote = trimmed(parsed.verificationNote, 400);
+        if (verificationNote) response.verificationNote = verificationNote;
       }
-      const verificationNote = trimmed(parsed.verificationNote, 400);
-      if (verificationNote) response.verificationNote = verificationNote;
 
       return NextResponse.json(response);
     } catch (error) {
