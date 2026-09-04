@@ -937,6 +937,66 @@ const dict: Record<string, string> = {
   schemes_field_annual_income: "वार्षिक आय",
   schemes_field_aadhaar: "आधार दर्ज",
   schemes_field_bank_upi: "बैंक / यूपीआई जुड़ा",
+
+  /* WI2 */
+  set_deadline: "अंतिम तिथि तय करें",
+  deadline_label: "डिलीवरी की अंतिम तिथि",
+  deadline_min_days: "कम से कम 3 दिन",
+  mark_complete: "पूरा चिह्नित करें",
+  upload_finished_photo: "तैयार उत्पाद की फोटो अपलोड करें",
+  order_completed_toast: "ऑर्डर पूरा चिह्नित कर दिया गया।",
+  mark_delivered: "डिलीवर मिला — चिह्नित करें",
+  verify_product: "उत्पाद सत्यापित करें",
+  enter_patch_id: "उत्पाद से पैच आईडी दर्ज करें",
+  scan_qr_code: "क्यूआर स्कैन करें",
+  upload_received_photo: "प्राप्त उत्पाद की फोटो अपलोड करें",
+  verification_results: "उत्पाद सत्यापन परिणाम",
+  patch_id_valid: "पैच आईडी वैध",
+  product_match: "उत्पाद मेल",
+  artisan_match: "कारीगर मेल",
+  product_genuine: "यह उत्पाद असली है।",
+  verification_failed: "सत्यापन प्रामाणिकता की पुष्टि नहीं कर सका।",
+
+  /* WI5 */
+  payment_summary: "भुगतान सारांश",
+  total_order_value: "कुल ऑर्डर मूल्य",
+  advance_payment: "अग्रिम भुगतान",
+  advance_payment_note:
+    "40% अग्रिम आपके ऑर्डर की गारंटी देता है। शेष 60% डिलीवरी पर देय है। कारीगर को उचित मजदूरी डिस्पैच पर तुरंत मिलती है।",
+  pay_advance_cta: "अग्रिम भुगतान करें और ऑर्डर पक्का करें",
+  advance_paid_confirmation: "अग्रिम प्राप्त — उत्पादन शुरू",
+  production_started_note:
+    "कारीगर को सूचित कर दिया गया है। उत्पादन जल्द शुरू होगा। आपको दैनिक प्रगति अपडेट मिलेंगे।",
+
+  /* WI6 */
+  live_production_updates: "लाइव उत्पादन अपडेट",
+  units_completed: "इकाइयाँ पूरी",
+  production_updates_empty:
+    "कारीगर ने आपका ऑर्डर स्वीकार कर लिया है। काम शुरू होते ही अपडेट यहाँ दिखेंगे।",
+
+  /* WI3 */
+  no_matching_bulk_demands: "अभी आपके शिल्प के लिए कोई थोक मांग नहीं है",
+  complete_profile_for_filter_bold: "अपनी प्रोफ़ाइल पूरी करें",
+  complete_profile_for_filter:
+    "ताकि आपके शिल्प से मेल खाती मांगें दिखें। फिलहाल सभी खुली मांगें दिखा रहे हैं।",
+  check_back_soon: "नई मांगें नियमित रूप से पोस्ट होती हैं। जल्दी वापस देखें या सूचनाएँ सक्षम करें।",
+
+  /* Tier badges */
+  tier_a_badge: "प्रमाणित + अग्रिम योग्य",
+  tier_a_advance_note: "डिस्पैच पर अग्रिम मिलेगा",
+  tier_a_body:
+    "आपकी कीमत AI सीलिंग {ceiling} पर या नीचे है। शिपिंग होते ही 40% अग्रिम, शेष डिलीवरी पर।",
+  tier_b_badge: "प्रमाणित — अग्रिम उपलब्ध नहीं",
+  tier_b_body:
+    "आपका शिल्प असली प्रमाणित है और बिक्री के लिए सूचीबद्ध है। आपकी कीमत {price} बाजार औसत {avg} से ऊपर है। पूरा भुगतान (3.5% प्लेटफ़ॉर्म शुल्क घटाकर) डिलीवरी पर मिलेगा। 40% डिस्पैच अग्रिम पाने के लिए कीमत {ceiling} पर लाएँ।",
+
+  /* V8 */
+  demand_orders_label: "मांग-आदेश",
+  demand_orders_note:
+    "खरीदार द्वारा डिलीवरी चिह्नित करने पर आपको सहमत ऑन-स्क्रीन मूल्य क्रेडिट किया जाता है। यह मार्केटप्लेस एस्क्रो लेजर से अलग है।",
+  artisan_paid_label: "कारीगर को भुगतान",
+  artisan_paid_note:
+    "सहमत ऑन-स्क्रीन कीमत, डिलीवरी पर उनके डैशबोर्ड में क्रेडिट।",
 };
 
 export default dict;

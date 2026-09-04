@@ -957,6 +957,66 @@ const dict: Record<string, string> = {
   schemes_field_annual_income: "Annual income",
   schemes_field_aadhaar: "Aadhaar on file",
   schemes_field_bank_upi: "Bank / UPI linked",
+
+  /* WI2 — Orders lifecycle (deadline picker, complete, delivered, verify) */
+  set_deadline: "Set Deadline",
+  deadline_label: "Delivery deadline",
+  deadline_min_days: "Minimum 3 days",
+  mark_complete: "Mark as Complete",
+  upload_finished_photo: "Upload a photo of the finished product",
+  order_completed_toast: "Order marked as complete.",
+  mark_delivered: "Mark as Delivered",
+  verify_product: "Verify Product",
+  enter_patch_id: "Enter Patch ID from the product",
+  scan_qr_code: "Scan QR",
+  upload_received_photo: "Upload photo of received product",
+  verification_results: "Product Verification Results",
+  patch_id_valid: "Patch ID Valid",
+  product_match: "Product Match",
+  artisan_match: "Artisan Match",
+  product_genuine: "This product is genuine.",
+  verification_failed: "Verification could not confirm authenticity.",
+
+  /* WI5 — Advance payment summary */
+  payment_summary: "Payment Summary",
+  total_order_value: "Total Order Value",
+  advance_payment: "Advance Payment",
+  advance_payment_note:
+    "40% advance secures your order. The remaining 60% is paid on delivery. The artisan receives their fair wage immediately on dispatch.",
+  pay_advance_cta: "Pay Advance to Confirm Order",
+  advance_paid_confirmation: "Advance Paid — Production Started",
+  production_started_note:
+    "The artisan has been notified and production will begin shortly. You'll receive daily progress updates.",
+
+  /* WI6 — Live production updates */
+  live_production_updates: "Live Production Updates",
+  units_completed: "units completed",
+  production_updates_empty:
+    "Artisan has accepted your order. Production updates will appear here as work begins.",
+
+  /* WI3 — Filtered bulk demand board */
+  no_matching_bulk_demands: "No bulk demands for your craft right now",
+  complete_profile_for_filter_bold: "Complete your profile",
+  complete_profile_for_filter:
+    "to see demands matching your craft. Showing all open demands.",
+  check_back_soon: "New demands are posted regularly. Check back soon or enable notifications.",
+
+  /* Capture pipeline v2 — Tier badges */
+  tier_a_badge: "Verified + advance eligible",
+  tier_a_advance_note: "advance released on dispatch",
+  tier_a_body:
+    "Your price is at or below the AI ceiling {ceiling}. You'll receive a 40% advance the moment the item ships and the balance on delivery.",
+  tier_b_badge: "Verified only — no advance",
+  tier_b_body:
+    "Your craft is verified as authentic and listed for sale. Your price {price} is above the AI market average {avg}. Full payment (minus 3.5% platform fee) is released on delivery. Lower to {ceiling} to unlock the 40% dispatch advance.",
+
+  /* V8 — Demand-order credit */
+  demand_orders_label: "Demand orders",
+  demand_orders_note:
+    "On-screen agreed price credited to you when the buyer marks the order delivered. Separate from the marketplace escrow ledger.",
+  artisan_paid_label: "Artisan paid",
+  artisan_paid_note:
+    "the on-screen agreed price, credited to their dashboard on delivery.",
 };
 
 export default dict;

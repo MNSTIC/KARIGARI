@@ -36,6 +36,22 @@ export interface CapturePayload {
   /** Compressed data URLs — `downscaleImage` has already run on these. */
   images: string[];
   aiGeneratedListing: string;
+
+  // ---- Revised capture pipeline artefacts (spec Steps 3-7). Optional so
+  // an older queued row (pre-migration) still replays cleanly. ----
+  aiCatalog?: {
+    title_en: string;
+    desc_en: string;
+    title_regional: string;
+    desc_regional: string;
+    category: string;
+    tags: string[];
+  } | null;
+  aiPriceCeiling?: number | null;
+  aiMarketAvg?: number | null;
+  claimsFlag?: 'none' | 'exorbitant_labor' | 'exorbitant_material' | 'both' | null;
+  aiTier?: 'A' | 'B' | null;
+  advanceEligible?: boolean | null;
 }
 
 export interface QueuedCapture {

@@ -28,10 +28,44 @@ export interface SmartDraftExtracted {
   specialNotes?: string | null;
 }
 
+/** Why this assistant handed control back to the parent. */
+export type SmartDraftCompleteReason =
+  | "ai-satisfied" // model set status="complete"/readyToProceed
+  | "user-skipped" // artisan hit Skip
+  | "cap-hit" // round cap ran out
+  | "failed"; // fetch threw; degraded silently
+
 interface Props {
   craftType: string;
   description: string;
   onExtracted?: (data: SmartDraftExtracted) => void;
+  /**
+   * How the artisan gave their primary description. Voice callers get a stricter
+   * cap (2 rounds) because they are being asked to speak clarifying answers back
+   * into the mic — a slower channel than typing — while typed callers get 3.
+   */
+  inputMethod?: "voice" | "text";
+  /**
+   * The artisan's own recorded location (`ArtisanProfile.location`). Sent to
+   * the server so the GI-mismatch guard can fire — e.g. "Muga silk" claimed
+   * from outside Assam earns a gentle, non-blocking authorisation note.
+   */
+  artisanLocation?: string | null;
+  /**
+   * Fired the moment the assistant's initial call resolves — i.e. this
+   * component is actually running for THIS capture and will own the visible
+   * follow-up. Parent uses this to suppress the legacy voice-parse follow-up
+   * bubble so the artisan does not see two questioners.
+   */
+  onReadyChange?: (ready: boolean) => void;
+  /**
+   * Fired when the assistant terminates for any reason. The parent uses it
+   * as the Step-2 gate: only after `onComplete` is Next enabled (or when the
+   * assistant never engages at all — Gemini unconfigured, description too
+   * short — in which case `onReadyChange(false)` stays and the parent falls
+   * back to the base-facts check).
+   */
+  onComplete?: (reason: SmartDraftCompleteReason) => void;
 }
 
 type Turn = { role: "assistant" | "user"; text: string };
@@ -45,9 +79,19 @@ interface DraftResponse {
   readyToProceed: boolean;
 }
 
-const MAX_ROUNDS = 3;
+const MAX_ROUNDS_TEXT = 3;
+const MAX_ROUNDS_VOICE = 2;
 
-export function SmartDraftAssistant({ craftType, description, onExtracted }: Props) {
+export function SmartDraftAssistant({
+  craftType,
+  description,
+  onExtracted,
+  inputMethod,
+  artisanLocation,
+  onReadyChange,
+  onComplete,
+}: Props) {
+  const maxRounds = inputMethod === "voice" ? MAX_ROUNDS_VOICE : MAX_ROUNDS_TEXT;
   const { t } = useLanguage();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [answer, setAnswer] = useState("");
@@ -59,6 +103,20 @@ export function SmartDraftAssistant({ craftType, description, onExtracted }: Pro
   // pair we do not restart it — otherwise every keystroke in the outer chat
   // would fire a new round.
   const startedRef = useRef(false);
+  /** Keep the latest onComplete/onReady in refs so effect deps stay stable. */
+  const onCompleteRef = useRef(onComplete);
+  const onReadyChangeRef = useRef(onReadyChange);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+    onReadyChangeRef.current = onReadyChange;
+  }, [onComplete, onReadyChange]);
+  /** Fires onComplete exactly once — a re-render must not double-notify. */
+  const notifiedCompleteRef = useRef(false);
+  const notifyComplete = useCallback((reason: SmartDraftCompleteReason) => {
+    if (notifiedCompleteRef.current) return;
+    notifiedCompleteRef.current = true;
+    onCompleteRef.current?.(reason);
+  }, []);
 
   const ready = craftType.trim().length >= 3 && description.trim().length >= 20;
 
@@ -71,15 +129,21 @@ export function SmartDraftAssistant({ craftType, description, onExtracted }: Pro
       if (
         data.status === "need_more_info" &&
         data.question &&
-        priorTurns.length < MAX_ROUNDS * 2
+        priorTurns.length < maxRounds * 2
       ) {
         setTurns([...priorTurns, { role: "assistant", text: data.question }]);
       } else {
         setDone(true);
         onExtracted?.(data.extractedData);
+        // Cap-hit is when the model still wanted more but we said no.
+        const reason: SmartDraftCompleteReason =
+          data.status === "need_more_info" && priorTurns.length >= maxRounds * 2
+            ? "cap-hit"
+            : "ai-satisfied";
+        notifyComplete(reason);
       }
     },
-    [onExtracted]
+    [onExtracted, maxRounds, notifyComplete]
   );
 
   useEffect(() => {
@@ -97,13 +161,19 @@ export function SmartDraftAssistant({ craftType, description, onExtracted }: Pro
             description,
             previousQuestions: [],
             previousAnswers: [],
+            maxRounds,
+            artisanLocation: artisanLocation || undefined,
           }),
         });
         const data = (await res.json()) as DraftResponse;
         applyResponse(data, []);
+        // Regardless of what came back, this component is now the visible
+        // questioner for the capture — parent can suppress its legacy Q.
+        onReadyChangeRef.current?.(true);
       } catch (error) {
         console.warn("Smart draft init failed:", error);
         setDone(true);
+        notifyComplete("failed");
       } finally {
         setBusy(false);
       }
@@ -136,6 +206,8 @@ export function SmartDraftAssistant({ craftType, description, onExtracted }: Pro
           description,
           previousQuestions,
           previousAnswers,
+          maxRounds,
+          artisanLocation: artisanLocation || undefined,
         }),
       });
       const data = (await res.json()) as DraftResponse;
@@ -143,6 +215,7 @@ export function SmartDraftAssistant({ craftType, description, onExtracted }: Pro
     } catch (error) {
       console.warn("Smart draft turn failed:", error);
       setDone(true);
+      notifyComplete("failed");
     } finally {
       setBusy(false);
     }
@@ -167,7 +240,11 @@ export function SmartDraftAssistant({ craftType, description, onExtracted }: Pro
         {!done && (
           <button
             type="button"
-            onClick={() => setSkipped(true)}
+            onClick={() => {
+              setSkipped(true);
+              setDone(true);
+              notifyComplete("user-skipped");
+            }}
             className="text-[10px] font-bold uppercase tracking-wider text-gray-500 hover:text-primary"
           >
             <XCircle size={11} className="mb-0.5 mr-1 inline-block" /> {t("smart_draft_skip")}

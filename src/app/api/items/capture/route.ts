@@ -28,7 +28,25 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { craftType, rawMaterialCost, laborDays, descriptionOriginal, descriptionEnglish, tags, assignedAdminId, images, aiGeneratedListing, askingPrice } = body;
+    const {
+      craftType,
+      rawMaterialCost,
+      laborDays,
+      descriptionOriginal,
+      descriptionEnglish,
+      tags,
+      assignedAdminId,
+      images,
+      aiGeneratedListing,
+      askingPrice,
+      // ---- Revised capture pipeline (spec Steps 3-7) --------------------
+      aiCatalog,
+      aiPriceCeiling,
+      aiMarketAvg,
+      claimsFlag,
+      aiTier,
+      advanceEligible,
+    } = body;
     
     console.log(`[Capture API] Received payload with ${images ? images.length : 'NO'} images.`);
     if (images && images.length > 0) {
@@ -109,6 +127,43 @@ export async function POST(req: Request) {
       console.error("Failed to update artisan profile tags:", tagErr);
     }
 
+    // ---- Revised capture pipeline: server-side tier authority --------------
+    // Client can suggest a tier for a snappy UI, but this route is the
+    // authority. Recompute so a tampered client cannot mint Tier A on a
+    // Tier B row. `artisanSetPrice` (their real number) is what we test —
+    // the AI fallback price is not the artisan's decision.
+    const numericCeiling = Number(aiPriceCeiling);
+    const resolvedCeiling = Number.isFinite(numericCeiling) && numericCeiling > 0
+      ? Math.round(numericCeiling)
+      : Math.round(marketPriceMax);
+    const numericMarketAvg = Number(aiMarketAvg);
+    const resolvedMarketAvg = Number.isFinite(numericMarketAvg) && numericMarketAvg > 0
+      ? Math.round(numericMarketAvg)
+      : Math.round(standardMarketPrice);
+    const normalisedClaimsFlag =
+      typeof claimsFlag === 'string' &&
+      ['none', 'exorbitant_labor', 'exorbitant_material', 'both'].includes(claimsFlag)
+        ? (claimsFlag as string)
+        : 'none';
+
+    // Tier logic from spec Step 7.
+    const wouldEarnAdvance =
+      artisanSetPrice !== null &&
+      artisanSetPrice <= resolvedCeiling &&
+      normalisedClaimsFlag === 'none' &&
+      !flagged;
+    const serverTier: 'A' | 'B' = wouldEarnAdvance ? 'A' : 'B';
+    const serverAdvanceEligible = serverTier === 'A';
+    // Persisted values honour the server verdict; log if the client disagreed.
+    if (
+      (aiTier && aiTier !== serverTier) ||
+      (typeof advanceEligible === 'boolean' && advanceEligible !== serverAdvanceEligible)
+    ) {
+      console.warn(
+        `[capture] Client-declared tier ${aiTier}/${advanceEligible} overruled to ${serverTier}/${serverAdvanceEligible} on artisan ${decoded.userId}`
+      );
+    }
+
     const item = await prisma.craftItem.create({
       data: {
         artisanId: decoded.userId,
@@ -132,6 +187,13 @@ export async function POST(req: Request) {
         pricingFlag: flagged,
         flagReason,
         status: 'PENDING_VERIFICATION',
+        // Revised pipeline artefacts.
+        aiCatalog: aiCatalog ?? undefined,
+        aiPriceCeiling: resolvedCeiling,
+        aiMarketAvg: resolvedMarketAvg,
+        claimsFlag: normalisedClaimsFlag,
+        aiTier: serverTier,
+        advanceEligible: serverAdvanceEligible,
       }
     });
 
@@ -157,15 +219,22 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      item, 
+    return NextResponse.json({
+      success: true,
+      item,
       valuations: {
         fairWageFloor,
         marketPriceMin,
         marketPriceMax,
         creditScore,
-      }
+      },
+      tier: {
+        aiTier: serverTier,
+        advanceEligible: serverAdvanceEligible,
+        aiPriceCeiling: resolvedCeiling,
+        aiMarketAvg: resolvedMarketAvg,
+        claimsFlag: normalisedClaimsFlag,
+      },
     });
   } catch (error: any) {
     console.error('Capture API error:', error);

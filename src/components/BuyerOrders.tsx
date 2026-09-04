@@ -3,7 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Loader2, Package, ShoppingBag } from "lucide-react";
+import {
+  CheckCircle2,
+  ClipboardList,
+  ImagePlus,
+  Loader2,
+  Package,
+  QrCode,
+  ShieldCheck,
+  ShoppingBag,
+  Truck,
+  XCircle,
+} from "lucide-react";
 import { OrderTimeline, type TrackPayload } from "@/components/ui/OrderTimeline";
 import { ORDER_STAGE_KEYS, stageIndex, type OrderStage } from "@/lib/orderStage";
 import { formatRupees } from "@/lib/pricing";
@@ -16,6 +27,13 @@ import { useLanguage } from "@/lib/translations";
  * `OrderTimeline` — the same component the demand board already uses — rather
  * than growing a second timeline that could drift from it.
  */
+export interface DailyUpdate {
+  id: string;
+  note: string | null;
+  imageUrl: string | null;
+  createdAt: string;
+}
+
 export interface BuyerOrder extends TrackPayload {
   key: string;
   demandId: string | null;
@@ -30,6 +48,39 @@ export interface BuyerOrder extends TrackPayload {
   amountPaid: number;
   /** What Razorpay really took, in paise, so the demo charge stays visible. */
   chargedPaise: number;
+
+  // ---- Artisan-side lifecycle (WI2 / WI6) -------------------------------
+  artisanDeadline: string | null;
+  artisanOrderStatus: string | null;
+  completedImageUrl: string | null;
+  dailyUpdates: DailyUpdate[];
+  /** On-screen agreed price credited on delivery — V8. */
+  artisanSettledAmount: number | null;
+  artisanSettledAt: string | null;
+
+  // ---- Buyer-side delivery + verification (WI2) -------------------------
+  deliveredAt: string | null;
+  deliveryVerified: boolean;
+  deliveryVerifiedAt: string | null;
+  deliveryScanPatchId: string | null;
+  deliveryScanScore: number | null;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function shortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Kolkata",
+  });
 }
 
 function orderDate(iso: string | null): string {
@@ -68,6 +119,54 @@ export function BuyerOrders({
   const { t } = useLanguage();
   const [orders, setOrders] = useState<BuyerOrder[] | null>(null);
   const [error, setError] = useState("");
+
+  /** Per-demand busy flag for the delivered click. */
+  const [deliveringId, setDeliveringId] = useState<string | null>(null);
+  /** Per-demand verification form state. */
+  const [verifyDrafts, setVerifyDrafts] = useState<
+    Record<string, { patchId: string; image: string | null; busy: boolean }>
+  >({});
+  /** Last verification response per demand — shows the 3-check card inline. */
+  const [verifyResults, setVerifyResults] = useState<
+    Record<
+      string,
+      {
+        patchIdValid: boolean;
+        productMatch: boolean;
+        artisanMatch: boolean;
+        similarityScore: number;
+        reasoning: string;
+        artisanName: string | null;
+      }
+    >
+  >({});
+
+  const setVerifyPatch = (demandId: string, patchId: string) =>
+    setVerifyDrafts((prev) => ({
+      ...prev,
+      [demandId]: {
+        patchId,
+        image: prev[demandId]?.image ?? null,
+        busy: prev[demandId]?.busy ?? false,
+      },
+    }));
+
+  const setVerifyImage = async (demandId: string, file: File | null) => {
+    if (!file) return;
+    if (file.size > 2_000_000) {
+      setError(`"${file.name}" is over 2 MB.`);
+      return;
+    }
+    const dataUrl = await readFileAsDataUrl(file);
+    setVerifyDrafts((prev) => ({
+      ...prev,
+      [demandId]: {
+        patchId: prev[demandId]?.patchId ?? "",
+        image: dataUrl,
+        busy: prev[demandId]?.busy ?? false,
+      },
+    }));
+  };
 
   // Held in a ref so an inline arrow from the parent cannot re-trigger the
   // fetch on every render. Assigned in an effect rather than during render,
@@ -111,6 +210,68 @@ export function BuyerOrders({
     const kickoff = setTimeout(load, 0);
     return () => clearTimeout(kickoff);
   }, [load]);
+
+  const markDelivered = async (demandId: string) => {
+    setDeliveringId(demandId);
+    try {
+      const res = await fetch("/api/buyer/orders/delivered", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ demandId, buyerName }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        setError(data?.error || t("orders_load_failed"));
+        return;
+      }
+      await load();
+    } finally {
+      setDeliveringId(null);
+    }
+  };
+
+  const submitVerify = async (demandId: string) => {
+    const draft = verifyDrafts[demandId];
+    if (!draft || !draft.patchId.trim() || !draft.image) return;
+    setVerifyDrafts((prev) => ({
+      ...prev,
+      [demandId]: { ...draft, busy: true },
+    }));
+    try {
+      const res = await fetch("/api/buyer/orders/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          demandId,
+          buyerName,
+          patchId: draft.patchId.trim(),
+          scannedImageBase64: draft.image,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        setError(data?.error || t("verification_failed"));
+        return;
+      }
+      setVerifyResults((prev) => ({
+        ...prev,
+        [demandId]: {
+          patchIdValid: Boolean(data.patchIdValid),
+          productMatch: Boolean(data.productMatch),
+          artisanMatch: Boolean(data.artisanMatch),
+          similarityScore: Number(data.similarityScore) || 0,
+          reasoning: typeof data.reasoning === "string" ? data.reasoning : "",
+          artisanName: typeof data.artisanName === "string" ? data.artisanName : null,
+        },
+      }));
+      await load();
+    } finally {
+      setVerifyDrafts((prev) => ({
+        ...prev,
+        [demandId]: { ...(prev[demandId] || { patchId: "", image: null }), busy: false },
+      }));
+    }
+  };
 
   if (orders === null) {
     return (
@@ -228,10 +389,294 @@ export function BuyerOrders({
               <p className="mt-3 text-[11px] leading-relaxed text-gray-500">
                 {t("order_charged_note")}
               </p>
+
+              {/* -------------------- WI6: Live Production Updates -------------------- */}
+              {order.dailyUpdates && order.dailyUpdates.length > 0 && (
+                <div className="mt-5 border-t border-gray-100 pt-5">
+                  <h4 className="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                    <ClipboardList size={13} />
+                    {t("live_production_updates")}
+                  </h4>
+
+                  {order.fulfilled > 0 && order.requested > 0 && (
+                    <div className="mb-4">
+                      <div className="mb-1.5 flex justify-between text-xs text-gray-600">
+                        <span>
+                          {order.fulfilled}/{order.requested} {t("units_completed")}
+                        </span>
+                        <span>{Math.round((order.fulfilled / order.requested) * 100)}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-full rounded-full bg-primary transition-all"
+                          style={{ width: `${(order.fulfilled / order.requested) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="relative space-y-3 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">
+                    {order.dailyUpdates.map((update) => (
+                      <div key={update.id} className="relative flex gap-3 pl-7">
+                        <div className="absolute left-0 top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-[var(--color-mint)]">
+                          <div className="h-2 w-2 rounded-full bg-primary" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <time className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                            {shortDate(update.createdAt)}
+                          </time>
+                          {update.note && (
+                            <p className="mt-0.5 text-sm leading-relaxed text-gray-700">
+                              {update.note}
+                            </p>
+                          )}
+                          {update.imageUrl && (
+                            <div className="relative mt-2 h-24 w-24 overflow-hidden rounded-lg bg-gray-100">
+                              <Image
+                                src={update.imageUrl}
+                                alt=""
+                                fill
+                                sizes="96px"
+                                unoptimized={update.imageUrl.startsWith("data:")}
+                                className="object-cover"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {(!order.dailyUpdates || order.dailyUpdates.length === 0) &&
+                order.artisanOrderStatus === "ACCEPTED" && (
+                  <div className="mt-5 border-t border-gray-100 pt-5">
+                    <p className="py-4 text-center text-sm italic text-gray-500">
+                      {t("production_updates_empty")}
+                    </p>
+                  </div>
+                )}
+
+              {/* V8 — Once the buyer marks delivered, the artisan is credited
+                  the on-screen agreed price. Subtle note so the buyer sees
+                  the payment landed. */}
+              {order.artisanSettledAmount && order.artisanSettledAt && (
+                <div className="mt-4 flex items-start gap-2 rounded-xl border border-[var(--color-sage)] bg-[var(--color-mint)] px-3 py-2 text-[12px] text-primary">
+                  <CheckCircle2 size={14} className="shrink-0 mt-0.5" />
+                  <span>
+                    <span className="font-bold">{t("artisan_paid_label")}</span>{" "}
+                    {formatRupees(order.artisanSettledAmount)} — {t("artisan_paid_note")}
+                  </span>
+                </div>
+              )}
+
+              {/* -------------------- WI2: Deliver + Verify -------------------- */}
+              {order.demandId &&
+                (order.productionStage === "DISPATCHED" ||
+                  order.productionStage === "DELIVERED" ||
+                  order.artisanOrderStatus === "COMPLETED") && (
+                  <div className="mt-5 border-t border-gray-100 pt-5">
+                    {!order.deliveredAt ? (
+                      <button
+                        type="button"
+                        onClick={() => order.demandId && markDelivered(order.demandId)}
+                        disabled={deliveringId === order.demandId}
+                        className="kg-press inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-primary px-5 text-sm font-bold text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {deliveringId === order.demandId ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Truck size={14} />
+                        )}
+                        {t("mark_delivered")}
+                      </button>
+                    ) : order.deliveryVerified &&
+                      verifyResults[order.demandId] === undefined ? (
+                      <VerificationCard
+                        result={{
+                          patchIdValid: true,
+                          productMatch: true,
+                          artisanMatch: true,
+                          similarityScore: order.deliveryScanScore ?? 0,
+                          reasoning: "",
+                          artisanName: order.artisanName,
+                        }}
+                        patchId={order.deliveryScanPatchId ?? ""}
+                        t={t}
+                      />
+                    ) : verifyResults[order.demandId] ? (
+                      <VerificationCard
+                        result={verifyResults[order.demandId]}
+                        patchId={verifyDrafts[order.demandId]?.patchId ?? ""}
+                        t={t}
+                      />
+                    ) : (
+                      <VerifyForm
+                        demandId={order.demandId}
+                        draft={
+                          verifyDrafts[order.demandId] ?? {
+                            patchId: "",
+                            image: null,
+                            busy: false,
+                          }
+                        }
+                        onPatchChange={(v) => setVerifyPatch(order.demandId!, v)}
+                        onImage={(f) => void setVerifyImage(order.demandId!, f)}
+                        onSubmit={() => void submitVerify(order.demandId!)}
+                        t={t}
+                      />
+                    )}
+                  </div>
+                )}
             </div>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Small pieces below live in this file because they only render inside a
+// buyer-order card and share its per-demand state via props.
+// ---------------------------------------------------------------------------
+
+function VerifyForm({
+  draft,
+  onPatchChange,
+  onImage,
+  onSubmit,
+  t,
+}: {
+  demandId: string;
+  draft: { patchId: string; image: string | null; busy: boolean };
+  onPatchChange: (value: string) => void;
+  onImage: (file: File | null) => void;
+  onSubmit: () => void;
+  t: (key: string) => string;
+}) {
+  const canSubmit = draft.patchId.trim().length > 0 && !!draft.image && !draft.busy;
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <h4 className="mb-3 flex items-center gap-2 text-sm font-bold text-gray-900">
+        <ShieldCheck size={16} className="text-primary" /> {t("verify_product")}
+      </h4>
+
+      <label className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-gray-500">
+        {t("enter_patch_id")}
+      </label>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={draft.patchId}
+          onChange={(e) => onPatchChange(e.target.value)}
+          placeholder="P-XXXXXX"
+          className="min-h-[40px] flex-1 rounded-lg border border-gray-200 bg-white px-3 text-sm outline-none focus:border-primary"
+        />
+        <button
+          type="button"
+          title={t("scan_qr_code")}
+          className="kg-press inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-primary hover:bg-[var(--color-mint)]"
+        >
+          <QrCode size={14} /> {t("scan_qr_code")}
+        </button>
+      </div>
+
+      <label className="kg-press mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-sm font-bold text-gray-500 hover:border-primary hover:text-primary">
+        <ImagePlus size={16} />
+        {draft.image ? t("upload_received_photo") + " ✓" : t("upload_received_photo")}
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => onImage(e.target.files?.[0] ?? null)}
+          className="hidden"
+        />
+      </label>
+
+      {draft.image && (
+        <div className="relative mx-auto mt-3 h-32 w-32 overflow-hidden rounded-xl border border-gray-200">
+          <Image src={draft.image} alt="" fill sizes="128px" unoptimized className="object-cover" />
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={!canSubmit}
+        className={[
+          "kg-press mt-4 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-bold text-white hover:bg-primary-dark",
+          canSubmit ? "" : "cursor-not-allowed opacity-50",
+        ].join(" ")}
+      >
+        {draft.busy && <Loader2 size={14} className="animate-spin" />}
+        <ShieldCheck size={14} /> {t("verify_product")}
+      </button>
+    </div>
+  );
+}
+
+function VerificationCard({
+  result,
+  patchId,
+  t,
+}: {
+  result: {
+    patchIdValid: boolean;
+    productMatch: boolean;
+    artisanMatch: boolean;
+    similarityScore: number;
+    reasoning: string;
+    artisanName: string | null;
+  };
+  patchId: string;
+  t: (key: string) => string;
+}) {
+  const allGood = result.patchIdValid && result.productMatch && result.artisanMatch;
+  const Row = ({ ok, label, value }: { ok: boolean; label: string; value?: string }) => (
+    <div className="flex items-center gap-2 text-sm">
+      {ok ? (
+        <CheckCircle2 size={16} className="shrink-0 text-primary" />
+      ) : (
+        <XCircle size={16} className="shrink-0 text-red-500" />
+      )}
+      <span className="font-bold text-gray-900">{label}</span>
+      {value && <span className="ml-auto text-xs font-medium text-gray-500">{value}</span>}
+    </div>
+  );
+  return (
+    <div
+      className={[
+        "rounded-xl border p-4",
+        allGood ? "border-[var(--color-sage)] bg-[var(--color-mint)]" : "border-red-200 bg-red-50",
+      ].join(" ")}
+    >
+      <h4 className="mb-3 flex items-center gap-2 text-sm font-bold text-gray-900">
+        <ShieldCheck size={16} className={allGood ? "text-primary" : "text-red-600"} />
+        {t("verification_results")}
+      </h4>
+      <div className="space-y-2">
+        <Row ok={result.patchIdValid} label={t("patch_id_valid")} value={patchId || undefined} />
+        <Row
+          ok={result.productMatch}
+          label={t("product_match")}
+          value={`${result.similarityScore}%`}
+        />
+        <Row
+          ok={result.artisanMatch}
+          label={t("artisan_match")}
+          value={result.artisanName || undefined}
+        />
+      </div>
+      <p
+        className={[
+          "mt-3 text-xs leading-relaxed",
+          allGood ? "text-primary/80" : "text-red-700",
+        ].join(" ")}
+      >
+        {allGood ? t("product_genuine") : t("verification_failed")}
+        {result.reasoning ? ` — ${result.reasoning}` : ""}
+      </p>
     </div>
   );
 }

@@ -79,6 +79,8 @@ interface DashboardPayload {
   /** The best-selling title, aggregated server-side across every settled row. */
   topProduct?: TopProduct | null;
   bestSellers?: BestSeller[];
+  /** Demand-order credits — separate stream from the CraftItem escrow ledger. */
+  demandEarnings?: number;
 }
 
 /** One title's lifetime sales. Revenue is money received, never a valuation. */
@@ -251,6 +253,28 @@ export default function EarningsPage() {
           accent="orange"
         />
       </div>
+
+      {/* Demand-order credits — on-screen agreed price paid on "Mark delivered".
+          Rendered as its own line so the artisan can see the two revenue
+          streams distinctly, while `totalEarnings` above sums both. */}
+      {(data?.demandEarnings ?? 0) > 0 && (
+        <Card className="mb-8 flex items-start gap-3">
+          <span className="w-10 h-10 rounded-xl bg-[var(--color-mint)] text-primary flex items-center justify-center shrink-0">
+            <HandCoins size={18} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+              {t("demand_orders_label")}
+            </p>
+            <p className="font-sans font-bold text-2xl text-gray-900">
+              {formatRupees(data?.demandEarnings ?? 0)}
+            </p>
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+              {t("demand_orders_note")}
+            </p>
+          </div>
+        </Card>
+      )}
 
       {/* Fair wage index */}
       <SectionLabel>Fair wage index</SectionLabel>

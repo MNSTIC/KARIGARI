@@ -111,8 +111,9 @@ export default function LoginPage() {
       </div>
 
       {/* -------------------------------------------------- Panel */}
-      <div className="flex min-h-screen flex-col justify-center bg-white px-6 py-12 sm:px-10 lg:px-16 xl:px-24">
-        <div className="mx-auto w-full max-w-[420px]">
+      <div className="relative flex min-h-screen flex-col justify-center bg-white px-6 py-12 sm:px-10 lg:px-16 xl:px-24">
+        <div className="absolute inset-0 z-0 opacity-[0.08] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
+        <div className="relative z-10 mx-auto w-full max-w-[420px]">
           <Link href="/" className="kg-display block text-2xl leading-none text-gray-900">
             Karigari
           </Link>

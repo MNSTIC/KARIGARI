@@ -80,10 +80,34 @@ export async function GET(req: Request) {
     const demands = demandIds.length
       ? await prisma.demand.findMany({
           where: { id: { in: demandIds } },
-          select: { id: true, craftType: true, quantity: true, createdAt: true, status: true },
+          select: {
+            id: true,
+            craftType: true,
+            quantity: true,
+            createdAt: true,
+            status: true,
+            deliveredAt: true,
+            deliveryVerified: true,
+            deliveryVerifiedAt: true,
+            deliveryScanPatchId: true,
+            deliveryScanScore: true,
+          },
         })
       : [];
     const demandById = new Map(demands.map((demand) => [demand.id, demand]));
+
+    // The artisan-side row for each of those demands, with its progress log and
+    // the deadline the artisan actually chose. Fanned out in a single query
+    // (rather than one per demand) so this scales with the buyer's order count.
+    const artisanOrders = demandIds.length
+      ? await prisma.artisanOrder.findMany({
+          where: { demandId: { in: demandIds } },
+          include: { logs: { orderBy: { createdAt: 'desc' } } },
+        })
+      : [];
+    const artisanOrderByDemand = new Map(
+      artisanOrders.map((order) => [order.demandId, order])
+    );
 
     /** The per-piece shape `OrderTimeline` reads. Identical to /api/demand/track. */
     const tracked = (row: (typeof rows)[number]) => ({
@@ -117,6 +141,9 @@ export async function GET(req: Request) {
     const orders = Array.from(groups.entries()).map(([key, items]) => {
       const demand = items[0].relatedDemandId
         ? demandById.get(items[0].relatedDemandId) ?? null
+        : null;
+      const artisanOrder = items[0].relatedDemandId
+        ? artisanOrderByDemand.get(items[0].relatedDemandId) ?? null
         : null;
 
       const delivered = items.filter(isDelivered);
@@ -166,6 +193,29 @@ export async function GET(req: Request) {
         items: items.map(tracked),
         rate: rate ? { perDay: Number(rate.perDay.toFixed(2)), days: Math.round(rate.days) } : null,
         projectedCompletion: eta?.toISOString() ?? null,
+
+        // ---- Artisan-side state, so the buyer sees deadlines, live progress
+        // updates, and the finished-product photo the moment they exist.
+        artisanDeadline: artisanOrder?.deadline?.toISOString() ?? null,
+        artisanOrderStatus: artisanOrder?.status ?? null,
+        completedImageUrl: artisanOrder?.completedImageUrl ?? null,
+        /** On-screen agreed price credited to the artisan on delivery. */
+        artisanSettledAmount: artisanOrder?.settledAmount ?? null,
+        artisanSettledAt: artisanOrder?.settledAt?.toISOString() ?? null,
+        dailyUpdates: (artisanOrder?.logs ?? []).map((log) => ({
+          id: log.id,
+          note: log.note,
+          imageUrl: log.imageUrl,
+          createdAt: log.createdAt.toISOString(),
+        })),
+
+        // ---- Buyer-side delivery / verification (WI2 flow) — nulls until the
+        // buyer clicks Mark Delivered and completes the scan.
+        deliveredAt: demand?.deliveredAt?.toISOString() ?? null,
+        deliveryVerified: demand?.deliveryVerified ?? false,
+        deliveryVerifiedAt: demand?.deliveryVerifiedAt?.toISOString() ?? null,
+        deliveryScanPatchId: demand?.deliveryScanPatchId ?? null,
+        deliveryScanScore: demand?.deliveryScanScore ?? null,
       };
     });
 

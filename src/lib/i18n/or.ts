@@ -937,6 +937,66 @@ const dict: Record<string, string> = {
   schemes_field_annual_income: "ବାର୍ଷିକ ଆୟ",
   schemes_field_aadhaar: "ଆଧାର ଦାଖଲ",
   schemes_field_bank_upi: "ବ୍ୟାଙ୍କ / ୟୁପିଆଇ ଯୋଡ଼ାଯାଇଛି",
+
+  /* WI2 */
+  set_deadline: "ଶେଷ ତାରିଖ ସେଟ କରନ୍ତୁ",
+  deadline_label: "ଡେଲିଭରି ଶେଷ ତାରିଖ",
+  deadline_min_days: "ସର୍ବନିମ୍ନ 3 ଦିନ",
+  mark_complete: "ସମ୍ପୂର୍ଣ୍ଣ ଚିହ୍ନଟ କରନ୍ତୁ",
+  upload_finished_photo: "ପ୍ରସ୍ତୁତ ଉତ୍ପାଦର ଫଟୋ ଅପଲୋଡ କରନ୍ତୁ",
+  order_completed_toast: "ଅର୍ଡର ସମ୍ପୂର୍ଣ୍ଣ ଭାବେ ଚିହ୍ନଟ ହେଲା।",
+  mark_delivered: "ଡେଲିଭରି ମିଳିଲା — ଚିହ୍ନଟ କରନ୍ତୁ",
+  verify_product: "ଉତ୍ପାଦ ଯାଞ୍ଚ କରନ୍ତୁ",
+  enter_patch_id: "ଉତ୍ପାଦରୁ ପ୍ୟାଚ୍ ଆଇଡି ଦିଅନ୍ତୁ",
+  scan_qr_code: "କ୍ୟୁଆର ସ୍କାନ କରନ୍ତୁ",
+  upload_received_photo: "ପ୍ରାପ୍ତ ଉତ୍ପାଦର ଫଟୋ ଅପଲୋଡ କରନ୍ତୁ",
+  verification_results: "ଉତ୍ପାଦ ଯାଞ୍ଚ ଫଳାଫଳ",
+  patch_id_valid: "ପ୍ୟାଚ୍ ଆଇଡି ମାନ୍ୟ",
+  product_match: "ଉତ୍ପାଦ ମେଳ",
+  artisan_match: "କାରିଗର ମେଳ",
+  product_genuine: "ଏହି ଉତ୍ପାଦ ଅସଲି ଅଟେ।",
+  verification_failed: "ଯାଞ୍ଚ ଅସଲିତା ପୁଷ୍ଟି କରି ପାରିଲା ନାହିଁ।",
+
+  /* WI5 */
+  payment_summary: "ଦେୟ ସାରାଂଶ",
+  total_order_value: "ମୋଟ ଅର୍ଡର ମୂଲ୍ୟ",
+  advance_payment: "ଅଗ୍ରୀମ ଦେୟ",
+  advance_payment_note:
+    "40% ଅଗ୍ରୀମ ଆପଣଙ୍କ ଅର୍ଡରକୁ ସୁରକ୍ଷିତ କରେ। ବାକି 60% ଡେଲିଭରି ସମୟରେ ଦେୟ। କାରିଗର ନ୍ୟାୟ୍ୟ ମଜୁରୀ ପଠାଇବା ମୁହୂର୍ତ୍ତରେ ପାଆନ୍ତି।",
+  pay_advance_cta: "ଅଗ୍ରୀମ ଦିଅ ଏବଂ ଅର୍ଡର ପକ୍କା କର",
+  advance_paid_confirmation: "ଅଗ୍ରୀମ ପ୍ରାପ୍ତ — ଉତ୍ପାଦନ ଆରମ୍ଭ",
+  production_started_note:
+    "କାରିଗରଙ୍କୁ ଜଣାଇଦିଆଗଲା। ଉତ୍ପାଦନ ଶୀଘ୍ର ଆରମ୍ଭ ହେବ। ଆପଣ ପ୍ରତିଦିନ ଅଗ୍ରଗତି ପାଇବେ।",
+
+  /* WI6 */
+  live_production_updates: "ଲାଇଭ୍ ଉତ୍ପାଦନ ଅଦ୍ୟତନ",
+  units_completed: "ୟୁନିଟ ସମ୍ପୂର୍ଣ୍ଣ",
+  production_updates_empty:
+    "କାରିଗର ଆପଣଙ୍କ ଅର୍ଡର ଗ୍ରହଣ କରିଛନ୍ତି। କାମ ଆରମ୍ଭ ହେଲେ ଅଦ୍ୟତନ ଏଠାରେ ଦେଖାଯିବ।",
+
+  /* WI3 */
+  no_matching_bulk_demands: "ଏବେ ଆପଣଙ୍କ ଶିଳ୍ପ ପାଇଁ କୌଣସି ବଲ୍କ ଡିମାଣ୍ଡ ନାହିଁ",
+  complete_profile_for_filter_bold: "ଆପଣଙ୍କ ପ୍ରୋଫାଇଲ ପୂରଣ କରନ୍ତୁ",
+  complete_profile_for_filter:
+    "ଯାହା ଫଳରେ ଆପଣଙ୍କ ଶିଳ୍ପ ସହ ମେଳ ଖାଉଥିବା ଡିମାଣ୍ଡ ଦେଖାଯିବ। ବର୍ତ୍ତମାନ ସମସ୍ତ ଖୋଲା ଡିମାଣ୍ଡ ଦେଖାଯାଉଛି।",
+  check_back_soon: "ନୂଆ ଡିମାଣ୍ଡ ନିୟମିତ ପୋଷ୍ଟ ହୁଏ। ପରେ ଦେଖନ୍ତୁ କିମ୍ବା ବିଜ୍ଞପ୍ତି ଅନ୍ କରନ୍ତୁ।",
+
+  /* Tier badges */
+  tier_a_badge: "ପ୍ରମାଣିତ + ଅଗ୍ରୀମ ଯୋଗ୍ୟ",
+  tier_a_advance_note: "ପଠାଇବା ସମୟରେ ଅଗ୍ରୀମ ମିଳିବ",
+  tier_a_body:
+    "ଆପଣଙ୍କ ମୂଲ୍ୟ AI ସିଲିଙ୍ଗ {ceiling} କିମ୍ବା ତା'ର ତଳେ। ପଠାଇବା ସାଙ୍ଗେ ସାଙ୍ଗେ 40% ଅଗ୍ରୀମ, ବାକି ଡେଲିଭରି ସମୟରେ।",
+  tier_b_badge: "ପ୍ରମାଣିତ — ଅଗ୍ରୀମ ଉପଲବ୍ଧ ନାହିଁ",
+  tier_b_body:
+    "ଆପଣଙ୍କ ଶିଳ୍ପ ଅସଲି ଭାବେ ପ୍ରମାଣିତ ଏବଂ ବିକ୍ରି ପାଇଁ ତାଲିକାଭୁକ୍ତ। ଆପଣଙ୍କ ମୂଲ୍ୟ {price} ବଜାର ହାରାହାରି {avg}ଠାରୁ ଉପରେ। ସମ୍ପୂର୍ଣ୍ଣ ପେମେଣ୍ଟ (3.5% ପ୍ଲାଟଫର୍ମ ଫି ବାଦ ଦେଇ) ଡେଲିଭରି ସମୟରେ ମିଳିବ। 40% ଅଗ୍ରୀମ ପାଇବାକୁ ମୂଲ୍ୟ {ceiling}କୁ ଆଣନ୍ତୁ।",
+
+  /* V8 */
+  demand_orders_label: "ଡିମାଣ୍ଡ ଅର୍ଡର",
+  demand_orders_note:
+    "କ୍ରେତା ଡେଲିଭରି ଚିହ୍ନଟ କଲେ ଆପଣଙ୍କୁ ସହମତ ସ୍କ୍ରିନ୍-ମୂଲ୍ୟ କ୍ରେଡିଟ୍ ହୁଏ। ଏହା ମାର୍କେଟପ୍ଲେସ ଏସ୍କ୍ରୋ ଲେଜରଠାରୁ ଅଲଗା।",
+  artisan_paid_label: "କାରିଗରଙ୍କୁ ଦିଆଗଲା",
+  artisan_paid_note:
+    "ସହମତ ସ୍କ୍ରିନ୍-ମୂଲ୍ୟ, ଡେଲିଭରି ସମୟରେ ଡ୍ୟାସବୋର୍ଡରେ କ୍ରେଡିଟ୍।",
 };
 
 export default dict;

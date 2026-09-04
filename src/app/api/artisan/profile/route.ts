@@ -52,6 +52,65 @@ function parseAnnualIncome(
   return { ok: true, value };
 }
 
+/**
+ * Snapshot of the acting artisan's profile — read by the market page so it can
+ * filter B2B demands to the ones matching this artisan's craft, rather than
+ * showing the whole board unfiltered. Deliberately narrow: only the fields a
+ * page needs for filtering / banners are returned.
+ */
+export async function GET() {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get('auth-token');
+    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    let decoded: { userId: string; role: string };
+    try {
+      decoded = jwt.verify(token.value, process.env.JWT_SECRET || 'fallback-secret') as {
+        userId: string;
+        role: string;
+      };
+    } catch {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+    }
+    if (decoded.role !== 'ARTISAN') {
+      return NextResponse.json({ error: 'Artisan role required' }, { status: 403 });
+    }
+
+    const profile = await prisma.artisanProfile.findUnique({
+      where: { userId: decoded.userId },
+      select: {
+        craftType: true,
+        location: true,
+        clusterName: true,
+        tags: true,
+        experienceYears: true,
+      },
+    });
+
+    // Absent profile is a common early state (freshly onboarded artisan) —
+    // return a nulled shape rather than 404 so the client can render its
+    // "complete your profile" banner without special-casing status codes.
+    if (!profile) {
+      return NextResponse.json({
+        success: true,
+        profile: {
+          craftType: null,
+          location: null,
+          clusterName: null,
+          tags: [] as string[],
+          experienceYears: null,
+        },
+      });
+    }
+
+    return NextResponse.json({ success: true, profile });
+  } catch (error) {
+    console.error('Artisan profile GET error:', error);
+    return NextResponse.json({ error: 'Failed to load profile' }, { status: 500 });
+  }
+}
+
 export async function PUT(req: Request) {
   try {
     const cookieStore = await cookies();

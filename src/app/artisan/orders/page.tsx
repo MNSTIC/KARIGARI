@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
   CalendarClock,
+  CheckCircle2,
   ClipboardList,
   ImagePlus,
   Loader2,
@@ -12,6 +13,7 @@ import {
   Package,
   Star,
   TrendingUp,
+  X,
 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Shell } from "@/components/ui/AppShell";
@@ -62,6 +64,18 @@ interface ArtisanOrderRow {
   createdAt: string;
   demand: DemandLite;
   logs: OrderLog[];
+  completedImageUrl?: string | null;
+}
+
+const DEFAULT_DEADLINE_DAYS = 14;
+const MIN_DEADLINE_DAYS = 3;
+const MAX_DEADLINE_DAYS = 90;
+
+/** yyyy-mm-dd in the local zone, for prefilling <input type="date">. */
+function isoDateInputValue(daysFromNow: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + daysFromNow);
+  return d.toISOString().slice(0, 10);
 }
 
 interface OrdersPayload {
@@ -120,6 +134,18 @@ export default function ArtisanOrdersPage() {
   const [negotiatePrice, setNegotiatePrice] = useState("");
   const [logDrafts, setLogDrafts] = useState<Record<string, { note: string; image: string | null }>>({});
 
+  /** Deadline the artisan picks before accepting. Prefilled to today + 14. */
+  const [deadlineDrafts, setDeadlineDrafts] = useState<Record<string, string>>({});
+  /** Which order is currently being completed (Complete modal target). */
+  const [completingOrder, setCompletingOrder] = useState<ArtisanOrderRow | null>(null);
+  const [completeImage, setCompleteImage] = useState<string | null>(null);
+  const [completeBusy, setCompleteBusy] = useState(false);
+
+  const getDeadlineDraft = (demandId: string) =>
+    deadlineDrafts[demandId] ?? isoDateInputValue(DEFAULT_DEADLINE_DAYS);
+  const setDeadlineDraft = (demandId: string, value: string) =>
+    setDeadlineDrafts((prev) => ({ ...prev, [demandId]: value }));
+
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -158,6 +184,11 @@ export default function ArtisanOrdersPage() {
   const acceptDemand = async (demandId: string, priceOverride?: number) => {
     setBusyId(demandId);
     try {
+      // The artisan-picked date is yyyy-mm-dd; end-of-day IST keeps the buyer
+      // from seeing "0 days left" the moment the artisan accepts at 6 am.
+      const rawDate = getDeadlineDraft(demandId);
+      const deadlineIso = new Date(`${rawDate}T23:59:00`).toISOString();
+
       const res = await fetch("/api/artisan/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -165,6 +196,7 @@ export default function ArtisanOrdersPage() {
           demandId,
           action: priceOverride ? "negotiate" : "accept",
           ...(priceOverride ? { negotiatedPrice: priceOverride } : {}),
+          deadline: deadlineIso,
         }),
       });
       const data = await res.json();
@@ -206,6 +238,47 @@ export default function ArtisanOrdersPage() {
       await load();
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const openComplete = (order: ArtisanOrderRow) => {
+    setCompletingOrder(order);
+    setCompleteImage(null);
+  };
+
+  const pickCompleteImage = async (file: File | null) => {
+    if (!file) return;
+    if (file.size > 2_000_000) {
+      setError(`"${file.name}" is over 2 MB.`);
+      return;
+    }
+    setCompleteImage(await readFileAsDataUrl(file));
+  };
+
+  const submitComplete = async () => {
+    if (!completingOrder || !completeImage) return;
+    setCompleteBusy(true);
+    try {
+      const res = await fetch("/api/artisan/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: completingOrder.id,
+          action: "complete",
+          completedImageUrl: completeImage,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        setError(data?.error || t("orders_load_failed"));
+        return;
+      }
+      setToast(t("order_completed_toast"));
+      setCompletingOrder(null);
+      setCompleteImage(null);
+      await load();
+    } finally {
+      setCompleteBusy(false);
     }
   };
 
@@ -397,6 +470,17 @@ export default function ArtisanOrdersPage() {
                     </div>
                   </div>
 
+                  {/* --------- Mark as complete --------- */}
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => openComplete(order)}
+                      className="kg-press inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[var(--color-sage)] bg-[var(--color-mint)] px-4 text-xs font-bold text-primary hover:bg-white"
+                    >
+                      <CheckCircle2 size={13} /> {t("mark_complete")}
+                    </button>
+                  </div>
+
                   {/* -------------------- log timeline --------------------- */}
                   {order.logs.length > 0 && (
                     <ol className="mt-5 space-y-3 border-l-2 border-gray-100 pl-4">
@@ -497,6 +581,18 @@ export default function ArtisanOrdersPage() {
                   Target: {priceRange(demand)}
                 </span>
 
+                <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  <CalendarClock size={11} /> {t("deadline_label")}
+                  <input
+                    type="date"
+                    min={isoDateInputValue(MIN_DEADLINE_DAYS)}
+                    max={isoDateInputValue(MAX_DEADLINE_DAYS)}
+                    value={getDeadlineDraft(demand.id)}
+                    onChange={(e) => setDeadlineDraft(demand.id, e.target.value)}
+                    className="ml-1 min-h-[36px] rounded-lg border border-gray-200 bg-white px-2 text-[12px] font-medium normal-case tracking-normal text-gray-700 outline-none focus:border-primary"
+                  />
+                </label>
+
                 <div className="ml-auto flex flex-wrap gap-2">
                   {negotiatingFor === demand.id ? (
                     <>
@@ -549,6 +645,85 @@ export default function ArtisanOrdersPage() {
               </div>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* Complete-order modal. Rendered only while open so its file input never
+          holds a dangling blob across order changes. */}
+      {completingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">{t("mark_complete")}</h3>
+                <p className="mt-1 text-xs text-gray-500">
+                  {completingOrder.demand.quantity} × {completingOrder.demand.craftType}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCompletingOrder(null);
+                  setCompleteImage(null);
+                }}
+                className="text-gray-400 hover:text-gray-700"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="mb-3 text-sm text-gray-700">{t("upload_finished_photo")}</p>
+
+            <label className="kg-press flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-8 text-sm font-bold text-gray-500 hover:border-primary hover:text-primary">
+              <ImagePlus size={18} />
+              {completeImage ? t("orders_log_photo") : t("upload_finished_photo")}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => void pickCompleteImage(e.target.files?.[0] ?? null)}
+                className="hidden"
+              />
+            </label>
+
+            {completeImage && (
+              <div className="relative mx-auto mt-4 h-40 w-40 overflow-hidden rounded-xl border border-gray-200">
+                <Image
+                  src={completeImage}
+                  alt=""
+                  fill
+                  sizes="160px"
+                  unoptimized
+                  className="object-cover"
+                />
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCompletingOrder(null);
+                  setCompleteImage(null);
+                }}
+                className="kg-press min-h-[44px] rounded-lg border border-gray-200 bg-white px-4 text-sm font-bold text-gray-700 hover:bg-gray-50"
+              >
+                {t("close_btn")}
+              </button>
+              <button
+                type="button"
+                onClick={submitComplete}
+                disabled={!completeImage || completeBusy}
+                className={cn(
+                  "kg-press inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-primary px-5 text-sm font-bold text-white hover:bg-primary-dark",
+                  (!completeImage || completeBusy) && "cursor-not-allowed opacity-50"
+                )}
+              >
+                {completeBusy && <Loader2 size={14} className="animate-spin" />}
+                <CheckCircle2 size={14} /> {t("mark_complete")}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </Shell>

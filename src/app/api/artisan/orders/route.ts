@@ -41,7 +41,7 @@ export async function GET() {
   try {
     const artisanId = auth.artisan.userId;
 
-    const [orders, profile, earnings, ratingStats] = await Promise.all([
+    const [orders, profile, earnings, ratingStats, demandEarningsAgg] = await Promise.all([
       prisma.artisanOrder.findMany({
         where: { artisanId },
         orderBy: { createdAt: 'desc' },
@@ -88,6 +88,13 @@ export async function GET() {
         _avg: { rating: true },
         _count: { id: true },
       }),
+      // Demand-order credits — separate stream from the CraftItem escrow
+      // ledger. Written by /api/buyer/orders/delivered when the buyer marks
+      // the demand delivered. Always the on-screen agreed price, never ₹1.
+      prisma.artisanOrder.aggregate({
+        where: { artisanId, settledAt: { not: null } },
+        _sum: { settledAmount: true },
+      }),
     ]);
 
     const alreadyAccepted = new Set(orders.map((order) => order.demandId));
@@ -128,8 +135,13 @@ export async function GET() {
 
     // Total earned pulls from the ledger. `_sum` fields are null when there are
     // no matching rows — coalesce so the tile never renders NaN.
-    const totalEarned =
+    const escrowEarned =
       (earnings._sum.advancePaid ?? 0) + (earnings._sum.finalPayoutQueued ?? 0);
+    // On-screen demand-order credits — the settled agreed price for demand
+    // orders. Independent stream, so summed with escrow (never double-counted:
+    // a demand order does NOT get a CraftItem escrow row).
+    const demandEarned = demandEarningsAgg._sum.settledAmount ?? 0;
+    const totalEarned = escrowEarned + demandEarned;
 
     return NextResponse.json({
       success: true,
@@ -138,6 +150,8 @@ export async function GET() {
         status: order.status,
         negotiatedPrice: order.negotiatedPrice,
         deadline: order.deadline?.toISOString() ?? null,
+        settledAmount: order.settledAmount ?? null,
+        settledAt: order.settledAt?.toISOString() ?? null,
         createdAt: order.createdAt.toISOString(),
         demand: {
           ...order.demand,
@@ -153,6 +167,8 @@ export async function GET() {
       stats: {
         totalAccepted: orders.length,
         totalEarned,
+        escrowEarned,
+        demandEarned,
         avgRating: ratingStats._avg.rating,
         totalReviews: ratingStats._count.id,
       },
@@ -167,6 +183,33 @@ export async function GET() {
   }
 }
 
+/** Deadline hard-clamps (in days from acceptance). */
+const MIN_DEADLINE_DAYS = 3;
+const MAX_DEADLINE_DAYS = 90;
+
+/**
+ * Parse an ISO deadline from the client, clamped to a sane window.
+ *
+ * A deadline in the past or more than a season out is almost always a broken
+ * client — silently coerce to the default (14 days) rather than reject the
+ * whole acceptance for a bad date.
+ */
+function parseDeadline(value: unknown): Date {
+  const fallback = new Date();
+  fallback.setDate(fallback.getDate() + DEFAULT_DEADLINE_DAYS);
+
+  if (typeof value !== 'string' || !value) return fallback;
+  const candidate = new Date(value);
+  if (Number.isNaN(candidate.getTime())) return fallback;
+
+  const now = Date.now();
+  const min = now + MIN_DEADLINE_DAYS * 86_400_000;
+  const max = now + MAX_DEADLINE_DAYS * 86_400_000;
+  if (candidate.getTime() < min) return new Date(min);
+  if (candidate.getTime() > max) return new Date(max);
+  return candidate;
+}
+
 export async function POST(req: Request) {
   const auth = await requireArtisan();
   if (!auth.ok) return auth.response;
@@ -176,6 +219,7 @@ export async function POST(req: Request) {
       demandId?: unknown;
       action?: unknown;
       negotiatedPrice?: unknown;
+      deadline?: unknown;
     };
     const demandId = typeof body.demandId === 'string' ? body.demandId : '';
     const action = typeof body.action === 'string' ? body.action : '';
@@ -225,8 +269,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, orderId: existing.id, idempotent: true });
     }
 
-    const deadline = new Date();
-    deadline.setDate(deadline.getDate() + DEFAULT_DEADLINE_DAYS);
+    const deadline = parseDeadline(body.deadline);
 
     const order = await prisma.$transaction(async (tx) => {
       const created = await tx.artisanOrder.create({
@@ -253,5 +296,87 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('Orders POST error:', error);
     return NextResponse.json({ error: 'Failed to accept demand.' }, { status: 500 });
+  }
+}
+
+/**
+ * Lifecycle transitions on an existing ArtisanOrder.
+ *
+ *   PATCH { orderId, action: "complete", completedImageUrl }
+ *
+ * "complete" flips status → COMPLETED and stores the finished-product photo the
+ * artisan uploads. The photo is required — a completion claim without a photo
+ * is what caused the buyer trust problems this flow exists to fix.
+ *
+ * Only the acting artisan can complete their own orders; ownership is enforced
+ * both in the update predicate and by re-check.
+ */
+const MAX_COMPLETED_IMAGE_BYTES = 2 * 1024 * 1024;
+
+function base64Bytes(dataUrl: string): number {
+  const payload = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  return Math.floor((payload.length * 3) / 4);
+}
+
+export async function PATCH(req: Request) {
+  const auth = await requireArtisan();
+  if (!auth.ok) return auth.response;
+
+  try {
+    const body = (await req.json().catch(() => ({}))) as {
+      orderId?: unknown;
+      action?: unknown;
+      completedImageUrl?: unknown;
+    };
+    const orderId = typeof body.orderId === 'string' ? body.orderId : '';
+    const action = typeof body.action === 'string' ? body.action : '';
+
+    if (!orderId) {
+      return NextResponse.json({ error: 'orderId is required.' }, { status: 400 });
+    }
+    if (action !== 'complete') {
+      return NextResponse.json({ error: 'Unsupported action.' }, { status: 400 });
+    }
+
+    const completedImageUrl =
+      typeof body.completedImageUrl === 'string' ? body.completedImageUrl.trim() : '';
+    if (!completedImageUrl) {
+      return NextResponse.json(
+        { error: 'A photo of the finished product is required.' },
+        { status: 400 }
+      );
+    }
+    if (!/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(completedImageUrl)) {
+      return NextResponse.json({ error: 'Photo must be an image.' }, { status: 400 });
+    }
+    if (base64Bytes(completedImageUrl) > MAX_COMPLETED_IMAGE_BYTES) {
+      return NextResponse.json({ error: 'Photo is larger than 2 MB.' }, { status: 400 });
+    }
+
+    // Ownership + existence in one query. `updateMany` returns count instead of
+    // throwing on no-match, so we can distinguish "not yours" from a real error.
+    const result = await prisma.artisanOrder.updateMany({
+      where: {
+        id: orderId,
+        artisanId: auth.artisan.userId,
+        status: { in: ['ACCEPTED', 'IN_PROGRESS'] },
+      },
+      data: {
+        status: 'COMPLETED',
+        completedImageUrl,
+      },
+    });
+
+    if (result.count === 0) {
+      return NextResponse.json(
+        { error: 'Order not found or already completed.' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Orders PATCH error:', error);
+    return NextResponse.json({ error: 'Failed to update order.' }, { status: 500 });
   }
 }

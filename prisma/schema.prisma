@@ -187,6 +187,25 @@ model CraftItem {
   pricingFlag         Boolean  @default(false)
   flagReason          String?
 
+  // ---- Revised capture pipeline (see CAPTURE MODEL spec) ----
+  /// "A" (verified + advance eligible) or "B" (verified only, no advance).
+  /// Computed at capture time from `askingPrice`, `aiPriceCeiling`, and
+  /// `claimsFlag`. Null for rows captured before this pipeline landed.
+  aiTier              String?
+  /// Convenience mirror of `aiTier == "A"`. Read by the settlement engine so
+  /// a Tier B row never triggers a dispatch advance payout.
+  advanceEligible     Boolean  @default(false)
+  /// Combined AI ceiling (max of Step-4 ceiling and Step-5 market_high).
+  aiPriceCeiling      Float?
+  /// Market average from the Step-5 lookup, in INR.
+  aiMarketAvg         Float?
+  /// "none" | "exorbitant_labor" | "exorbitant_material" | "both". Result of
+  /// the Step-6 Groq claims validator.
+  claimsFlag          String?
+  /// Compact ONDC RET12 catalog blob generated in Step 3. Kept as JSON so the
+  /// syndication hub can read title/desc/tags/category without re-running Groq.
+  aiCatalog           Json?
+
   // Digital-inclusion telemetry (new_admin.md Tier 2.1)
   catalogMethod       String?  // "VOICE" | "MANUAL" | "IVR"
   voiceLanguage       String?  // "Odia" | "Hindi" | "Telugu" | "English"
@@ -279,6 +298,19 @@ model Demand {
 
   artisanOrders    ArtisanOrder[]
 
+  /// Set by /api/buyer/orders/delivered when the buyer marks the goods received.
+  /// Distinct from the CraftItem-level DELIVERED stage: this is the buyer's own
+  /// acknowledgement against the whole demand.
+  deliveredAt         DateTime?
+  /// True once /api/buyer/orders/verify has run and the Gemini Vision comparison
+  /// confirmed the received product matches the artisan's original capture.
+  deliveryVerified    Boolean    @default(false)
+  deliveryVerifiedAt  DateTime?
+  /// The patchId the buyer scanned or typed at verification time.
+  deliveryScanPatchId String?
+  /// AI similarity score (0–100) from the verification pass.
+  deliveryScanScore   Float?
+
   @@index([craftType])
   @@index([status])
   @@index([createdAt])
@@ -354,6 +386,17 @@ model ArtisanOrder {
   negotiatedPrice Float?
   /// Defaults to 14 days out at accept time; null when no deadline was set.
   deadline        DateTime?
+  /// Data URL of the finished-product photo the artisan attaches when marking
+  /// the order COMPLETED. Same convention as every other image in this schema.
+  completedImageUrl String?
+  /// On-screen demand price credited to the artisan when the buyer marks the
+  /// order delivered. Always denominated in the negotiated / agreed price —
+  /// NEVER the ₹1 demo charge Razorpay actually collected. Null until the
+  /// buyer confirms delivery.
+  settledAmount   Float?
+  /// When the credit landed. Presence is the idempotency guard: a second
+  /// "mark delivered" click on the same demand cannot credit twice.
+  settledAt       DateTime?
   logs            OrderLog[]
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt

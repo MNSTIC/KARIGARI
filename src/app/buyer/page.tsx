@@ -17,11 +17,12 @@ import {
   BellRing,
   LogOut,
   ShoppingBag,
+  IndianRupee,
 } from "lucide-react";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import Image from "next/image";
 import Link from "next/link";
-import { LogisticsMap } from "@/components/LogisticsMap";
+import { ADVANCE_RATE } from "@/lib/escrow";
 import { PostDemandModal, type PostedDemand } from "@/components/PostDemandModal";
 import { OrderTimeline, type TrackPayload } from "@/components/ui/OrderTimeline";
 import { BuyerOrders } from "@/components/BuyerOrders";
@@ -84,7 +85,9 @@ export default function BuyerDashboard() {
   const [toast, setToast] = useState<string | null>(null);
 
   // The artisan-match panel is an explicit simulation, kept per demand.
-  const [quoteState, setQuoteState] = useState<Record<string, "pending" | "quoted" | "accepted">>({});
+  const [quoteState, setQuoteState] = useState<
+    Record<string, "pending" | "quoted" | "accepted" | "paid">
+  >({});
 
   /**
    * Real listed stock per demand, from /api/demand/match. Replaces the old
@@ -497,7 +500,9 @@ export default function BuyerDashboard() {
 
                   {isSelected && (
                     <div className="p-6 bg-gray-50">
-                      {demandState !== "quoted" && demandState !== "accepted" ? (
+                      {demandState !== "quoted" &&
+                      demandState !== "accepted" &&
+                      demandState !== "paid" ? (
                         <div className="text-center py-8">
                           <Search className="mx-auto text-gray-300 mb-3" size={32} />
                           <p className="text-gray-500 font-medium text-sm mb-4">
@@ -610,12 +615,79 @@ export default function BuyerDashboard() {
                               </p>
                             </div>
 
-                            {demandState === "accepted" ? (
-                              <div className="mt-4 animate-fade-in-up">
-                                <h4 className="text-sm font-bold text-gray-900 mb-2 flex items-center gap-2">
-                                  <Truck size={16} className="text-green-600" /> {t("choose_route")}
-                                </h4>
-                                <LogisticsMap />
+                            {demandState === "accepted" || demandState === "paid" ? (
+                              <div className="mt-4 animate-fade-in-up space-y-4">
+                                {/* WI5 — Advance payment summary. Replaces the
+                                    old LogisticsMap iframe. Numbers come from
+                                    src/lib/escrow so the 40 % shown here is the
+                                    exact figure the settlement engine will
+                                    release on dispatch. */}
+                                <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-card">
+                                  <h4 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                    <IndianRupee size={16} className="text-primary" />
+                                    {t("payment_summary")}
+                                  </h4>
+
+                                  <div className="space-y-3">
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-gray-600">
+                                        {t("total_order_value")}
+                                      </span>
+                                      <span className="font-bold text-gray-900 font-sans">
+                                        {rupees(demand.targetPriceMax ?? demand.targetPriceMin ?? 0)}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between text-sm border-t border-gray-100 pt-3">
+                                      <span className="text-primary font-bold">
+                                        {t("advance_payment")} ({Math.round(ADVANCE_RATE * 100)}%)
+                                      </span>
+                                      <span className="font-black text-primary text-lg font-sans">
+                                        {rupees(
+                                          Math.round(
+                                            (demand.targetPriceMax ?? demand.targetPriceMin ?? 0) *
+                                              ADVANCE_RATE
+                                          )
+                                        )}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                                      {t("advance_payment_note")}
+                                    </p>
+                                  </div>
+
+                                  {demandState !== "paid" ? (
+                                    <button
+                                      onClick={() =>
+                                        setQuoteState((prev) => ({ ...prev, [demand.id]: "paid" }))
+                                      }
+                                      className="mt-4 w-full bg-primary text-white py-3 rounded-xl font-bold hover:bg-primary-dark transition-colors shadow-sm flex items-center justify-center gap-2"
+                                    >
+                                      <IndianRupee size={16} />
+                                      {t("pay_advance_cta")}{" "}
+                                      {rupees(
+                                        Math.round(
+                                          (demand.targetPriceMax ?? demand.targetPriceMin ?? 0) *
+                                            ADVANCE_RATE
+                                        )
+                                      )}
+                                    </button>
+                                  ) : (
+                                    <div className="mt-4 bg-[var(--color-mint)] border border-[var(--color-sage)] rounded-xl p-4 flex items-start gap-3">
+                                      <CheckCircle2
+                                        size={20}
+                                        className="text-primary shrink-0 mt-0.5"
+                                      />
+                                      <div>
+                                        <p className="font-bold text-primary text-sm">
+                                          {t("advance_paid_confirmation")}
+                                        </p>
+                                        <p className="text-xs text-primary/70 mt-1">
+                                          {t("production_started_note")}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             ) : (
                               <div className="flex flex-wrap gap-3">

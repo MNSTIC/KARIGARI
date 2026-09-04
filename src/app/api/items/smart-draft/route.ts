@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireArtisan } from '@/lib/artisanAuth';
 import { GEMINI_CONFIGURED, generateContentWithFallback } from '@/lib/gemini';
+import { findGiLabel, locationMatchesGi } from '@/lib/giLabels';
 
 /**
  * Conversational craft-documenter for Step 1 of the CaptureModal.
@@ -21,6 +22,17 @@ interface DraftRequest {
   description?: unknown;
   previousQuestions?: unknown;
   previousAnswers?: unknown;
+  /**
+   * Client-supplied cap. Voice callers pass 2; text callers pass 3. Server
+   * clamps to [1, 3] so a broken client can never let the model loop forever.
+   */
+  maxRounds?: unknown;
+  /**
+   * Optional location snapshot ("Assam", "Cuttack, Odisha"). Used only to spot
+   * an obvious mismatch between a claimed regional designation and where the
+   * artisan actually is. Never stored.
+   */
+  artisanLocation?: unknown;
 }
 
 interface ExtractedData {
@@ -40,7 +52,14 @@ interface DraftResponse {
   readyToProceed: boolean;
 }
 
-const MAX_ROUNDS = 3;
+const HARD_MAX_ROUNDS = 3;
+const MIN_ROUNDS = 1;
+
+function clampRounds(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return HARD_MAX_ROUNDS;
+  return Math.max(MIN_ROUNDS, Math.min(HARD_MAX_ROUNDS, Math.round(n)));
+}
 
 function trimmed(value: unknown, max: number): string {
   return typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -77,8 +96,10 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as DraftRequest;
     const craftType = trimmed(body.craftType, 200);
     const description = trimmed(body.description, 1500);
-    const previousQuestions = stringArray(body.previousQuestions, MAX_ROUNDS, 300);
-    const previousAnswers = stringArray(body.previousAnswers, MAX_ROUNDS, 500);
+    const maxRounds = clampRounds(body.maxRounds);
+    const previousQuestions = stringArray(body.previousQuestions, HARD_MAX_ROUNDS, 300);
+    const previousAnswers = stringArray(body.previousAnswers, HARD_MAX_ROUNDS, 500);
+    const artisanLocation = trimmed(body.artisanLocation, 120);
 
     // Nothing to work with — bail cleanly rather than asking questions in a
     // vacuum. Rare, since the client only calls this once description is typed.
@@ -94,7 +115,7 @@ export async function POST(req: Request) {
     // Hit the round cap: send whatever was collected and let the artisan
     // continue. The prompt itself will not ask, but a client that miscounts
     // must not be able to loop forever.
-    if (previousQuestions.length >= MAX_ROUNDS) {
+    if (previousQuestions.length >= maxRounds) {
       return NextResponse.json(proceedResult(craftType, description));
     }
 
@@ -106,18 +127,49 @@ export async function POST(req: Request) {
       .map((question, index) => `Q: ${question}\nA: ${previousAnswers[index] ?? ''}`)
       .join('\n\n');
 
+    // GI grounding: only flag a proof note when the artisan's declared craft
+    // maps to a GI-tagged designation AND their profile location does not sit
+    // in the legitimate region. Default is silence — most captures never trip
+    // this and go straight through.
+    const giMatch = findGiLabel(`${craftType} ${description}`);
+    const giRegionOk = giMatch ? locationMatchesGi(giMatch, artisanLocation) : true;
+    const giHint =
+      giMatch && !giRegionOk
+        ? [
+            '',
+            'GI CONTEXT (server-detected — do NOT rewrite this):',
+            `  Declared craft matches "${giMatch.label}".`,
+            `  Expected region(s): ${giMatch.regions.join(', ') || '(CITES / non-regional)'}.`,
+            `  Artisan location on file: "${artisanLocation || 'unknown'}".`,
+            '  This is a MISMATCH. If — and only if — the mismatch really looks off, set status="verification_needed"',
+            `  and add a gentle, non-blocking verificationNote like: "${giMatch.note} Keep your authorisation handy for buyers who ask — this does not block your listing."`,
+            '  If the mismatch has an innocent explanation implied by the description (e.g. an Assam-trained weaver based elsewhere), leave status alone and do NOT add a note.',
+            '',
+          ].join('\n')
+        : '';
+
     const prompt = [
-      'You are a documentation assistant helping an Indian handicraft artisan describe one piece for a marketplace listing. Extract the BARE MINIMUM needed to price it fairly: 1) craft type, 2) specific material, 3) technique (handloom, powerloom, natural dye, machine finish, etc.), 4) rough labour time in days, 5) any protected-designation certification (GI tag, Silk Mark, Handloom Mark).',
+      'You are a documentation assistant helping an Indian handicraft artisan describe one piece for a marketplace listing. Extract the BARE MINIMUM needed to price fairly: craft type, specific material, technique, rough labour time in days.',
+      '',
+      'DOMAIN CHEAT-SHEET — use it to figure out which gaps exist for THIS craft. Look at every relevant point at once, not one at a time.',
+      '  • Silk sarees → which silk? Muga / Tussar / Mulberry / Eri. And loom type — pit loom, frame loom, powerloom.',
+      '  • Dhokra / metal craft → which alloy (brass, bell metal, bronze)? Lost-wax or sand-cast?',
+      '  • Pottery / terracotta → wheel-thrown or hand-molded? Glazed or unglazed?',
+      '  • Weaving (non-silk) → loom type — pit loom, frame loom, backstrap.',
+      '  • Wood carving → wood species (sandalwood, teak, rosewood, sheesham)?',
+      '  • Block printing → natural or synthetic dyes? Block material (wood/metal)?',
+      '  • Handloom cotton (Sambalpuri, Kotpad, Kanjivaram cotton, etc.) → weave technique — ikat, jamdani, plain.',
       '',
       'RULES:',
-      '- Ask at MOST one short follow-up per turn, phrased as a single question in plain English.',
-      `- Never ask more than ${MAX_ROUNDS} follow-ups total; you have asked ${previousQuestions.length} so far.`,
-      '- Once you have enough to price a listing, set status="complete" and readyToProceed=true.',
-      '- Only set status="verification_needed" when the artisan claims a PROTECTED designation (e.g. "Muga silk", "Kanjivaram silk", "GI tag") AND the description or price hints look wrong for it. In that case add a short verificationNote — do not block, just flag.',
+      '- When anything bare-minimum is missing, ask ONE warm, plain question that BUNDLES every missing point together in the same sentence (e.g. "Two quick things — which silk did you use, and roughly how many days did it take?"). NEVER drip-feed one detail per turn.',
+      `- Voice callers pay a real quota cost per recording — aim to finish in ONE clarifying question (2 messages total). Text callers get at most TWO clarifying questions. Hard cap: ${maxRounds}; you have asked ${previousQuestions.length} so far. When ${maxRounds - previousQuestions.length} <= 0 you MUST set status="complete" and readyToProceed=true.`,
+      '- Once you have enough to price a listing, set status="complete" and readyToProceed=true. Err on the side of stopping — this is not an interview.',
+      '- Authorization / proof: DO NOT demand it. The DEFAULT is silence. Only follow the GI CONTEXT block below if the server flagged a real regional mismatch. Never block the listing; never accuse.',
       '- Never invent facts. If the artisan did not say a value, leave that field null.',
       '- Reply as JSON ONLY. No markdown, no preamble.',
-      '',
+      giHint,
       `Artisan\'s craft type (as declared): ${craftType || 'unknown'}`,
+      artisanLocation ? `Artisan\'s recorded location: ${artisanLocation}` : '',
       `Artisan\'s initial description:\n${description || '(none)'}`,
       history ? `\nConversation so far:\n${history}` : '',
     ]

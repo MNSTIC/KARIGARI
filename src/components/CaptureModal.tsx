@@ -117,6 +117,53 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
    */
   const conversationTextRef = useRef<string>("");
 
+  /**
+   * Which channel produced the primary description. Voice-first callers get a
+   * stricter follow-up cap because clarifying answers cost a second recording;
+   * typed callers get more room. Flipped on the first voice-parse round and
+   * only downgraded back to text if the artisan never speaks.
+   */
+  const [primaryInputMethod, setPrimaryInputMethod] = useState<"voice" | "text">("text");
+
+  /**
+   * V7 — SmartDraft owns the visible follow-up whenever it engages. Parent
+   * suppresses its legacy voice-parse question in `applyParse`, and Next is
+   * gated on the assistant reaching complete (or the artisan hitting Skip).
+   *
+   * `smartDraftActive` flips true the moment SmartDraftAssistant's initial
+   * call resolves — meaning it will show a bubble; parent must not push a
+   * second one. Stays false when Gemini is unconfigured (assistant never
+   * engages), in which case the legacy 3-fact gate is the whole story.
+   */
+  const [smartDraftActive, setSmartDraftActive] = useState(false);
+  const [smartDraftComplete, setSmartDraftComplete] = useState(false);
+  /** Cached so a stale ref inside `applyParse` cannot re-open the suppression. */
+  const smartDraftActiveRef = useRef(false);
+  smartDraftActiveRef.current = smartDraftActive;
+
+  /** Artisan location from their profile — fed to SmartDraft for the GI guard. */
+  const [artisanLocation, setArtisanLocation] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/artisan/profile", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const location =
+          typeof data?.profile?.location === "string" ? data.profile.location : null;
+        setArtisanLocation(location);
+      } catch (error) {
+        console.warn("Artisan profile fetch skipped:", (error as Error)?.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
   /** Which of product / time / materials the artisan has actually stated. */
   const [facts, setFacts] = useState<{ product: boolean; time: boolean; materials: boolean }>({
     product: false,
@@ -199,6 +246,44 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
   /** Every other former `alert()` lands here and renders as a banner. */
   const [notice, setNotice] = useState<Notice | null>(null);
 
+  /* --- Revised Capture Pipeline (spec Steps 1-7) ------------------------- */
+  /** Craft-detail string extracted by the Step-1 combined Gemini call. */
+  const [craftDetails, setCraftDetails] = useState<string>("");
+  /** Step-1 photo quality score, 1-10. */
+  const [photoQualityScore, setPhotoQualityScore] = useState<number | null>(null);
+  /** Step-1 background recommendation, non-empty when bg_ok = false. */
+  const [bgRecommendation, setBgRecommendation] = useState<string>("");
+  /** Step-3 ONDC catalog artefact — persisted verbatim to CraftItem.aiCatalog. */
+  const [aiCatalog, setAiCatalog] = useState<{
+    title_en: string;
+    desc_en: string;
+    title_regional: string;
+    desc_regional: string;
+    category: string;
+    tags: string[];
+  } | null>(null);
+  /** Step-4 estimate. */
+  const [priceEstimate, setPriceEstimate] = useState<{
+    floor: number;
+    optimal: number;
+    ceiling: number;
+  } | null>(null);
+  /** Step-5 market lookup. */
+  const [priceMarket, setPriceMarket] = useState<{
+    market_low: number;
+    market_avg: number;
+    market_high: number;
+    confidence: "high" | "medium" | "low";
+  } | null>(null);
+  /** Step-6 claims validation. */
+  const [claims, setClaims] = useState<{
+    labor_reasonable: boolean;
+    material_reasonable: boolean;
+    flag: "none" | "exorbitant_labor" | "exorbitant_material" | "both";
+  } | null>(null);
+  /** True after we've fired the Groq pipeline for this capture. */
+  const pipelineFiredRef = useRef(false);
+
   /* --- Dynamic Pricing Assistant (Step 3) ------------------------------- */
   const [priceResearch, setPriceResearch] = useState<{
     recommendedPrice: number;
@@ -260,7 +345,8 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
           body: JSON.stringify({
             imageBase64: stored,
             description: englishDescription,
-            targetLanguage: language
+            targetLanguage: language,
+            craftType,
           })
         });
         return res.json();
@@ -272,11 +358,22 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
           setIsVisionVerified(true);
           setVisionRejected(false);
           setRejectionReason("");
-          // The route returns `descriptionEnglish` / `descriptionLocal`. Reading
-          // the old `ecommerceDescription*` names left the listing blank and
-          // saved an empty aiGeneratedListing with every item.
+          // Legacy copy — the Groq catalog step (spec Step 3) will rewrite
+          // these on entry to Step 3 with proper marketplace copy.
           setEcommerceDescEnglish(data.data.descriptionEnglish || englishDescription || "");
           setEcommerceDescLocal(data.data.descriptionLocal || "");
+
+          // Revised-pipeline artefacts from the same combined call.
+          setCraftDetails(
+            typeof data.data.craft_details === 'string' && data.data.craft_details.trim()
+              ? data.data.craft_details.trim()
+              : englishDescription
+          );
+          const score = Number(data.data.score);
+          if (Number.isFinite(score)) setPhotoQualityScore(score);
+          setBgRecommendation(
+            typeof data.data.recommended_bg === 'string' ? data.data.recommended_bg : ''
+          );
         } else {
           setVisionRejected(true);
           setRejectionReason(
@@ -292,7 +389,104 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
         setRejectionReason(t('vision_check_failed'));
       });
     }
-  }, [images, isVisionVerified, isVerifyingVision, visionRejected, step, englishDescription, language, t]);
+  }, [images, isVisionVerified, isVerifyingVision, visionRejected, step, englishDescription, language, t, craftType]);
+
+  // ---- Revised capture pipeline: fire Groq Steps 3-6 in parallel --------
+  // Kicks off ONCE the moment vision-verify succeeds AND the artisan has typed
+  // labour/materials. All four calls run in parallel; failures degrade to
+  // deterministic fallbacks server-side so a Groq outage never blocks capture.
+  useEffect(() => {
+    if (
+      pipelineFiredRef.current ||
+      !isVisionVerified ||
+      !craftType ||
+      !craftDetails ||
+      laborDays <= 0 ||
+      rawMaterialCost < 0
+    ) {
+      return;
+    }
+    pipelineFiredRef.current = true;
+
+    const catalogBody = {
+      craftType,
+      craftDetails,
+      cluster: "",
+      language,
+    };
+    const priceBody = {
+      title: craftType,
+      craftType,
+      material: technique || undefined,
+      laborDays,
+      rawMaterialCost,
+    };
+    const claimsBody = {
+      craftType,
+      laborDays,
+      materialCost: rawMaterialCost,
+    };
+
+    const j = (r: Response) => r.json();
+    Promise.allSettled([
+      fetch('/api/items/catalog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(catalogBody),
+      }).then(j),
+      fetch('/api/items/price-estimate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(priceBody),
+      }).then(j),
+      fetch('/api/items/price-market', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(priceBody),
+      }).then(j),
+      fetch('/api/items/claims-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(claimsBody),
+      }).then(j),
+    ]).then(([catRes, estRes, mktRes, claimsRes]) => {
+      if (catRes.status === 'fulfilled' && catRes.value?.success && catRes.value.catalog) {
+        setAiCatalog(catRes.value.catalog);
+        if (catRes.value.catalog.desc_en) setEcommerceDescEnglish(catRes.value.catalog.desc_en);
+        if (catRes.value.catalog.desc_regional) {
+          setEcommerceDescLocal(catRes.value.catalog.desc_regional);
+        }
+      }
+      if (estRes.status === 'fulfilled' && estRes.value?.success && estRes.value.estimate) {
+        setPriceEstimate(estRes.value.estimate);
+      }
+      if (mktRes.status === 'fulfilled' && mktRes.value?.success && mktRes.value.market) {
+        setPriceMarket(mktRes.value.market);
+      }
+      if (claimsRes.status === 'fulfilled' && claimsRes.value?.success && claimsRes.value.claims) {
+        setClaims(claimsRes.value.claims);
+      }
+    });
+  }, [
+    isVisionVerified,
+    craftType,
+    craftDetails,
+    laborDays,
+    rawMaterialCost,
+    technique,
+    language,
+  ]);
+
+  // Combined ceiling: max of Step 4 ceiling and Step 5 market_high (spec Step 7).
+  const aiPriceCeiling = useMemo(() => {
+    const step4 = priceEstimate?.ceiling ?? 0;
+    const step5 = priceMarket?.market_high ?? 0;
+    const combined = Math.max(step4, step5);
+    return combined > 0 ? combined : null;
+  }, [priceEstimate, priceMarket]);
+
+  const aiMarketAvg = priceMarket?.market_avg ?? priceEstimate?.optimal ?? null;
+  const claimsFlag = claims?.flag ?? "none";
 
   // The AI valuation the artisan is quoted in Step 3. Same function the capture
   // API runs server-side, so the suggested band is not a second, drifting guess.
@@ -315,10 +509,33 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
     }
   }, [step, priceTouched, valuation]);
 
+  /**
+   * V7 — Step-1 combined gate. Base facts alone no longer unlock Step 2;
+   * the product-aware SmartDraft must have finished OR never engaged (Gemini
+   * unconfigured / description too short). The round cap inside SmartDraft
+   * keeps this bounded — an artisan is never trapped.
+   */
+  const step1GateSatisfied = useMemo(() => {
+    if (!isProcessed) return false;
+    if (!smartDraftActive) return true; // Assistant never engaged.
+    return smartDraftComplete;
+  }, [isProcessed, smartDraftActive, smartDraftComplete]);
+
   const enteredPrice = Number(askingPrice);
   const hasEnteredPrice = askingPrice.trim() !== "" && Number.isFinite(enteredPrice) && enteredPrice > 0;
   const isBelowFairFloor = hasEnteredPrice && enteredPrice < valuation.fairWageFloor;
   const hasValuationInput = laborDays > 0 || rawMaterialCost > 0;
+
+  // ---- Spec Step 7: client-side tier preview -----------------------------
+  // Server is still the authority (capture route recomputes this) — we
+  // display the same verdict here so the artisan sees green vs amber the
+  // moment they type a price.
+  const aiTier: "A" | "B" | null = useMemo(() => {
+    if (!hasEnteredPrice || !aiPriceCeiling || !claims) return null;
+    if (enteredPrice <= aiPriceCeiling && claimsFlag === "none") return "A";
+    return "B";
+  }, [hasEnteredPrice, enteredPrice, aiPriceCeiling, claims, claimsFlag]);
+  const advanceEligible = aiTier === "A";
 
   // Auto create draft on Step 3 completion (Wait for save button)
   const handleSaveUpload = async () => {
@@ -341,11 +558,19 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
       askingPrice: hasEnteredPrice ? enteredPrice : null,
       descriptionOriginal: localListing,
       descriptionEnglish: englishDescription.trim() || englishListing,
-      tags: [craftType || "ArtisanCraft"],
+      tags: aiCatalog?.tags?.length ? aiCatalog.tags : [craftType || "ArtisanCraft"],
       // Already run through `downscaleImage` at capture time, so the queued row
       // stays small enough for IndexedDB on a low-end handset.
       images: images,
       aiGeneratedListing: englishListing,
+      // Revised-pipeline artefacts. Server recomputes tier from these; the
+      // client value is a UX hint only.
+      aiCatalog: aiCatalog ?? null,
+      aiPriceCeiling: aiPriceCeiling ?? null,
+      aiMarketAvg: aiMarketAvg ?? null,
+      claimsFlag,
+      aiTier,
+      advanceEligible,
     };
 
     /**
@@ -453,6 +678,10 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
         throw new Error(result?.error || "Failed to process audio");
       }
 
+      // A successful voice round flips the primary input method — used by
+      // SmartDraftAssistant to pick the stricter (2-round) follow-up cap.
+      setPrimaryInputMethod("voice");
+
       // The route merged `context` with this turn's transcript; keep the merged
       // text as the running conversation.
       conversationTextRef.current = (result.data.originalTranscript || "").trim();
@@ -518,14 +747,20 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
     if (data?.technique) setTechnique(data.technique);
 
     if (missing.length > 0) {
-      // Ask for exactly what is missing, in their language, and stay on Step 1.
-      const question =
-        (typeof data?.followUpQuestion === 'string' && data.followUpQuestion.trim()) ||
-        t('provide_missing_hint');
-      setMessages((prev) => [
-        ...prev,
-        { id: `ask-${Date.now()}`, role: 'assistant', text: question },
-      ]);
+      // V7 — SmartDraftAssistant owns the visible follow-up the moment it
+      // engages. Only fall back to the legacy voice-parse question when the
+      // assistant will NOT run (Gemini unconfigured, or description still
+      // too short for it to fire). Otherwise the artisan sees two questioners
+      // at once — that was the whole bug this revamp exists to fix.
+      if (!smartDraftActiveRef.current) {
+        const question =
+          (typeof data?.followUpQuestion === 'string' && data.followUpQuestion.trim()) ||
+          t('provide_missing_hint');
+        setMessages((prev) => [
+          ...prev,
+          { id: `ask-${Date.now()}`, role: 'assistant', text: question },
+        ]);
+      }
       return false;
     }
 
@@ -861,6 +1096,8 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
     setTimeout(() => {
       setStep(1);
       setIsProcessed(false);
+      setSmartDraftActive(false);
+      setSmartDraftComplete(false);
       setImages([]);
       setLaborDays(0);
       setRawMaterialCost(0);
@@ -1028,18 +1265,40 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
                   the input, so a follow-up question is impossible to miss. Only
                   fires once craftType + a real description are on the record;
                   fully skippable. */}
-              {!isProcessed && (
+              {/* V7 — stays mounted until smartDraftComplete (independent of
+                  the base-facts `isProcessed` flag) so its consolidated
+                  follow-up survives past the base-fact summary bubble. */}
+              {!smartDraftComplete && (
                 <SmartDraftAssistant
                   craftType={craftType}
-                  // englishDescription is state that mirrors the parsed
-                  // transcript, so it is safe to read during render — the ref
-                  // holding the raw running transcript is deliberately not.
                   description={englishDescription}
+                  inputMethod={primaryInputMethod}
+                  artisanLocation={artisanLocation}
+                  onReadyChange={setSmartDraftActive}
+                  onComplete={() => setSmartDraftComplete(true)}
                   onExtracted={(data: SmartDraftExtracted) => {
                     // Only adopt what the voice-parse pipeline did not already
                     // set — never overwrite the artisan's chosen values.
                     if (data.technique && !technique) setTechnique(data.technique);
                     if (data.craftType && !craftType) setCraftType(data.craftType);
+                    if (data.material) {
+                      // Material feeds Step-3 pricing via the same detail
+                      // string the vision pass uses. Append rather than
+                      // overwrite so a genuine capture note is kept.
+                      setCraftDetails((prev) => {
+                        if (!prev) return data.material as string;
+                        return prev.toLowerCase().includes(String(data.material).toLowerCase())
+                          ? prev
+                          : `${prev}, ${data.material}`;
+                      });
+                    }
+                    if (
+                      typeof data.estimatedLaborDays === 'number' &&
+                      data.estimatedLaborDays > 0 &&
+                      (!laborDays || laborDays <= 0)
+                    ) {
+                      setLaborDays(Math.round(data.estimatedLaborDays));
+                    }
                   }}
                 />
               )}
@@ -1345,6 +1604,60 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
               </div>
               <p className="text-xs text-gray-400 mb-4">{t('asking_price_hint')}</p>
 
+              {/* ---- Spec Step 7: Tier badge ---------------------------
+                  Green (Tier A) when the entered price is at or below the
+                  AI ceiling AND claims validated clean — advance eligible.
+                  Amber (Tier B) otherwise — listing still goes live, but no
+                  40 % dispatch advance. Hidden until the pipeline finishes. */}
+              {aiTier && aiPriceCeiling && (
+                <div
+                  className={cn(
+                    "mb-4 rounded-2xl border p-4 flex items-start gap-3",
+                    aiTier === "A"
+                      ? "border-[var(--color-sage)] bg-[var(--color-mint)]"
+                      : "border-amber-300 bg-amber-50"
+                  )}
+                >
+                  <ShieldCheck
+                    size={18}
+                    className={cn(
+                      "shrink-0 mt-0.5",
+                      aiTier === "A" ? "text-primary" : "text-amber-700"
+                    )}
+                  />
+                  <div className="text-sm leading-relaxed">
+                    {aiTier === "A" ? (
+                      <>
+                        <p className="font-bold text-primary">
+                          {t('tier_a_badge')} — {formatRupees(Math.round(enteredPrice * 0.4))} {t('tier_a_advance_note')}
+                        </p>
+                        <p className="text-primary/75 text-xs mt-1">
+                          {t('tier_a_body').replace(
+                            '{ceiling}',
+                            formatRupees(aiPriceCeiling)
+                          )}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-bold text-amber-900">
+                          {t('tier_b_badge')}
+                        </p>
+                        <p className="text-amber-800 text-xs mt-1">
+                          {t('tier_b_body')
+                            .replace('{price}', formatRupees(enteredPrice))
+                            .replace(
+                              '{avg}',
+                              formatRupees(aiMarketAvg ?? aiPriceCeiling)
+                            )
+                            .replace('{ceiling}', formatRupees(aiPriceCeiling))}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* ---- Dynamic Pricing Assistant --------------------------------
                   Estimated comparable bands per platform, then one recommended
                   price the artisan can apply in a tap. Explicitly labelled as
@@ -1552,7 +1865,7 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
             ) : (
               <button 
                 onClick={handleNext}
-                disabled={(step === 1 && !isProcessed) || (step === 2 && (!isVisionVerified || images.length === 0))}
+                disabled={(step === 1 && !step1GateSatisfied) || (step === 2 && (!isVisionVerified || images.length === 0))}
                 className="px-8 py-3 rounded-xl font-bold bg-primary text-white hover:bg-primary-dark transition-all flex items-center gap-2 shadow-lg shadow-primary/20 disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none"
               >
                 {step === 1 ? (

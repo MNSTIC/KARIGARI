@@ -70,7 +70,10 @@ export async function GET(req: Request) {
       escrowAdvances,
       escrowSettlements,
       settledRows,
-      soldRows
+      soldRows,
+      demandSettledAgg,
+      pastWeekDemandAgg,
+      demandSettledSeries,
     ] = await Promise.all([
       prisma.user.findUnique({ 
         where: { id: artisanId }, 
@@ -172,7 +175,24 @@ export async function GET(req: Request) {
           salePrice: true,
           createdAt: true,
         },
-      })
+      }),
+      // --- Demand-order settlements ----------------------------------------
+      // Separate income stream from the CraftItem escrow ledger. Written by
+      // /api/buyer/orders/delivered on "Mark delivered" — always the on-screen
+      // agreed price, never the ₹1 demo charge. Summed lifetime, past-week,
+      // and per-month for the 12-month chart.
+      prisma.artisanOrder.aggregate({
+        _sum: { settledAmount: true },
+        where: { artisanId, settledAt: { not: null } },
+      }),
+      prisma.artisanOrder.aggregate({
+        _sum: { settledAmount: true },
+        where: { artisanId, settledAt: { gte: oneWeekAgo } },
+      }),
+      prisma.artisanOrder.findMany({
+        where: { artisanId, settledAt: { gte: seriesStart } },
+        select: { settledAmount: true, settledAt: true },
+      }),
     ]);
 
     if (!user) {
@@ -185,10 +205,17 @@ export async function GET(req: Request) {
     // Only money actually disbursed counts. The `fairWageFloor` fallback that used
     // to sit here invented an advance for every item that had not been paid yet.
     const totalAdvances = advancedItems.reduce((sum: number, item: any) => sum + (item.advancePaid || 0), 0);
-    const totalEarnings = totalAdvances + (queued._sum.finalPayoutQueued || 0);
+    // Demand-order stream, denominated in on-screen agreed price. NEVER
+    // overlaps the CraftItem escrow ledger — demand orders have no CraftItem
+    // escrow row — so summing the two is not a double-count.
+    const demandEarnings = demandSettledAgg._sum.settledAmount ?? 0;
+    const pastWeekDemandEarnings = pastWeekDemandAgg._sum.settledAmount ?? 0;
+    const totalEarnings =
+      totalAdvances + (queued._sum.finalPayoutQueued || 0) + demandEarnings;
 
     const pastWeekAdvances = pastWeekAdvancedItems.reduce((sum: number, item: any) => sum + (item.advancePaid || 0), 0);
-    const pastWeekEarnings = pastWeekAdvances + (pastWeekQueued._sum.finalPayoutQueued || 0);
+    const pastWeekEarnings =
+      pastWeekAdvances + (pastWeekQueued._sum.finalPayoutQueued || 0) + pastWeekDemandEarnings;
 
     /**
      * Twelve whole months, oldest first, with empty months present as zeroes.
@@ -213,6 +240,20 @@ export async function GET(req: Request) {
         (row.advancePaid || 0) + (row.status === 'SOLD_FINAL' ? row.finalPayoutQueued || 0 : 0);
       if (realised <= 0) continue;
       bucket.amount += realised;
+      bucket.units += 1;
+    }
+
+    // Demand-order credits bucketed by `settledAt`, not `createdAt` — the
+    // acceptance can precede the credit by weeks, and the chart is about when
+    // the money arrived, not when the demand was accepted.
+    for (const row of demandSettledSeries) {
+      const when = row.settledAt;
+      const amount = row.settledAmount ?? 0;
+      if (!when || amount <= 0) continue;
+      const key = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}`;
+      const bucket = buckets.get(key);
+      if (!bucket) continue;
+      bucket.amount += amount;
       bucket.units += 1;
     }
 
@@ -303,6 +344,9 @@ export async function GET(req: Request) {
         totalAdvances,
         itemsSold,
         totalEarnings,
+        /** On-screen demand-order credits (separate stream). */
+        demandEarnings,
+        pastWeekDemandEarnings,
         healthScore: user?.artisanProfile?.healthScore ?? 100,
         // Live earnings + direct-UPI settlement tracker. `upiId` is the only
         // payout destination the escrow engine ever writes to.

@@ -140,6 +140,7 @@ export default function MarketPage() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [drafts, setDrafts] = useState<Listing[]>([]);
   const [demands, setDemands] = useState<BoardDemand[]>([]);
+  const [artisanCraftType, setArtisanCraftType] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
@@ -155,9 +156,30 @@ export default function MarketPage() {
   const load = useCallback(async () => {
     setLoadFailed(false);
     try {
+      // The profile fetch runs first so the demand call can carry the artisan's
+      // craft type — the whole point of WI3 is that a Sambalpuri weaver never
+      // sees Dhokra requests. Failing the profile call is not fatal: the demand
+      // fetch just runs unfiltered, and the "complete your profile" banner
+      // will point the artisan at what is missing.
+      let resolvedCraft = "";
+      try {
+        const profileRes = await fetch("/api/artisan/profile", { cache: "no-store" });
+        const profileData = await profileRes.json();
+        if (profileData?.success && typeof profileData.profile?.craftType === "string") {
+          resolvedCraft = profileData.profile.craftType.trim();
+        }
+      } catch (profileError) {
+        console.warn("Artisan profile fetch failed:", profileError);
+      }
+      setArtisanCraftType(resolvedCraft);
+
+      const demandUrl = resolvedCraft
+        ? `/api/demand?limit=50&craftType=${encodeURIComponent(resolvedCraft)}`
+        : "/api/demand?limit=50";
+
       const [listingRes, demandRes] = await Promise.all([
         fetch("/api/artisan/listings", { cache: "no-store" }),
-        fetch("/api/demand?limit=50", { cache: "no-store" }),
+        fetch(demandUrl, { cache: "no-store" }),
       ]);
 
       const listingData = await listingRes.json();
@@ -602,14 +624,32 @@ export default function MarketPage() {
               </div>
             </div>
 
+            {!artisanCraftType && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 flex items-start gap-2">
+                <span>
+                  <strong>{t("complete_profile_for_filter_bold")}</strong>{" "}
+                  {t("complete_profile_for_filter")}
+                </span>
+              </div>
+            )}
+
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-              {demands.length} {t("active_bulk_enquiries")}
+              {demands.length}{" "}
+              {artisanCraftType
+                ? `${t("active_bulk_enquiries")} · ${artisanCraftType}`
+                : t("active_bulk_enquiries")}
             </p>
 
             {demands.length === 0 ? (
-              <p className="text-sm text-gray-500 italic bg-card border border-dashed border-gray-200 rounded-2xl p-8 text-center">
-                {t("no_open_demands")}
-              </p>
+              <div className="rounded-2xl border border-dashed border-gray-300 bg-card p-10 text-center">
+                <Package size={40} className="mx-auto mb-4 text-gray-300" />
+                <h3 className="text-lg font-bold text-gray-900 mb-2">
+                  {artisanCraftType
+                    ? `${t("no_matching_bulk_demands")} — ${artisanCraftType}`
+                    : t("no_open_demands")}
+                </h3>
+                <p className="text-sm text-gray-500">{t("check_back_soon")}</p>
+              </div>
             ) : (
               demands.map((demand) => (
                 <div

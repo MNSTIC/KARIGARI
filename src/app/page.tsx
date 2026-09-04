@@ -229,31 +229,35 @@ export default function LandingPage() {
         </section>
 
         {/* ---------------------------------------------------- Difference */}
-        <section className="mx-auto max-w-[1180px] px-4 py-20 sm:px-6 sm:py-24 lg:px-10">
-          <div className="mx-auto max-w-2xl text-center">
-            <SectionEyebrow>The Karigari Difference</SectionEyebrow>
-            <p className="mt-4 text-[17px] leading-relaxed text-gray-600">
-              We merge centuries-old technique with modern verification, so fairness and
-              authenticity are things you can check rather than things you are asked to believe.
-            </p>
-          </div>
+        <section className="relative w-full">
+          <div className="absolute inset-0 z-0 opacity-[0.08] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
+          
+          <div className="relative z-10 mx-auto max-w-[1180px] px-4 py-20 sm:px-6 sm:py-24 lg:px-10">
+            <div className="mx-auto max-w-2xl text-center">
+              <SectionEyebrow>The Karigari Difference</SectionEyebrow>
+              <p className="mt-4 text-[17px] leading-relaxed text-gray-600">
+                We merge centuries-old technique with modern verification, so fairness and
+                authenticity are things you can check rather than things you are asked to believe.
+              </p>
+            </div>
 
-          <div className="kg-stagger mt-14 grid gap-5 md:grid-cols-3">
-            <FeatureCard
-              icon={<HandCoins size={20} strokeWidth={1.6} />}
-              title="Direct to artisan"
-              body={`Zero middlemen. ${(ARTISAN_TOTAL_RATE * 100).toFixed(2)}% of every sale is released to the maker's own UPI in two automatic tranches — on dispatch and on delivery.`}
-            />
-            <FeatureCard
-              icon={<ShieldCheck size={20} strokeWidth={1.6} />}
-              title="Verified Origin"
-              body="Each piece carries a printed patch ID. The artisan re-photographs the finished work wearing that patch, and the match is what makes it sellable."
-            />
-            <FeatureCard
-              icon={<TrendingUp size={20} strokeWidth={1.6} />}
-              title="AI-powered insights"
-              body="Fair-wage floors, market price bands and demand forecasting, so an artisan walks into a negotiation already knowing what their work is worth."
-            />
+            <div className="kg-stagger mt-14 grid gap-5 md:grid-cols-3">
+              <FeatureCard
+                icon={<HandCoins size={20} strokeWidth={1.6} />}
+                title="Direct to artisan"
+                body={`Zero middlemen. ${(ARTISAN_TOTAL_RATE * 100).toFixed(2)}% of every sale is released to the maker's own UPI in two automatic tranches — on dispatch and on delivery.`}
+              />
+              <FeatureCard
+                icon={<ShieldCheck size={20} strokeWidth={1.6} />}
+                title="Verified Origin"
+                body="Each piece carries a printed patch ID. The artisan re-photographs the finished work wearing that patch, and the match is what makes it sellable."
+              />
+              <FeatureCard
+                icon={<TrendingUp size={20} strokeWidth={1.6} />}
+                title="AI-powered insights"
+                body="Fair-wage floors, market price bands and demand forecasting, so an artisan walks into a negotiation already knowing what their work is worth."
+              />
+            </div>
           </div>
         </section>
 
@@ -290,8 +294,9 @@ export default function LandingPage() {
         </section>
 
         {/* ------------------------------------------- Mapping the Roots */}
-        <section className="border-t border-gray-200/70 bg-[#F1EDE6]">
-          <div className="mx-auto grid max-w-[1180px] items-center gap-12 px-4 py-20 sm:px-6 sm:py-24 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:px-10">
+        <section className="relative border-t border-gray-200/70 bg-[#F1EDE6]">
+          <div className="absolute inset-0 z-0 opacity-[0.08] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
+          <div className="relative z-10 mx-auto grid max-w-[1180px] items-center gap-12 px-4 py-20 sm:px-6 sm:py-24 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:px-10">
             <div>
               <SectionEyebrow>Mapping the Roots</SectionEyebrow>
               <h2 className="kg-display mt-4 text-[30px] leading-tight text-gray-900 sm:text-[36px]">
@@ -367,9 +372,10 @@ export default function LandingPage() {
         </section>
       </main>
 
-      {/* ---------------------------------------------------------- Footer */}
-      <footer className="border-t border-gray-200/70 bg-[var(--color-background)]">
-        <div className="mx-auto grid max-w-[1180px] gap-10 px-4 py-14 sm:px-6 md:grid-cols-3 lg:px-10">
+      {/* ------------------------------------------------------- Footer */}
+      <footer className="relative border-t border-gray-200 bg-[var(--color-background)]">
+        <div className="absolute inset-0 z-0 opacity-[0.08] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
+        <div className="relative z-10 mx-auto grid max-w-[1180px] gap-10 px-4 py-14 sm:px-6 md:grid-cols-3 lg:px-10">
           <div>
             <p className="kg-display text-[21px] leading-none text-gray-900">Karigari</p>
             <p className="mt-3 max-w-xs text-[14px] leading-relaxed text-gray-500">
