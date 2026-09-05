@@ -113,6 +113,38 @@ async function downscaleForVision(base64: string): Promise<string> {
  * it linearly, which is slow enough to time the request out for no accuracy
  * gain. 1600px on the long edge still resolves a printed patch comfortably.
  */
+/**
+ * Expand whatever sharp produced into the RGBA jsQR requires.
+ *
+ * `greyscale()` collapses the image to ONE channel, and `ensureAlpha()` does
+ * not add an alpha plane to it — so a greyscale pipeline hands back
+ * `width * height` bytes while jsQR indexes `width * height * 4`. It then
+ * reads past the data it was given and finds nothing, silently, on every
+ * frame. Every contrast-boosting pass below was dead code until this existed.
+ */
+function toRgba(data: Buffer | Uint8Array, channels: number, pixels: number): Uint8ClampedArray {
+  if (channels === 4) return new Uint8ClampedArray(data);
+
+  const rgba = new Uint8ClampedArray(pixels * 4);
+  for (let i = 0; i < pixels; i += 1) {
+    const out = i * 4;
+    if (channels === 1) {
+      const grey = data[i];
+      rgba[out] = grey;
+      rgba[out + 1] = grey;
+      rgba[out + 2] = grey;
+    } else {
+      // 3 channels, or 2 (grey + alpha) where the first byte is the value.
+      const src = i * channels;
+      rgba[out] = data[src];
+      rgba[out + 1] = channels >= 3 ? data[src + 1] : data[src];
+      rgba[out + 2] = channels >= 3 ? data[src + 2] : data[src];
+    }
+    rgba[out + 3] = 255;
+  }
+  return rgba;
+}
+
 async function decodeQr(buffer: Buffer): Promise<string | null> {
   /**
    * One pass was not enough in the field.
@@ -164,11 +196,11 @@ async function decodeQr(buffer: Buffer): Promise<string | null> {
     try {
       const { data, info } = await attempt
         .prepare(sharp(buffer).rotate()) // rotate: honour EXIF, a sideways QR will not decode
-        .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
 
-      const result = jsQR(new Uint8ClampedArray(data), info.width, info.height, {
+      const rgba = toRgba(data, info.channels, info.width * info.height);
+      const result = jsQR(rgba, info.width, info.height, {
         // A patch photographed against dark cloth can read as inverted.
         inversionAttempts: 'attemptBoth',
       });
@@ -215,11 +247,10 @@ async function decodeQr(buffer: Buffer): Promise<string | null> {
             .extract({ left, top, width, height })
             .greyscale()
             .normalise()
-            .ensureAlpha()
             .raw()
             .toBuffer({ resolveWithObject: true });
 
-          const hit = jsQR(new Uint8ClampedArray(data), info.width, info.height, {
+          const hit = jsQR(toRgba(data, info.channels, info.width * info.height), info.width, info.height, {
             inversionAttempts: 'attemptBoth',
           })?.data?.trim();
           if (hit) {
@@ -233,6 +264,42 @@ async function decodeQr(buffer: Buffer): Promise<string | null> {
     }
   } catch (error) {
     console.warn(`[attach-verify] tiled QR pass failed: ${(error as Error)?.message}`);
+  }
+
+  // AI Vision Fallback: if all local algorithmic scans fail, we ask Gemini
+  // to read the QR code. This gives us "super flexible" reading that handles
+  // poor lighting, weird angles, or minor occlusions that defeat jsQR.
+  try {
+    console.log('[attach-verify] Algorithmic QR passes failed, falling back to Gemini Vision');
+    
+    // Convert original buffer to base64 for Gemini
+    const base64Image = buffer.toString('base64');
+    
+    const prompt = `Read the text encoded in the QR code shown in this image.
+The QR code might be printed on a patch attached to a product.
+If you can read the QR code, reply ONLY with the exact decoded text (which is typically a URL or an ID).
+If you cannot read any QR code in the image, reply ONLY with the exact word NOT_FOUND.`;
+
+    const result = await generateContentWithFallback(
+      [
+        { text: prompt },
+        { inlineData: { data: base64Image, mimeType: 'image/jpeg' } },
+      ],
+      {
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+      ['gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.1-flash-lite']
+    );
+
+    const rawText = typeof result === 'string' ? result : (result as { text?: string })?.text || '';
+    const text = rawText.trim();
+    
+    if (text && text !== 'NOT_FOUND' && !text.includes('NOT_FOUND')) {
+      console.log(`[attach-verify] QR decoded via Gemini Vision fallback`);
+      return text;
+    }
+  } catch (error) {
+    console.warn(`[attach-verify] Gemini Vision QR fallback failed: ${(error as Error)?.message}`);
   }
 
   console.warn('[attach-verify] QR decode failed: no pass could read a code');
