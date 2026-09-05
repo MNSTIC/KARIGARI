@@ -61,6 +61,17 @@ function base64Payload(dataUrl: string): string {
 }
 
 /**
+ * The patch id inside decoded QR text, for the mismatch message.
+ *
+ * The code may be a gate URL, a passport URL, or a bare id, so this just picks
+ * out the `PATCH-…` token wherever it sits. Returns null when the QR is not
+ * one of ours at all — a different message entirely.
+ */
+function extractPatchId(decoded: string): string | null {
+  return decoded.match(/PATCH-[A-Z0-9-]+/i)?.[0] ?? null;
+}
+
+/**
  * The original capture may be stored three ways: an inline data URI (the normal
  * capture flow), an absolute URL, or a site-relative path like
  * `/ikat_saree.jpg` (seeded rows). Only the first is already base64, so the
@@ -432,9 +443,19 @@ export async function POST(req: Request) {
     }
     // The QR encodes the full verify URL; a bare patch id is accepted too.
     if (!decoded.includes(item.patchId)) {
+      // Name the code that was actually read. Saying only "a different item"
+      // gives the artisan nothing to act on when they are holding what they
+      // believe is the right sticker — and hid a real bug where re-approval
+      // silently re-minted the patch id under an already-printed patch.
+      const scannedPatch = extractPatchId(decoded);
+      console.warn(
+        `[attach-verify] patch mismatch on item ${item.id}: QR read "${decoded}" (patch ${scannedPatch ?? 'unrecognised'}), item expects "${item.patchId}"`
+      );
       return NextResponse.json({
         success: false,
-        reason: `That QR patch belongs to a different item. This piece needs patch ${item.patchId}.`,
+        reason: scannedPatch
+          ? `That QR is patch ${scannedPatch}, but this piece needs patch ${item.patchId}. Print the QR shown above and photograph that one.`
+          : `The QR in that photo does not carry a KARIGARI patch id. This piece needs patch ${item.patchId}.`,
       });
     }
 

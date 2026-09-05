@@ -45,7 +45,12 @@ export async function POST(req: Request) {
       // re-reading it inside the update loop would cost a second query each.
       const itemDetails = new Map<
         string,
-        { descriptionEnglish: string | null; aiGeneratedListing: string | null }
+        {
+          descriptionEnglish: string | null;
+          aiGeneratedListing: string | null;
+          /** Already minted on a previous approval. Never re-issued. */
+          patchId: string | null;
+        }
       >();
 
       for (const id of itemIds) {
@@ -55,14 +60,19 @@ export async function POST(req: Request) {
           itemDetails.set(id, {
             descriptionEnglish: item.descriptionEnglish,
             aiGeneratedListing: item.aiGeneratedListing,
+            patchId: item.patchId,
           });
         }
       }
 
       if (itemsToVerify.length === 0) return [];
       
-      if (admin.patchBankBalance < itemsToVerify.length) {
-        throw new Error(`Insufficient patch tags in bank. Need ${itemsToVerify.length}, have ${admin.patchBankBalance}`);
+      // A re-approval reuses the patch the piece already carries, so only the
+      // pieces without one draw a tag from the bank.
+      const newlyIssued = itemsToVerify.filter((id) => !itemDetails.get(id)?.patchId?.trim()).length;
+
+      if (admin.patchBankBalance < newlyIssued) {
+        throw new Error(`Insufficient patch tags in bank. Need ${newlyIssued}, have ${admin.patchBankBalance}`);
       }
 
       const updatedItems = [];
@@ -70,9 +80,20 @@ export async function POST(req: Request) {
         const id = itemsToVerify[i];
         const source = itemDetails.get(id);
 
-        // Generate mathematically unique patch ID: PATCH-[base36-timestamp]-[random]
+        /**
+         * Mint a patch id ONLY if this piece does not already have one.
+         *
+         * The id is timestamp-derived, so re-running approval on an item used
+         * to silently issue a different one — invalidating a patch the artisan
+         * had already printed and glued to the finished piece. They would then
+         * photograph the real, correct sticker and be told "that QR patch
+         * belongs to a different item", with no way to tell why. A patch id is
+         * the physical identity of an object in someone's hands; once issued
+         * it is permanent.
+         */
+        const existingPatchId = source?.patchId?.trim() || null;
         const uniqueSuffix = Date.now().toString(36).toUpperCase() + Math.floor(1000 + Math.random() * 9000).toString();
-        const generatedPatchId = `PATCH-${uniqueSuffix}`;
+        const generatedPatchId = existingPatchId ?? `PATCH-${uniqueSuffix}`;
 
         // Approval mints the patch id; it does NOT publish. The artisan has to
         // print this QR, attach it to the physical piece, re-photograph it and
@@ -110,8 +131,10 @@ export async function POST(req: Request) {
       await tx.user.update({
         where: { id: decoded.userId },
         data: {
-          patchBankBalance: { decrement: itemsToVerify.length },
-          patchBankIssued: { increment: itemsToVerify.length }
+          // Only pieces that consumed a NEW tag are charged. A re-approval
+          // reuses the existing patch and must not bill the bank twice.
+          patchBankBalance: { decrement: newlyIssued },
+          patchBankIssued: { increment: newlyIssued }
         }
       });
       
