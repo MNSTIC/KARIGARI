@@ -1082,6 +1082,10 @@ const dict: Record<string, string> = {
   /* Low-bandwidth mode */
   slow_connection_pill: "Slow connection — reduced media",
 
+  /* QR patch attach — what the decoder read vs what the piece needs */
+  qr_scanned_label: "QR in your photo",
+  qr_expected_label: "This piece needs",
+
   /* QR scan gate -> Digital Craft Passport */
   open_craft_passport: "Open Digital Craft Passport",
   opening_craft_passport: "Opening the Digital Craft Passport…",

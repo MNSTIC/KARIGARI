@@ -46,6 +46,12 @@ export function QrAttachModal({ isOpen, onClose, item, onVerified }: QrAttachMod
   const [photo, setPhoto] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
+  /**
+   * What the decoder actually read, when it read something that was not this
+   * piece's patch. Shown beside the expected id so an artisan holding a
+   * sticker can compare the two themselves instead of taking our word for it.
+   */
+  const [scanned, setScanned] = useState<{ got: string | null; expected: string | null } | null>(null);
   const [verified, setVerified] = useState(false);
 
   // Reset per item so a previous rejection never carries into the next piece.
@@ -54,6 +60,7 @@ export function QrAttachModal({ isOpen, onClose, item, onVerified }: QrAttachMod
     const kickoff = setTimeout(() => {
       setPhoto(null);
       setReason(null);
+      setScanned(null);
       setVerified(false);
       setSubmitting(false);
     }, 0);
@@ -117,6 +124,7 @@ export function QrAttachModal({ isOpen, onClose, item, onVerified }: QrAttachMod
     if (!photo) return;
     setSubmitting(true);
     setReason(null);
+    setScanned(null);
     try {
       const res = await fetch("/api/items/attach-verify", {
         method: "POST",
@@ -129,6 +137,11 @@ export function QrAttachModal({ isOpen, onClose, item, onVerified }: QrAttachMod
         onVerified();
       } else {
         setReason(data?.reason || t("qr_verify_failed"));
+        setScanned(
+          data?.expectedPatchId
+            ? { got: data.scannedPatchId ?? null, expected: data.expectedPatchId }
+            : null
+        );
       }
     } catch (error) {
       console.error("Patch verification failed:", error);
@@ -224,6 +237,7 @@ export function QrAttachModal({ isOpen, onClose, item, onVerified }: QrAttachMod
                       onClick={() => {
                         setPhoto(null);
                         setReason(null);
+                        setScanned(null);
                       }}
                       aria-label={t("remove")}
                       className="absolute top-2 right-2 p-2 bg-white/90 hover:bg-white rounded-full shadow-sm transition-colors"
@@ -259,6 +273,18 @@ export function QrAttachModal({ isOpen, onClose, item, onVerified }: QrAttachMod
                 <div className="flex items-start gap-2.5 rounded-xl border border-red-100 bg-red-50 p-4">
                   <AlertTriangle size={16} className="shrink-0 mt-0.5 text-red-700" />
                   <p className="text-sm text-red-700 leading-relaxed">{reason}</p>
+                  {scanned && (
+                    <dl className="mt-3 space-y-1 border-t border-red-200/70 pt-3 font-mono text-[11px] text-red-800">
+                      <div className="flex justify-between gap-3">
+                        <dt className="opacity-70">{t("qr_scanned_label")}</dt>
+                        <dd className="text-right break-all">{scanned.got ?? "—"}</dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt className="opacity-70">{t("qr_expected_label")}</dt>
+                        <dd className="text-right break-all">{scanned.expected}</dd>
+                      </div>
+                    </dl>
+                  )}
                 </div>
               )}
 

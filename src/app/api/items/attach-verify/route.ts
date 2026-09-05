@@ -441,20 +441,39 @@ export async function POST(req: Request) {
           'No QR code could be read in that photo. Make sure the printed patch is flat, well lit, and fully inside the frame.',
       });
     }
-    // The QR encodes the full verify URL; a bare patch id is accepted too.
-    if (!decoded.includes(item.patchId)) {
+    /**
+     * Does the scanned sticker identify THIS piece?
+     *
+     * Resolved, not substring-matched. `decoded.includes(item.patchId)` was
+     * brittle in both directions: it missed a match whenever the encoded form
+     * differed at all from the stored string — percent-encoding, a case
+     * difference, stray whitespace from the decoder — and it would equally
+     * have accepted a longer id that merely CONTAINED this one. Pulling the
+     * `PATCH-…` token out of whatever form the QR carries (gate URL, legacy
+     * passport URL, or a bare code) and comparing the two ids directly is
+     * exact in both directions.
+     */
+    const scannedPatchId = extractPatchId(decoded);
+    const samePatch =
+      scannedPatchId !== null &&
+      scannedPatchId.trim().toUpperCase() === item.patchId.trim().toUpperCase();
+
+    if (!samePatch) {
       // Name the code that was actually read. Saying only "a different item"
       // gives the artisan nothing to act on when they are holding what they
       // believe is the right sticker — and hid a real bug where re-approval
       // silently re-minted the patch id under an already-printed patch.
-      const scannedPatch = extractPatchId(decoded);
       console.warn(
-        `[attach-verify] patch mismatch on item ${item.id}: QR read "${decoded}" (patch ${scannedPatch ?? 'unrecognised'}), item expects "${item.patchId}"`
+        `[attach-verify] patch mismatch on item ${item.id}: QR read "${decoded}" (patch ${scannedPatchId ?? 'unrecognised'}), item expects "${item.patchId}"`
       );
       return NextResponse.json({
         success: false,
-        reason: scannedPatch
-          ? `That QR is patch ${scannedPatch}, but this piece needs patch ${item.patchId}. Print the QR shown above and photograph that one.`
+        // The decoded value goes back to the client too, so the artisan can see
+        // what the camera actually read instead of guessing.
+        scannedPatchId,
+        expectedPatchId: item.patchId,
+        reason: scannedPatchId
+          ? `That QR is patch ${scannedPatchId}, but this piece needs patch ${item.patchId}. Print the QR shown above and photograph that one.`
           : `The QR in that photo does not carry a KARIGARI patch id. This piece needs patch ${item.patchId}.`,
       });
     }
