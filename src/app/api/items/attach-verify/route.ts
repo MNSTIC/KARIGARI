@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 import jsQR from 'jsqr';
-import sharp from 'sharp';
+import sharp, { type Sharp } from 'sharp';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { generateContentWithFallback } from '@/lib/gemini';
@@ -114,20 +114,129 @@ async function downscaleForVision(base64: string): Promise<string> {
  * gain. 1600px on the long edge still resolves a printed patch comfortably.
  */
 async function decodeQr(buffer: Buffer): Promise<string | null> {
-  try {
-    const { data, info } = await sharp(buffer)
-      .rotate() // honour EXIF orientation; a sideways QR will not decode
-      .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
+  /**
+   * One pass was not enough in the field.
+   *
+   * A patch is printed on paper and then photographed lying on the product —
+   * a red patterned saree in sunlight, a brass surface, handloom texture. The
+   * background is busy and the local contrast around the code is poor, which
+   * is exactly what defeats jsQR's binariser even when the code is perfectly
+   * sharp and fully in frame to a human eye. The artisan then gets told their
+   * photo has no QR in it, which is not true and leaves them stuck: the piece
+   * cannot become SELLABLE without this step.
+   *
+   * So we try a short ladder of preparations and stop at the first that
+   * decodes. Each is cheap at these sizes; the whole ladder is far cheaper
+   * than a failed verification the artisan has to retry by hand.
+   */
+  const attempts: { label: string; prepare: (input: Sharp) => Sharp }[] = [
+    // As shot, just size-capped. Fastest and enough for a clean scan.
+    { label: '1600', prepare: (s) => s.resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true }) },
+    // Greyscale + histogram stretch: the single biggest win on a coloured or
+    // unevenly lit background, which is the common failure.
+    {
+      label: '1600-normalised',
+      prepare: (s) =>
+        s.resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true }).greyscale().normalise(),
+    },
+    // Larger, for a patch that is small within the frame — a saree photographed
+    // whole leaves the code only a couple of hundred pixels wide at 1600.
+    {
+      label: '2600-normalised',
+      prepare: (s) =>
+        s.resize({ width: 2600, height: 2600, fit: 'inside', withoutEnlargement: true }).greyscale().normalise(),
+    },
+    // Hard contrast: pushes a washed-out or shadowed print towards true black
+    // and white when the stretch alone did not separate the modules.
+    {
+      label: '2000-hard-contrast',
+      prepare: (s) =>
+        s
+          .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
+          .greyscale()
+          .normalise()
+          .linear(1.8, -70)
+          .sharpen(),
+    },
+  ];
 
-    const result = jsQR(new Uint8ClampedArray(data), info.width, info.height);
-    return result?.data?.trim() || null;
-  } catch (error) {
-    console.warn('[attach-verify] QR decode failed:', (error as Error)?.message);
-    return null;
+  for (const attempt of attempts) {
+    try {
+      const { data, info } = await attempt
+        .prepare(sharp(buffer).rotate()) // rotate: honour EXIF, a sideways QR will not decode
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      const result = jsQR(new Uint8ClampedArray(data), info.width, info.height, {
+        // A patch photographed against dark cloth can read as inverted.
+        inversionAttempts: 'attemptBoth',
+      });
+      const text = result?.data?.trim();
+      if (text) {
+        console.log(`[attach-verify] QR decoded on pass "${attempt.label}"`);
+        return text;
+      }
+    } catch (error) {
+      // A single failed preparation is not fatal — try the next one.
+      console.warn(
+        `[attach-verify] QR pass "${attempt.label}" failed: ${(error as Error)?.message}`
+      );
+    }
   }
+
+  // Last resort: scan overlapping crops at NATIVE resolution.
+  //
+  // Every pass above downscales the whole frame to fit jsQR's cost. A patch
+  // that occupies a tenth of a 4000px photo is only ~40px wide once the frame
+  // is squeezed to 1600 — below what any decoder can resolve. Cropping instead
+  // of scaling keeps those modules at full size, at the cost of a few more
+  // scans over smaller buffers.
+  try {
+    const rotated = await sharp(buffer).rotate().toBuffer({ resolveWithObject: true });
+    const { width: W, height: H } = rotated.info;
+    const COLS = 3;
+    const ROWS = 3;
+    // 1.4x overlap so a code straddling a tile boundary still lands whole
+    // inside a neighbouring tile.
+    const tileW = Math.ceil((W / COLS) * 1.4);
+    const tileH = Math.ceil((H / ROWS) * 1.4);
+
+    for (let row = 0; row < ROWS; row += 1) {
+      for (let col = 0; col < COLS; col += 1) {
+        const left = Math.max(0, Math.min(W - 1, Math.round((col * (W - tileW)) / (COLS - 1))));
+        const top = Math.max(0, Math.min(H - 1, Math.round((row * (H - tileH)) / (ROWS - 1))));
+        const width = Math.min(tileW, W - left);
+        const height = Math.min(tileH, H - top);
+        if (width < 80 || height < 80) continue;
+
+        try {
+          const { data, info } = await sharp(rotated.data)
+            .extract({ left, top, width, height })
+            .greyscale()
+            .normalise()
+            .ensureAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+
+          const hit = jsQR(new Uint8ClampedArray(data), info.width, info.height, {
+            inversionAttempts: 'attemptBoth',
+          })?.data?.trim();
+          if (hit) {
+            console.log(`[attach-verify] QR decoded on native-resolution tile r${row}c${col}`);
+            return hit;
+          }
+        } catch {
+          // One bad tile must not abandon the rest of the grid.
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`[attach-verify] tiled QR pass failed: ${(error as Error)?.message}`);
+  }
+
+  console.warn('[attach-verify] QR decode failed: no pass could read a code');
+  return null;
 }
 
 interface SameItemVerdict {
