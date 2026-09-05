@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import QRCode from "react-qr-code";
-import { buildPatchVerifyUrl, SCAN_QUERY_KEY, SCAN_QUERY_VALUE } from "@/lib/qrPatch";
+import { buildPatchScanUrl, PATCH_QUERY_KEY, SCAN_QUERY_KEY, SCAN_QUERY_VALUE, VERIFY_GATE_PATH } from "@/lib/qrPatch";
 import {
   AlertTriangle,
   Camera,
@@ -63,15 +63,15 @@ export function QrAttachModal({ isOpen, onClose, item, onVerified }: QrAttachMod
   if (!isOpen || !item) return null;
 
   const patchId = item.patchId || "";
-  // The QR resolves to the public passport, so a buyer scanning the physical
-  // product lands on this exact item's provenance page. `?scan=1` marks the QR
-  // (rather than a typed visit) as the source — an external scan still opens
-  // the passport exactly as before, and an in-app scan can trust the patch id
-  // it decoded out of the path segment.
+  // The QR resolves to the VERIFICATION GATE, not straight to the passport.
+  // Whoever scans the physical sticker — Google Lens, a phone camera, any
+  // generic reader — lands on /buyer/verify carrying this piece's patch id,
+  // and has to show they are holding the object before the provenance,
+  // pricing and artisan story open. See src/lib/qrPatch.ts.
   const verifyUrl =
     typeof window !== "undefined"
-      ? buildPatchVerifyUrl(window.location.origin, patchId)
-      : `/verify/${patchId}?${SCAN_QUERY_KEY}=${SCAN_QUERY_VALUE}`;
+      ? buildPatchScanUrl(window.location.origin, patchId)
+      : `${VERIFY_GATE_PATH}?${PATCH_QUERY_KEY}=${patchId}&${SCAN_QUERY_KEY}=${SCAN_QUERY_VALUE}`;
 
   /** Rasterise the inline SVG to a PNG the artisan can print. */
   const downloadQr = () => {

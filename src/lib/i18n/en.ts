@@ -1082,6 +1082,12 @@ const dict: Record<string, string> = {
   /* Low-bandwidth mode */
   slow_connection_pill: "Slow connection — reduced media",
 
+  /* QR scan gate -> Digital Craft Passport */
+  open_craft_passport: "Open Digital Craft Passport",
+  opening_craft_passport: "Opening the Digital Craft Passport…",
+  scan_gate_lede:
+    "This QR belongs to a real KARIGARI piece. Add a photo of the product with its patch to confirm you are holding it, and the full craft passport will open.",
+
   /* Capture Step 2 — the AI photo check could not run (not a rejection) */
   vision_unavailable_title: "Photo check unavailable",
   vision_unavailable_body:

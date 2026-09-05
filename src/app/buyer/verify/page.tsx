@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Camera, ImagePlus, Loader2, ShieldAlert, ShieldCheck } from "lucide-react";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import { QrScanModal } from "@/components/QrScanModal";
@@ -12,6 +13,7 @@ import {
   type BuyerVerifyResultShape,
 } from "@/components/BuyerVerifyResult";
 import { DEFAULT_BUYER, readBuyerContact, readBuyerName } from "@/lib/buyerIdentity";
+import { buildPassportUrl } from "@/lib/qrPatch";
 import { useLanguage } from "@/lib/translations";
 import { MAX_UPLOAD_BYTES, readFileAsDataUrl } from "@/lib/fileToDataUrl";
 import { prepareImage } from "@/lib/clientImagePrep";
@@ -33,6 +35,13 @@ import { cn } from "@/lib/utils";
 /* The 2 MB ceiling and the reader are shared with every other upload surface —
    see src/lib/fileToDataUrl.ts. */
 
+/**
+ * How long the passing result card stays on screen before the passport opens.
+ * Long enough to read the checks, short enough that it still feels like one
+ * continuous "scan -> proof -> provenance" flow.
+ */
+const PASSPORT_FORWARD_MS = 3500;
+
 export default function BuyerVerifyPage() {
   const { t } = useLanguage();
 
@@ -53,6 +62,27 @@ export default function BuyerVerifyPage() {
 
   const [reporting, setReporting] = useState(false);
   const [ticketId, setTicketId] = useState<string | null>(null);
+  /** Set once a scan passes; drives the countdown to the passport. */
+  const [forwarding, setForwarding] = useState(false);
+
+  const router = useRouter();
+
+  /**
+   * Forward to the Digital Craft Passport after a passing scan.
+   *
+   * The QR sticker points here, not at the passport, so this is the step that
+   * actually opens provenance to someone holding the piece. Cleared on unmount
+   * so a buyer who navigates away mid-countdown is not yanked back.
+   */
+  useEffect(() => {
+    if (!forwarding) return;
+    const code = patchId.trim();
+    if (!code) return;
+    const timer = setTimeout(() => {
+      router.push(buildPassportUrl(window.location.origin, code));
+    }, PASSPORT_FORWARD_MS);
+    return () => clearTimeout(timer);
+  }, [forwarding, patchId, router]);
 
   // Identity + deep-link params are read in a deferred effect rather than via
   // useSearchParams, so this fully client page needs no Suspense boundary —
@@ -133,6 +163,19 @@ export default function BuyerVerifyPage() {
       });
       setCraftItemId(typeof data.craftItemId === "string" ? data.craftItemId : null);
       setTicketId(null);
+
+      // A passing scan is what unlocks the passport. The forward is delayed a
+      // few seconds on purpose: the three/four-check card is the evidence the
+      // person is entitled to see, and yanking them away instantly would hide
+      // the very thing they scanned to find out.
+      const passed =
+        Boolean(data.patchIdValid) &&
+        Boolean(data.productMatch) &&
+        Boolean(data.artisanMatch) &&
+        (!data.qrChecked || Boolean(data.qrValid));
+      if (passed) {
+        setForwarding(true);
+      }
     } catch (e) {
       console.error("Verify failed:", e);
       setError(t("verification_failed"));
@@ -199,7 +242,11 @@ export default function BuyerVerifyPage() {
         <h1 className="kg-display text-[28px] leading-tight text-gray-900 sm:text-[34px]">
           {t("scan_verify_title")}
         </h1>
-        <p className="mt-2 text-sm leading-relaxed text-gray-500">{t("scan_verify_lede")}</p>
+        <p className="mt-2 text-sm leading-relaxed text-gray-500">
+          {/* Someone who arrived by scanning the sticker needs to be told what
+              this gate is and why it stands between them and the passport. */}
+          {scannedPatchId ? t("scan_gate_lede") : t("scan_verify_lede")}
+        </p>
 
         <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-card">
           {/* ---------------- patch id ---------------- */}
@@ -278,6 +325,27 @@ export default function BuyerVerifyPage() {
         {result && (
           <div className="mt-6 space-y-4">
             <BuyerVerifyResult result={result} patchId={patchId.trim()} t={t} />
+
+            {/* Passed — this is what the QR was for. The link is always here
+                so nobody has to wait out the countdown, and the countdown is
+                there so a scan that passes still ends up on the passport
+                without a second tap. */}
+            {isFullyVerified(result) && patchId.trim() && (
+              <div className="rounded-xl border border-[var(--color-sage)] bg-[var(--color-mint)] p-4">
+                <Link
+                  href={`/verify/${encodeURIComponent(patchId.trim())}?scan=1`}
+                  className="kg-press inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-bold text-white hover:bg-primary-dark"
+                >
+                  <ShieldCheck size={16} /> {t("open_craft_passport")}
+                </Link>
+                {forwarding && (
+                  <p className="mt-2 flex items-center justify-center gap-2 text-[11px] font-medium text-primary/80">
+                    <Loader2 size={11} className="animate-spin" />
+                    {t("opening_craft_passport")}
+                  </p>
+                )}
+              </div>
+            )}
 
             {canReport && (
               <button
