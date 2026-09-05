@@ -26,7 +26,76 @@
 const BG_REMOVAL_TIMEOUT_MS = 12000;
 
 /** Long edge of the processed image. Keeps the base64 payload sane. */
-const MAX_EDGE = 1400;
+const MAX_EDGE = 1200;
+
+/**
+ * Histogram and white-balance statistics are read from a thumbnail, not the
+ * full frame.
+ *
+ * The numbers this pass needs — channel averages and a 2nd/98th percentile
+ * luminance cut — are image-wide aggregates. Computing them over 1.4 million
+ * pixels instead of 65 thousand changes the result by well under one greyscale
+ * level while costing ~20x the time, on the main thread, in front of an artisan
+ * waiting to photograph a saree.
+ */
+const STATS_MAX_EDGE = 256;
+
+/**
+ * Above this pixel count the sharpen pass is skipped.
+ *
+ * The 3x3 convolution is O(pixels x 9 x 3) in plain JS. At the old 1400px cap
+ * that is ~53 million multiply-adds in a single synchronous loop — seconds of
+ * frozen tab on a mid-range laptop, and the "This page isn't responding"
+ * dialog on anything weaker. Sharpening is a cosmetic nicety; being able to
+ * complete a capture is not.
+ */
+const SHARPEN_MAX_PIXELS = 480_000;
+
+/** Hand control back to the browser so it can paint between heavy passes. */
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Is this device worth asking to run a 24 MB ONNX matting model?
+ *
+ * `deviceMemory` and `hardwareConcurrency` are advisory and absent on Safari,
+ * where we assume capable rather than punishing every iPhone. `saveData` and a
+ * 2g `effectiveType` are explicit user/network signals and are honoured.
+ */
+function canRunBackgroundRemoval(): boolean {
+  if (typeof navigator === 'undefined') return false;
+
+  const nav = navigator as Navigator & {
+    deviceMemory?: number;
+    connection?: { effectiveType?: string; saveData?: boolean };
+    gpu?: unknown;
+  };
+
+  /**
+   * WebGPU is the hard requirement, and it is not about speed.
+   *
+   * `@imgly/background-removal` only honours `proxyToWorker` when WebGPU is
+   * available (`proxyToWorker = useWebGPU && config.proxyToWorker` in its
+   * bundle). Without it the ONNX session runs on the main thread, and no
+   * timeout can rescue that: `Promise.race` stops us waiting but cannot stop
+   * the model computing, so the tab stays frozen and the browser shows
+   * "This page isn't responding" mid-capture. Running the model only when it
+   * can be moved off the main thread is the difference between a nicer photo
+   * and an artisan who cannot list their work at all.
+   */
+  if (!nav.gpu) return false;
+
+  if (nav.connection?.saveData) return false;
+  const effectiveType = nav.connection?.effectiveType;
+  if (effectiveType === 'slow-2g' || effectiveType === '2g' || effectiveType === '3g') return false;
+
+  // Reported in GiB, rounded down to a power of two. 4 is a mid-range phone.
+  if (typeof nav.deviceMemory === 'number' && nav.deviceMemory < 4) return false;
+  if (typeof nav.hardwareConcurrency === 'number' && nav.hardwareConcurrency < 4) return false;
+
+  return true;
+}
 
 /** Long edge for anything stored on the item. See `downscaleImage`. */
 export const STORED_MAX_EDGE = 1280;
@@ -85,6 +154,10 @@ async function enhanceOnCanvas(source: string): Promise<string> {
   ctx.fillRect(0, 0, width, height);
   ctx.drawImage(image, 0, 0, width, height);
 
+  // Statistics come from a thumbnail — see STATS_MAX_EDGE. Everything below
+  // that reads `stats` used to walk the full-resolution buffer twice.
+  const stats = sampleStats(image);
+
   const frame = ctx.getImageData(0, 0, width, height);
   const px = frame.data;
 
@@ -93,18 +166,7 @@ async function enhanceOnCanvas(source: string): Promise<string> {
   // grey-world assumption says a varied scene should average to neutral grey,
   // so scaling each channel toward the mean of the three removes the cast
   // without needing a reference card in the frame.
-  let sumR = 0;
-  let sumG = 0;
-  let sumB = 0;
-  for (let i = 0; i < px.length; i += 4) {
-    sumR += px[i];
-    sumG += px[i + 1];
-    sumB += px[i + 2];
-  }
-  const pixels = px.length / 4;
-  const avgR = sumR / pixels;
-  const avgG = sumG / pixels;
-  const avgB = sumB / pixels;
+  const { avgR, avgG, avgB } = stats;
   const grey = (avgR + avgG + avgB) / 3;
 
   // Only correct a cast worth correcting, and clamp the gain: an image that is
@@ -125,23 +187,9 @@ async function enhanceOnCanvas(source: string): Promise<string> {
   // --- Pass 1: brightness/contrast normalisation -------------------------
   // Stretch the luminance histogram between its 2nd and 98th percentile, so a
   // photo shot in a dim workshop gains range without blowing out highlights.
-  const histogram = new Uint32Array(256);
-  for (let i = 0; i < px.length; i += 4) {
-    const luma = (px[i] * 299 + px[i + 1] * 587 + px[i + 2] * 114) / 1000;
-    histogram[Math.max(0, Math.min(255, Math.round(luma)))] += 1;
-  }
-
-  const total = width * height;
-  const lowCut = total * 0.02;
-  const highCut = total * 0.98;
-  let cumulative = 0;
-  let low = 0;
-  let high = 255;
-  for (let level = 0; level < 256; level += 1) {
-    cumulative += histogram[level];
-    if (cumulative <= lowCut) low = level;
-    if (cumulative <= highCut) high = level;
-  }
+  // The histogram is the thumbnail's, for the reason given at STATS_MAX_EDGE.
+  let low = stats.low;
+  let high = stats.high;
   if (high - low < 16) {
     low = 0;
     high = 255; // Degenerate histogram (a near-flat image) — leave levels alone.
@@ -166,27 +214,101 @@ async function enhanceOnCanvas(source: string): Promise<string> {
 
   // --- Pass 2: mild sharpen ----------------------------------------------
   // 3x3 convolution, applied to a copy so neighbours are read pre-sharpen.
-  const source32 = new Uint8ClampedArray(px);
-  const kernel = [0, -0.25, 0, -0.25, 2, -0.25, 0, -0.25, 0];
-  for (let y = 1; y < height - 1; y += 1) {
-    for (let x = 1; x < width - 1; x += 1) {
-      const centre = (y * width + x) * 4;
-      for (let channel = 0; channel < 3; channel += 1) {
-        let sum = 0;
-        let k = 0;
-        for (let ky = -1; ky <= 1; ky += 1) {
-          for (let kx = -1; kx <= 1; kx += 1) {
-            sum += source32[((y + ky) * width + (x + kx)) * 4 + channel] * kernel[k];
-            k += 1;
+  // Skipped above SHARPEN_MAX_PIXELS: this is the single most expensive thing
+  // in the capture flow and it is the one step nobody misses.
+  if (width * height <= SHARPEN_MAX_PIXELS) {
+    // Let the browser paint the levels result before starting the convolution.
+    ctx.putImageData(frame, 0, 0);
+    await yieldToBrowser();
+
+    const source32 = new Uint8ClampedArray(px);
+    const kernel = [0, -0.25, 0, -0.25, 2, -0.25, 0, -0.25, 0];
+    for (let y = 1; y < height - 1; y += 1) {
+      for (let x = 1; x < width - 1; x += 1) {
+        const centre = (y * width + x) * 4;
+        for (let channel = 0; channel < 3; channel += 1) {
+          let sum = 0;
+          let k = 0;
+          for (let ky = -1; ky <= 1; ky += 1) {
+            for (let kx = -1; kx <= 1; kx += 1) {
+              sum += source32[((y + ky) * width + (x + kx)) * 4 + channel] * kernel[k];
+              k += 1;
+            }
           }
+          px[centre + channel] = sum;
         }
-        px[centre + channel] = sum;
       }
     }
   }
 
   ctx.putImageData(frame, 0, 0);
   return canvas.toDataURL('image/jpeg', 0.9);
+}
+
+/**
+ * Channel averages and the luminance percentile cuts, read from a thumbnail.
+ *
+ * One small `drawImage` plus a ~65k-pixel walk replaces two full-resolution
+ * passes over the working buffer. The browser's own downscale is doing the
+ * averaging for us, which is exactly what an aggregate wants.
+ */
+function sampleStats(image: HTMLImageElement): {
+  avgR: number;
+  avgG: number;
+  avgB: number;
+  low: number;
+  high: number;
+} {
+  const fallback = { avgR: 128, avgG: 128, avgB: 128, low: 0, high: 255 };
+
+  const scale = Math.min(1, STATS_MAX_EDGE / Math.max(image.width, image.height));
+  const w = Math.max(1, Math.round(image.width * scale));
+  const h = Math.max(1, Math.round(image.height * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return fallback;
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(image, 0, 0, w, h);
+
+  let data: Uint8ClampedArray;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    // Tainted canvas (a cross-origin source) — enhance without stats rather
+    // than failing the capture.
+    return fallback;
+  }
+
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  const histogram = new Uint32Array(256);
+  for (let i = 0; i < data.length; i += 4) {
+    sumR += data[i];
+    sumG += data[i + 1];
+    sumB += data[i + 2];
+    const luma = (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
+    histogram[Math.max(0, Math.min(255, Math.round(luma)))] += 1;
+  }
+
+  const pixels = data.length / 4;
+  const lowCut = pixels * 0.02;
+  const highCut = pixels * 0.98;
+  let cumulative = 0;
+  let low = 0;
+  let high = 255;
+  for (let level = 0; level < 256; level += 1) {
+    cumulative += histogram[level];
+    if (cumulative <= lowCut) low = level;
+    if (cumulative <= highCut) high = level;
+  }
+
+  return { avgR: sumR / pixels, avgG: sumG / pixels, avgB: sumB / pixels, low, high };
 }
 
 /**
@@ -284,6 +406,22 @@ export async function downscaleImage(
 export async function enhanceProductPhoto(dataUrl: string): Promise<EnhanceResult> {
   let cutout: string | null = null;
 
+  // The model is a 24 MB download and its inference runs on the main thread.
+  // On a device that cannot absorb that, the tab stops responding and the
+  // artisan cannot finish a capture at all — which is strictly worse than a
+  // photo with its original background. Decided BEFORE any work starts,
+  // because `Promise.race` below can stop us *waiting* but cannot stop the
+  // model burning CPU once it has begun.
+  if (!canRunBackgroundRemoval()) {
+    console.info('[imageEnhance] background removal skipped: device or network too constrained');
+    try {
+      const enhanced = await enhanceOnCanvas(dataUrl);
+      return { dataUrl: enhanced, backgroundRemoved: false };
+    } catch {
+      return { dataUrl, backgroundRemoved: false };
+    }
+  }
+
   try {
     const blob = await dataUrlToBlob(dataUrl);
 
@@ -297,6 +435,12 @@ export async function enhanceProductPhoto(dataUrl: string): Promise<EnhanceResul
         // contact shadow below.
         model: 'isnet',
         output: { format: 'image/png', quality: 0.9 },
+        // Run the session in a worker on the GPU. Both are required for the
+        // main thread to stay free — see canRunBackgroundRemoval(), which
+        // refuses to start at all unless WebGPU is present, because the
+        // library silently ignores proxyToWorker without it.
+        device: 'gpu',
+        proxyToWorker: true,
       })
     );
 

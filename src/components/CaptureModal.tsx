@@ -413,11 +413,39 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
             craftType,
           })
         });
-        return res.json();
+        // `res.ok` is carried through deliberately: a 5xx means the CHECK
+        // could not run, which is a very different thing from the model
+        // looking at the photo and saying no. See the branch below.
+        const payload = await res.json().catch(() => ({}));
+        return { ok: res.ok, data: payload };
       })
-      .then(data => {
+      .then(({ ok, data }) => {
         setIsVerifyingVision(false);
         setIsEnhancingImage(false);
+
+        /**
+         * The AI check was unavailable — not a rejection.
+         *
+         * A 5xx from vision-verify means Gemini was out of quota, overloaded,
+         * or the route threw. Blocking the artisan on that made the capture
+         * unfinishable: `visionRejected` also guards this effect, so it never
+         * retried and Next stayed disabled forever. The rest of this app
+         * degrades gracefully when the AI is down, and capture — the one flow
+         * an artisan cannot work around — must too.
+         */
+        if (!ok || typeof data?.success !== 'boolean') {
+          setIsVisionVerified(true);
+          setVisionRejected(false);
+          setRejectionReason("");
+          setCraftDetails((prev) => prev || englishDescription);
+          setNotice({
+            tone: 'warning',
+            title: t('vision_unavailable_title'),
+            body: t('vision_unavailable_body'),
+          });
+          return;
+        }
+
         if (data.success && data.data?.isVerified) {
           setIsVisionVerified(true);
           setVisionRejected(false);
@@ -446,11 +474,20 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
         }
       })
       .catch(err => {
+        // A thrown request (offline, DNS, aborted) is the same class as a 5xx:
+        // the check did not run, so it cannot be treated as a verdict.
         console.error(err);
         setIsVerifyingVision(false);
         setIsEnhancingImage(false);
-        setVisionRejected(true);
-        setRejectionReason(t('vision_check_failed'));
+        setIsVisionVerified(true);
+        setVisionRejected(false);
+        setRejectionReason("");
+        setCraftDetails((prev) => prev || englishDescription);
+        setNotice({
+          tone: 'warning',
+          title: t('vision_unavailable_title'),
+          body: t('vision_unavailable_body'),
+        });
       });
     }
   }, [images, isVisionVerified, isVerifyingVision, visionRejected, step, englishDescription, language, t, craftType]);

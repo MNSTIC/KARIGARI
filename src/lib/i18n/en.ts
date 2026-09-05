@@ -1081,6 +1081,11 @@ const dict: Record<string, string> = {
 
   /* Low-bandwidth mode */
   slow_connection_pill: "Slow connection — reduced media",
+
+  /* Capture Step 2 — the AI photo check could not run (not a rejection) */
+  vision_unavailable_title: "Photo check unavailable",
+  vision_unavailable_body:
+    "The AI could not check this photo right now, so we have kept it as it is. You can carry on — an admin will review the photo before your piece is listed.",
 };
 
 export default dict;
