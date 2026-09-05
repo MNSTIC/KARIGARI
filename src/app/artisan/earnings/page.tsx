@@ -374,7 +374,7 @@ export default function EarningsPage() {
                       alt=""
                       fill
                       sizes="48px"
-                      unoptimized={item.thumbnail.startsWith("data:")}
+                      unoptimized={item.thumbnail.startsWith("data:") || item.thumbnail.startsWith("/api/")}
                       className="object-cover"
                     />
                   ) : (
@@ -478,7 +478,7 @@ function MostSoldCard({
               alt=""
               fill
               sizes="64px"
-              unoptimized={product.image.startsWith("data:")}
+              unoptimized={product.image.startsWith("data:") || product.image.startsWith("/api/")}
               className="object-cover"
             />
           </span>

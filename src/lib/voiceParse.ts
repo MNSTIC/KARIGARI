@@ -386,32 +386,38 @@ export async function parseCraftSpeech(
 ): Promise<ParsedCraftSpeech> {
   const spoken = (transcript ?? '').trim();
 
-  // Gemini is the primary parser for the capture/draft path: it is the model
-  // this project has tuned the craft-valuation prompt against, and the same
-  // function backs the toll-free IVR, so both must read a sentence the same
-  // way. Groq stays as the fallback for when Gemini is unreachable.
+  // Groq FIRST. This is a text-only JSON classification — exactly what Groq's
+  // small models are fastest at — and the artisan is watching a spinner while
+  // it runs. Measured on this account: Groq answers this prompt in ~0.8-1.2s
+  // against Gemini's 4-19s, because every Gemini call currently walks past at
+  // least one 503/429 model before it lands. Gemini stays as the fallback so
+  // the parse quality this prompt was tuned against is still reachable when
+  // Groq is unconfigured or refuses.
+  const groq = await parseWithGroq(spoken, targetLanguage);
+  if (groq) {
+    return shape(groq, spoken, 'groq');
+  }
+
   try {
     const response = await generateContentWithFallback(
       buildPrompt(spoken, targetLanguage),
-      { responseMimeType: 'application/json' },
-      CAPTURE_MODELS
+      {
+        responseMimeType: 'application/json',
+        // Structuring a sentence into fields needs no reasoning budget.
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+      { models: CAPTURE_MODELS }
     );
 
     const raw = response.text;
     if (!raw) throw new Error('Empty response from Gemini');
 
-    const parsed = JSON.parse(
-      raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
-    );
+    // JSON mime is enforced above, so the reply is already bare JSON.
+    const parsed = JSON.parse(raw.trim());
 
     return shape(parsed, spoken, 'gemini');
   } catch (error) {
-    console.warn('Gemini craft parse failed, trying Groq:', (error as Error)?.message);
-  }
-
-  const groq = await parseWithGroq(spoken, targetLanguage);
-  if (groq) {
-    return shape(groq, spoken, 'groq');
+    console.warn('Gemini craft parse failed after Groq:', (error as Error)?.message);
   }
 
   // Both models were unreachable. The artisan's own words still survive as

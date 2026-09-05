@@ -4,18 +4,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
+  Camera,
   CheckCircle2,
   ClipboardList,
   ImagePlus,
   Loader2,
   Package,
-  QrCode,
   ShieldCheck,
   ShoppingBag,
   Truck,
-  XCircle,
 } from "lucide-react";
 import { OrderTimeline, type TrackPayload } from "@/components/ui/OrderTimeline";
+import { QrScanModal } from "@/components/QrScanModal";
+import {
+  BuyerVerifyResult,
+  type BuyerVerifyResultShape,
+} from "@/components/BuyerVerifyResult";
+import { MAX_UPLOAD_BYTES, readFileAsDataUrl } from "@/lib/fileToDataUrl";
+import { prepareImage } from "@/lib/clientImagePrep";
 import { ORDER_STAGE_KEYS, stageIndex, type OrderStage } from "@/lib/orderStage";
 import { formatRupees } from "@/lib/pricing";
 import { useLanguage } from "@/lib/translations";
@@ -32,6 +38,15 @@ export interface DailyUpdate {
   note: string | null;
   imageUrl: string | null;
   createdAt: string;
+}
+
+/** A dispute this buyer raised against a piece in this order. */
+export interface OrderTicket {
+  id: string;
+  /** OPEN | RESOLVED_GUILTY | RESOLVED_NOT_GUILTY | DISCARDED */
+  status: string;
+  adminNote: string | null;
+  resolvedAt: string | null;
 }
 
 export interface BuyerOrder extends TrackPayload {
@@ -64,15 +79,9 @@ export interface BuyerOrder extends TrackPayload {
   deliveryVerifiedAt: string | null;
   deliveryScanPatchId: string | null;
   deliveryScanScore: number | null;
-}
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+  /** Disputes this buyer raised against pieces in this order. */
+  tickets: OrderTicket[];
 }
 
 function shortDate(iso: string): string {
@@ -128,20 +137,15 @@ export function BuyerOrders({
   >({});
   /** Last verification response per demand — shows the 3-check card inline. */
   const [verifyResults, setVerifyResults] = useState<
-    Record<
-      string,
-      {
-        patchIdValid: boolean;
-        productMatch: boolean;
-        artisanMatch: boolean;
-        similarityScore: number;
-        reasoning: string;
-        artisanName: string | null;
-      }
-    >
+    Record<string, BuyerVerifyResultShape>
   >({});
 
-  const setVerifyPatch = (demandId: string, patchId: string) =>
+  /** Which order's inline scanner sheet is open, if any. */
+  const [scannerFor, setScannerFor] = useState<string | null>(null);
+  /** Patch ids that arrived from a QR, so the API can run the qrValid check. */
+  const [scannedPatchIds, setScannedPatchIds] = useState<Record<string, string>>({});
+
+  const setVerifyPatch = (demandId: string, patchId: string) => {
     setVerifyDrafts((prev) => ({
       ...prev,
       [demandId]: {
@@ -150,14 +154,49 @@ export function BuyerOrders({
         busy: prev[demandId]?.busy ?? false,
       },
     }));
+    // A hand-edited code is no longer a scanned one — drop the QR claim so the
+    // fourth check is not asserted against a value the buyer typed over.
+    setScannedPatchIds((prev) => {
+      if (!(demandId in prev)) return prev;
+      const next = { ...prev };
+      delete next[demandId];
+      return next;
+    });
+  };
+
+  /** A QR decoded inside the sheet: fill the code AND remember it was scanned. */
+  const onScannedPatchId = useCallback((demandId: string, scanned: string) => {
+    setVerifyDrafts((prev) => ({
+      ...prev,
+      [demandId]: {
+        patchId: scanned,
+        image: prev[demandId]?.image ?? null,
+        busy: prev[demandId]?.busy ?? false,
+      },
+    }));
+    setScannedPatchIds((prev) => ({ ...prev, [demandId]: scanned }));
+  }, []);
+
+  /** A photo captured or picked inside the sheet. */
+  const onScannedPhoto = useCallback((demandId: string, dataUrl: string) => {
+    setVerifyDrafts((prev) => ({
+      ...prev,
+      [demandId]: {
+        patchId: prev[demandId]?.patchId ?? "",
+        image: dataUrl,
+        busy: prev[demandId]?.busy ?? false,
+      },
+    }));
+  }, []);
 
   const setVerifyImage = async (demandId: string, file: File | null) => {
     if (!file) return;
-    if (file.size > 2_000_000) {
+    if (file.size > MAX_UPLOAD_BYTES) {
       setError(`"${file.name}" is over 2 MB.`);
       return;
     }
-    const dataUrl = await readFileAsDataUrl(file);
+    // Downscaled before upload — see src/lib/clientImagePrep.ts.
+    const dataUrl = await prepareImage(file);
     setVerifyDrafts((prev) => ({
       ...prev,
       [demandId]: {
@@ -253,12 +292,21 @@ export function BuyerOrders({
         setError(data?.error || t("verification_failed"));
         return;
       }
+      // This endpoint is the demand-scoped one and does not run the QR check;
+      // a scan started here still records that a QR supplied the code, and the
+      // shared card simply omits the row when nothing was scanned.
+      const scanned = scannedPatchIds[demandId];
       setVerifyResults((prev) => ({
         ...prev,
         [demandId]: {
           patchIdValid: Boolean(data.patchIdValid),
           productMatch: Boolean(data.productMatch),
           artisanMatch: Boolean(data.artisanMatch),
+          qrValid:
+            typeof data.qrValid === "boolean"
+              ? data.qrValid
+              : !scanned || scanned === draft.patchId.trim(),
+          qrChecked: typeof data.qrChecked === "boolean" ? data.qrChecked : Boolean(scanned),
           similarityScore: Number(data.similarityScore) || 0,
           reasoning: typeof data.reasoning === "string" ? data.reasoning : "",
           artisanName: typeof data.artisanName === "string" ? data.artisanName : null,
@@ -381,6 +429,21 @@ export function BuyerOrders({
                 <p className="mt-0.5 text-[11px] font-medium text-gray-400">
                   {t("order_placed_on")} {orderDate(order.paidAt)}
                 </p>
+
+                {/* Top-level Scan & verify. Starts the flow without making the
+                    buyer find the sub-form or type a patch id first. */}
+                <Link
+                  href={
+                    order.demandId
+                      ? `/buyer/verify?demandId=${encodeURIComponent(order.demandId)}`
+                      : "/buyer/verify"
+                  }
+                  title={t("scan_and_verify")}
+                  aria-label={t("scan_and_verify")}
+                  className="kg-press mt-3 inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-[var(--color-mint)] px-4 text-xs font-bold text-primary hover:bg-[var(--color-sage)]/40"
+                >
+                  <Camera size={16} /> {t("scan_and_verify")}
+                </Link>
               </div>
             </div>
 
@@ -495,11 +558,13 @@ export function BuyerOrders({
                       </button>
                     ) : order.deliveryVerified &&
                       verifyResults[order.demandId] === undefined ? (
-                      <VerificationCard
+                      <BuyerVerifyResult
                         result={{
                           patchIdValid: true,
                           productMatch: true,
                           artisanMatch: true,
+                          qrValid: true,
+                          qrChecked: false,
                           similarityScore: order.deliveryScanScore ?? 0,
                           reasoning: "",
                           artisanName: order.artisanName,
@@ -508,7 +573,7 @@ export function BuyerOrders({
                         t={t}
                       />
                     ) : verifyResults[order.demandId] ? (
-                      <VerificationCard
+                      <BuyerVerifyResult
                         result={verifyResults[order.demandId]}
                         patchId={verifyDrafts[order.demandId]?.patchId ?? ""}
                         t={t}
@@ -526,15 +591,33 @@ export function BuyerOrders({
                         onPatchChange={(v) => setVerifyPatch(order.demandId!, v)}
                         onImage={(f) => void setVerifyImage(order.demandId!, f)}
                         onSubmit={() => void submitVerify(order.demandId!)}
+                        onScan={() => setScannerFor(order.demandId!)}
                         t={t}
                       />
                     )}
                   </div>
                 )}
+
+              {/* -------------------- Dispute outcomes -------------------- */}
+              <OrderTicketStates tickets={order.tickets} t={t} />
             </div>
           </div>
         );
       })}
+
+      {/* One sheet for the whole list — only ever open for a single order, so
+          mounting it per card would be duplicated camera streams. */}
+      <QrScanModal
+        isOpen={Boolean(scannerFor)}
+        onClose={() => setScannerFor(null)}
+        onPatchId={(patchId) => {
+          if (scannerFor) onScannedPatchId(scannerFor, patchId);
+        }}
+        onPhoto={(dataUrl) => {
+          if (scannerFor) onScannedPhoto(scannerFor, dataUrl);
+        }}
+        t={t}
+      />
     </div>
   );
 }
@@ -544,11 +627,70 @@ export function BuyerOrders({
 // buyer-order card and share its per-demand state via props.
 // ---------------------------------------------------------------------------
 
+/**
+ * What the buyer sees after they report a piece, driven purely by ticket state.
+ *
+ * Only the most advanced outcome is worth showing: a resolved verdict replaces
+ * the "under review" pill rather than stacking beneath it.
+ */
+function OrderTicketStates({
+  tickets,
+  t,
+}: {
+  tickets: OrderTicket[];
+  t: (key: string) => string;
+}) {
+  if (!tickets || tickets.length === 0) return null;
+
+  const guilty = tickets.find((ticket) => ticket.status === "RESOLVED_GUILTY");
+  const notGuilty = tickets.find((ticket) => ticket.status === "RESOLVED_NOT_GUILTY");
+  const open = tickets.find((ticket) => ticket.status === "OPEN");
+
+  if (!guilty && !notGuilty && !open) return null;
+
+  return (
+    <div className="mt-5 space-y-3 border-t border-gray-100 pt-5">
+      {guilty && (
+        <div className="flex items-start gap-3 rounded-xl border border-[var(--color-sage)] bg-[var(--color-mint)] p-4">
+          <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-primary">{t("refund_initiated_title")}</p>
+            <p className="mt-1 text-xs leading-relaxed text-primary/75">
+              {t("refund_initiated_body")}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {notGuilty && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-sm font-bold text-gray-900">{t("report_discarded_title")}</p>
+          {notGuilty.adminNote && (
+            <p className="mt-2 text-xs leading-relaxed text-gray-600">
+              <span className="font-bold uppercase tracking-wider text-gray-400">
+                {t("report_discarded_reason")}:
+              </span>{" "}
+              {notGuilty.adminNote}
+            </p>
+          )}
+        </div>
+      )}
+
+      {open && !guilty && !notGuilty && (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-bold text-amber-800">
+          <Loader2 size={12} className="animate-spin" /> {t("report_under_review")}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function VerifyForm({
   draft,
   onPatchChange,
   onImage,
   onSubmit,
+  onScan,
   t,
 }: {
   demandId: string;
@@ -556,6 +698,8 @@ function VerifyForm({
   onPatchChange: (value: string) => void;
   onImage: (file: File | null) => void;
   onSubmit: () => void;
+  /** Opens the shared camera sheet for this order. */
+  onScan: () => void;
   t: (key: string) => string;
 }) {
   const canSubmit = draft.patchId.trim().length > 0 && !!draft.image && !draft.busy;
@@ -578,10 +722,12 @@ function VerifyForm({
         />
         <button
           type="button"
+          onClick={onScan}
           title={t("scan_qr_code")}
-          className="kg-press inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-primary hover:bg-[var(--color-mint)]"
+          aria-label={t("scan_qr_code")}
+          className="kg-press inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-[var(--color-mint)] px-3 text-xs font-bold text-primary hover:bg-[var(--color-sage)]/40"
         >
-          <QrCode size={14} /> {t("scan_qr_code")}
+          <Camera size={16} /> {t("scan_qr_code")}
         </button>
       </div>
 
@@ -618,67 +764,3 @@ function VerifyForm({
   );
 }
 
-function VerificationCard({
-  result,
-  patchId,
-  t,
-}: {
-  result: {
-    patchIdValid: boolean;
-    productMatch: boolean;
-    artisanMatch: boolean;
-    similarityScore: number;
-    reasoning: string;
-    artisanName: string | null;
-  };
-  patchId: string;
-  t: (key: string) => string;
-}) {
-  const allGood = result.patchIdValid && result.productMatch && result.artisanMatch;
-  const Row = ({ ok, label, value }: { ok: boolean; label: string; value?: string }) => (
-    <div className="flex items-center gap-2 text-sm">
-      {ok ? (
-        <CheckCircle2 size={16} className="shrink-0 text-primary" />
-      ) : (
-        <XCircle size={16} className="shrink-0 text-red-500" />
-      )}
-      <span className="font-bold text-gray-900">{label}</span>
-      {value && <span className="ml-auto text-xs font-medium text-gray-500">{value}</span>}
-    </div>
-  );
-  return (
-    <div
-      className={[
-        "rounded-xl border p-4",
-        allGood ? "border-[var(--color-sage)] bg-[var(--color-mint)]" : "border-red-200 bg-red-50",
-      ].join(" ")}
-    >
-      <h4 className="mb-3 flex items-center gap-2 text-sm font-bold text-gray-900">
-        <ShieldCheck size={16} className={allGood ? "text-primary" : "text-red-600"} />
-        {t("verification_results")}
-      </h4>
-      <div className="space-y-2">
-        <Row ok={result.patchIdValid} label={t("patch_id_valid")} value={patchId || undefined} />
-        <Row
-          ok={result.productMatch}
-          label={t("product_match")}
-          value={`${result.similarityScore}%`}
-        />
-        <Row
-          ok={result.artisanMatch}
-          label={t("artisan_match")}
-          value={result.artisanName || undefined}
-        />
-      </div>
-      <p
-        className={[
-          "mt-3 text-xs leading-relaxed",
-          allGood ? "text-primary/80" : "text-red-700",
-        ].join(" ")}
-      >
-        {allGood ? t("product_genuine") : t("verification_failed")}
-        {result.reasoning ? ` — ${result.reasoning}` : ""}
-      </p>
-    </div>
-  );
-}

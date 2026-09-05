@@ -72,6 +72,11 @@ model ArtisanProfile {
   /// wants it for their shop, not one saree at a time.
   promotionOptIn  Boolean  @default(false)
 
+  /// How many times a buyer scanned a delivered piece and the AI confirmed it
+  /// genuine. Each one awards HEALTH_REWARD_VERIFIED (see src/lib/artisanHealth.ts)
+  /// onto `healthScore`, which stays bounded at HEALTH_MAX.
+  verifiedGenuineCount Int @default(0)
+
   /// Link to the artisan's SHG (Self-Help Group) group page/handle, optional.
   /// When present it acts as the authoritative cluster key: everyone sharing
   /// the same link is grouped together, no matter where they physically live.
@@ -226,6 +231,7 @@ model CraftItem {
 
   auditLogs           AuditLog[]
   reviews             Review[]
+  tickets             Ticket[]
 
   @@index([artisanId])
   @@index([patchId])
@@ -446,6 +452,49 @@ model Notification {
   @@index([createdAt])
 }
 
+
+/// A buyer's dispute against a piece they received.
+///
+/// Raised ONLY from the buyer's own scan-and-verify flow, when the Gemini
+/// comparison says the delivered product does not match the artisan's original
+/// capture. Buyers have no account, so the identity is the same free-text
+/// `buyerName` convention `Demand.buyerName` / `CraftItem.buyerName` use.
+///
+/// Both photographs are snapshotted onto the row at creation time: the buyer's
+/// upload and the artisan's original capture. An admin later compares them
+/// side by side and records a verdict — GUILTY costs the artisan
+/// HEALTH_PENALTY_GUILTY health points, NOT_GUILTY costs them nothing.
+model Ticket {
+  id                 String    @id @default(uuid())
+  /// The verification attempt that spawned this report.
+  craftItemId        String
+  craftItem          CraftItem @relation(fields: [craftItemId], references: [id])
+  demandId           String?
+  patchId            String
+  /// Free-text buyer identity, same convention as Demand.buyerName.
+  buyerName          String
+  buyerContact       String?
+  /// The photo the buyer uploaded at verification time (data URL).
+  buyerImageUrl      String
+  /// Snapshot of the artisan's original capture at ticket-creation time.
+  artisanImageUrl    String?
+  /// The AI similarity score from the failed verification (0-100).
+  similarityScore    Float?
+  aiReasoning        String?
+  /// OPEN | RESOLVED_GUILTY | RESOLVED_NOT_GUILTY | DISCARDED
+  status             String    @default("OPEN")
+  /// Populated only when an admin resolves NOT_GUILTY and writes a note.
+  adminNote          String?
+  resolvedByAdminId  String?
+  resolvedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([status])
+  @@index([buyerName])
+  @@index([craftItemId])
+  @@index([createdAt])
+}
 
 /// A local creator or influencer promoting verified craft.
 ///

@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { CheckCircle2, ShieldCheck, Clock, MapPin, Scissors, Tag, Info, Mic, Sparkles, Scale } from "lucide-react";
+import { CheckCircle2, ShieldCheck, Clock, MapPin, QrCode, Scissors, Tag, Info, Mic, Sparkles, Scale } from "lucide-react";
 import Link from "next/link";
 import { formatRupees, getListingPrice } from "@/lib/pricing";
+import { useLanguage } from "@/lib/translations";
+import { SCAN_QUERY_KEY, SCAN_QUERY_VALUE } from "@/lib/qrPatch";
 import { Avatar } from "@/components/ui/Avatar";
 import { Card } from "@/components/ui/Card";
 import { VerifiedOriginBadge } from "@/components/ui/Badge";
@@ -33,6 +35,7 @@ function formatStamp(value: string | Date): string {
 }
 
 export function VerificationClient({ item, patchId }: { item: any, patchId: string }) {
+  const { t } = useLanguage();
   const [isPurchased, setIsPurchased] = useState(item.status === 'SOLD_FINAL' || item.status === 'SOLD_MIDDLEMAN');
 
   /**
@@ -41,10 +44,22 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
    * patch id, and `?ref=` is not part of that identity.
    */
   const [ref, setRef] = useState("");
+  /**
+   * True when the visitor arrived by scanning the physical patch QR, which
+   * carries `?scan=1`. Read from `window.location.search` in a deferred effect
+   * rather than `useSearchParams`, so this page still needs no Suspense
+   * boundary — the same pattern `src/lib/urlTab.ts` uses.
+   */
+  const [scannedViaQr, setScannedViaQr] = useState(false);
   useEffect(() => {
     // Deferred by a macrotask so the effect body performs no synchronous
     // setState, matching the pattern used across the client pages.
-    const kickoff = setTimeout(() => setRef(captureRefFromUrl()), 0);
+    const kickoff = setTimeout(() => {
+      setRef(captureRefFromUrl());
+      setScannedViaQr(
+        new URLSearchParams(window.location.search).get(SCAN_QUERY_KEY) === SCAN_QUERY_VALUE
+      );
+    }, 0);
     return () => clearTimeout(kickoff);
   }, []);
 
@@ -108,7 +123,7 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
           <div className="relative aspect-[4/3] w-full bg-gray-100">
             <Image 
               src={item.images?.[0] || "/ikat_saree.jpg"}
-              unoptimized={String(item.images?.[0] || "").startsWith("data:")} 
+              unoptimized={String(item.images?.[0] || "").startsWith("data:") || String(item.images?.[0] || "").startsWith("/api/")} 
               alt={item.craftType} 
               fill 
               sizes="(max-width: 768px) 100vw, 640px"
@@ -120,6 +135,13 @@ export function VerificationClient({ item, patchId }: { item: any, patchId: stri
               <span className="kg-label rounded-full bg-white/90 px-2.5 py-1.5 font-medium text-gray-600 backdrop-blur-sm">
                 ID: {patchId}
               </span>
+              {/* Where this visit came from. Only shown for a real QR scan, so
+                  the provenance of the page itself is visible too. */}
+              {scannedViaQr && (
+                <span className="kg-label inline-flex items-center gap-1.5 rounded-full bg-[var(--color-mint)]/95 px-2.5 py-1.5 font-medium text-primary backdrop-blur-sm">
+                  <QrCode size={12} /> {t("scanned_via_qr")}
+                </span>
+              )}
             </div>
           </div>
           

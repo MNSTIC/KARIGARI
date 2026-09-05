@@ -4,6 +4,10 @@ import { GENDERS, normalizeGender } from '@/lib/gender';
 import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 
+/** Reads the auth cookie, so it must never be statically optimised. */
+export const dynamic = 'force-dynamic';
+
+
 /** The only social categories the eligibility engine (src/lib/schemes.ts) understands. */
 const SOCIAL_CATEGORIES = ['SC', 'ST', 'OBC', 'EWS', 'GENERAL'] as const;
 type SocialCategory = (typeof SOCIAL_CATEGORIES)[number];

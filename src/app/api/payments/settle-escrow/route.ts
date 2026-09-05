@@ -281,6 +281,45 @@ export async function POST(req: Request) {
         (price !== null && Number.isFinite(price) ? creatorCommissionFor(price) : 0))
       : 0;
 
+    /**
+     * Ledger sanity check, before a single rupee is recorded as moving.
+     *
+     * Every tranche is derived independently from `price` by its own helper, so
+     * a future edit to one rate — or a stale `advanceAmount` persisted at a
+     * different price than the one settling now — could silently produce a split
+     * that does not reconcile against what the buyer paid. The pieces are:
+     *
+     *   advance + final + platformFee + creatorCommission + logistics = gross
+     *
+     * `logistics` is the deliberate remainder (see src/lib/escrow.ts), so what
+     * is asserted is that the parts we DO compute never exceed the gross and
+     * never leave a negative remainder. Rounding to whole rupees is by design,
+     * so a sub-rupee drift is tolerated; anything larger is a real arithmetic
+     * bug and must stop the settlement rather than pay out a wrong number.
+     */
+    if (price !== null && Number.isFinite(price)) {
+      // The advance was released at DISPATCH and persisted then; fall back to
+      // recomputing it from the same gross if an older row never stored it.
+      const releasedAdvance = item.advanceAmount ?? advanceFor(price);
+      const accountedFor = releasedAdvance + final + platformFee + creatorCommission;
+      const remainder = price - accountedFor;
+      // One rupee of slack absorbs the four independent Math.round() calls.
+      if (remainder < -1) {
+        console.error(
+          `[settle-escrow] split does not reconcile for ${item.id}: gross=${price} ` +
+            `advance=${releasedAdvance} final=${final} fee=${platformFee} creator=${creatorCommission} ` +
+            `remainder=${remainder}`
+        );
+        return NextResponse.json(
+          {
+            error:
+              'This settlement does not reconcile against the amount paid and was stopped. No payout was recorded.',
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     // Both payouts happen before anything commits, artisan first: their 89.36%
     // is the obligation this engine exists to honour, and the creator's 5% is
     // funded from the platform's own share. If the creator leg fails after the

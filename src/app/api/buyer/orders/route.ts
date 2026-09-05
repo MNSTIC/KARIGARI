@@ -72,6 +72,30 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: true, buyer, orders: [] });
     }
 
+    // Dispute tickets this buyer raised against any of these pieces. Fetched in
+    // one query and bucketed by craftItemId below, so an order card can render
+    // its own "under review" / "discarded" / "refund" state.
+    const ticketRows = await prisma.ticket.findMany({
+      where: {
+        buyerName: { equals: buyer, mode: 'insensitive' },
+        craftItemId: { in: rows.map((row) => row.id) },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        craftItemId: true,
+        status: true,
+        adminNote: true,
+        resolvedAt: true,
+      },
+    });
+    const ticketsByItem = new Map<string, typeof ticketRows>();
+    for (const ticket of ticketRows) {
+      const bucket = ticketsByItem.get(ticket.craftItemId);
+      if (bucket) bucket.push(ticket);
+      else ticketsByItem.set(ticket.craftItemId, [ticket]);
+    }
+
     // The demands these purchases were made against, for the real requested
     // quantity and the date the clock started on.
     const demandIds = Array.from(
@@ -216,6 +240,16 @@ export async function GET(req: Request) {
         deliveryVerifiedAt: demand?.deliveryVerifiedAt?.toISOString() ?? null,
         deliveryScanPatchId: demand?.deliveryScanPatchId ?? null,
         deliveryScanScore: demand?.deliveryScanScore ?? null,
+
+        /** Dispute tickets this buyer raised against any piece in this order. */
+        tickets: items.flatMap((row) =>
+          (ticketsByItem.get(row.id) ?? []).map((ticket) => ({
+            id: ticket.id,
+            status: ticket.status,
+            adminNote: ticket.adminNote,
+            resolvedAt: ticket.resolvedAt?.toISOString() ?? null,
+          }))
+        ),
       };
     });
 

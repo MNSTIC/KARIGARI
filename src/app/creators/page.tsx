@@ -277,10 +277,6 @@ function CreatorCard({ creator }: { creator: PublicCreator }) {
       </div>
 
       <div className="flex flex-wrap gap-1.5 mt-3">
-        <span className="inline-flex items-center gap-1 bg-[var(--color-mint)] text-primary text-[10px] font-bold px-2 py-1 rounded-md">
-          <PlatformMark platform={creator.platform} />
-          {platformLabel(creator.platform)}
-        </span>
         <span className="bg-gray-100 text-gray-700 text-[10px] font-bold px-2 py-1 rounded-md">
           {creator.nicheCategory}
         </span>
@@ -302,16 +298,6 @@ function CreatorCard({ creator }: { creator: PublicCreator }) {
         <Stat label={t("creator_earned")} value={formatRupees(Math.round(creator.earningsTotal))} />
       </dl>
 
-      {creator.profileUrl && (
-        <a
-          href={creator.profileUrl}
-          target="_blank"
-          rel="noopener noreferrer nofollow"
-          className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold text-primary hover:text-primary-dark transition-colors min-h-[32px]"
-        >
-          <ExternalLink size={12} /> {platformLabel(creator.platform)}
-        </a>
-      )}
     </article>
   );
 }
@@ -518,26 +504,6 @@ function RegisterPanel({ onRegistered }: { onRegistered: () => void }) {
           />
         </Field>
 
-        <Field label="Platform" required>
-          <div className="grid grid-cols-3 gap-2">
-            {CREATOR_PLATFORMS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setPlatform(option)}
-                className={cn(
-                  "min-h-[44px] rounded-xl border text-[11px] font-bold px-2 transition-colors flex items-center justify-center gap-1",
-                  platform === option
-                    ? "border-primary bg-primary text-white"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-                )}
-              >
-                <PlatformMark platform={option} />
-                <span className="truncate">{platformLabel(option)}</span>
-              </button>
-            ))}
-          </div>
-        </Field>
 
         <Field label="Craft you promote" required>
           <select
@@ -574,15 +540,6 @@ function RegisterPanel({ onRegistered }: { onRegistered: () => void }) {
           />
         </Field>
 
-        <Field label="Profile URL">
-          <input
-            value={profileUrl}
-            onChange={(event) => setProfileUrl(event.target.value)}
-            className={inputClass}
-            placeholder="https://instagram.com/shreya_styles"
-            type="url"
-          />
-        </Field>
 
         <Field label="Photo">
           <div className="flex items-center gap-3">

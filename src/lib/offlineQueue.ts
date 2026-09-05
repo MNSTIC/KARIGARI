@@ -49,6 +49,8 @@ export interface CapturePayload {
   } | null;
   aiPriceCeiling?: number | null;
   aiMarketAvg?: number | null;
+  /** Optional raw-material bill as a data URL. Null when none was attached. */
+  rawMaterialProofUrl?: string | null;
   claimsFlag?: 'none' | 'exorbitant_labor' | 'exorbitant_material' | 'both' | null;
   aiTier?: 'A' | 'B' | null;
   advanceEligible?: boolean | null;

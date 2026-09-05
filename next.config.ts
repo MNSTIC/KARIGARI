@@ -62,6 +62,38 @@ const withPWA = withPWAInit({
         },
       },
       {
+        // Item thumbnails. The route streams a stored capture and the bytes
+        // never change for a given id, so this is the one class of response
+        // worth holding for a month — it is also the heaviest thing a list
+        // view fetches on a weak link.
+        urlPattern: ({ url, sameOrigin }: { url: URL; sameOrigin: boolean }) =>
+          sameOrigin && /^\/api\/items\/[^/]+\/thumbnail/.test(url.pathname),
+        handler: "CacheFirst",
+        options: {
+          cacheName: "item-thumbnails",
+          expiration: { maxEntries: 256, maxAgeSeconds: 60 * 60 * 24 * 30 },
+          cacheableResponse: { statuses: [0, 200] },
+        },
+      },
+      {
+        // Read-only dashboard/board GETs. NetworkFirst with a 3s ceiling: on a
+        // 2G tap the artisan gets yesterday's view immediately rather than a
+        // spinner, and the fresh copy lands on the next poll. Mutating routes
+        // are excluded by the GET check — a queued capture must never be
+        // answered from cache.
+        urlPattern: ({ url, sameOrigin, request }: { url: URL; sameOrigin: boolean; request: Request }) =>
+          sameOrigin &&
+          request.method === "GET" &&
+          /^\/api\/(artisan|buyer|demand|creators|items\/market|admin)\//.test(url.pathname),
+        handler: "NetworkFirst",
+        options: {
+          cacheName: "api-reads",
+          networkTimeoutSeconds: 3,
+          expiration: { maxEntries: 128, maxAgeSeconds: 60 * 60 * 24 },
+          cacheableResponse: { statuses: [0, 200] },
+        },
+      },
+      {
         // Static chunks and the app's own assets. Revalidating in the
         // background keeps a deploy fresh without blocking first paint.
         urlPattern: /\.(?:js|css|woff2?|ttf|otf|png|jpg|jpeg|gif|svg|webp|avif|ico)$/i,

@@ -36,7 +36,10 @@ import {
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 
-const POLL_MS = 15000;
+import { TicketsReports } from "@/components/admin/TicketsReports";
+import { ADMIN_POLL_MS } from "@/lib/pollingIntervals";
+
+const POLL_MS = ADMIN_POLL_MS;
 
 /* ---- Shapes returned by /api/admin/facilitator-queue and /api/admin/cluster ---- */
 
@@ -148,8 +151,14 @@ const errorMessage = (e: unknown) =>
 
 export default function FacilitatorDashboard() {
   const router = useRouter();
+  const { t } = useLanguage();
   // The sidebar deep links into a tab, so the tab lives in the URL.
-  const [tab, setTab] = useUrlTab<"qa" | "cluster">("qa", ["qa", "cluster"] as const);
+  const [tab, setTab] = useUrlTab<"qa" | "cluster" | "tickets">(
+    "qa",
+    ["qa", "cluster", "tickets"] as const
+  );
+  /** Live open-report count, reported up by the tickets console for the badge. */
+  const [openTickets, setOpenTickets] = useState(0);
   const [queue, setQueue] = useState<QueuePayload | null>(null);
   const [cluster, setCluster] = useState<ClusterPayload | null>(null);
   const [isRefreshing, setRefreshing] = useState(false);
@@ -318,7 +327,7 @@ export default function FacilitatorDashboard() {
 
       <TabBar
         active={tab}
-        onChange={(k) => setTab(k as "qa" | "cluster")}
+        onChange={(k) => setTab(k as "qa" | "cluster" | "tickets")}
         tabs={[
           {
             key: "qa",
@@ -327,10 +336,18 @@ export default function FacilitatorDashboard() {
             badge: (stats?.activeFlags || 0) + (stats?.pendingQa || 0),
           },
           { key: "cluster", label: "My Cluster", icon: <Users size={16} /> },
+          {
+            key: "tickets",
+            label: t("nav_tickets_reports"),
+            icon: <ShieldAlert size={16} />,
+            badge: openTickets,
+          },
         ]}
       />
 
-      {!queue ? (
+      {tab === "tickets" ? (
+        <TicketsReports onOpenCount={setOpenTickets} />
+      ) : !queue ? (
         <LoadingPanel label="Loading your field queue…" />
       ) : tab === "qa" ? (
         <div className="space-y-10">
@@ -1037,7 +1054,7 @@ function CraftThumb({
         fill
         sizes={`${size}px`}
         className="object-cover"
-        unoptimized={resolved.startsWith("data:")}
+        unoptimized={resolved.startsWith("data:") || resolved.startsWith("/api/")}
       />
     </div>
   );

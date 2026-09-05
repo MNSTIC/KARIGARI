@@ -19,6 +19,7 @@ import { Card } from "@/components/ui/Card";
 import { Shell } from "@/components/ui/AppShell";
 import { StatTile } from "@/components/ui/StatTile";
 import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
+import { prepareImage } from "@/lib/clientImagePrep";
 import { formatRupees } from "@/lib/pricing";
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
@@ -252,7 +253,7 @@ export default function ArtisanOrdersPage() {
       setError(`"${file.name}" is over 2 MB.`);
       return;
     }
-    setCompleteImage(await readFileAsDataUrl(file));
+    setCompleteImage(await prepareImage(file));
   };
 
   const submitComplete = async () => {
@@ -295,7 +296,7 @@ export default function ArtisanOrdersPage() {
       setError(`"${file.name}" is over 2 MB.`);
       return;
     }
-    const dataUrl = await readFileAsDataUrl(file);
+    const dataUrl = await prepareImage(file);
     setLogDrafts((prev) => ({
       ...prev,
       [orderId]: { note: prev[orderId]?.note ?? "", image: dataUrl },
@@ -502,7 +503,7 @@ export default function ArtisanOrdersPage() {
                                 alt=""
                                 fill
                                 sizes="96px"
-                                unoptimized={log.imageUrl.startsWith("data:")}
+                                unoptimized={log.imageUrl.startsWith("data:") || log.imageUrl.startsWith("/api/")}
                                 className="object-cover"
                               />
                             </div>
@@ -569,7 +570,7 @@ export default function ArtisanOrdersPage() {
                       alt=""
                       fill
                       sizes="80px"
-                      unoptimized={demand.referenceImageUrl.startsWith("data:")}
+                      unoptimized={demand.referenceImageUrl.startsWith("data:") || demand.referenceImageUrl.startsWith("/api/")}
                       className="object-cover"
                     />
                   </div>

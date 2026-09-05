@@ -327,7 +327,7 @@ export default function MarketPage() {
               fill
               alt={item.craftType}
               sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
-              unoptimized={String(item.images[0]).startsWith("data:")}
+              unoptimized={String(item.images[0]).startsWith("data:") || String(item.images[0]).startsWith("/api/")}
               className="object-cover"
             />
           ) : (

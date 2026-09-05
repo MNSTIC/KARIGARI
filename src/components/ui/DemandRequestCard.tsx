@@ -149,7 +149,7 @@ export function DemandRequestCard({
               alt={t("demand_reference_image")}
               fill
               sizes={compact ? "56px" : "80px"}
-              unoptimized={demand.referenceImageUrl.startsWith("data:")}
+              unoptimized={demand.referenceImageUrl.startsWith("data:") || demand.referenceImageUrl.startsWith("/api/")}
               className="object-cover"
             />
           </div>

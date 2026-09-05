@@ -5,6 +5,10 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 import { normalizeGender } from '@/lib/gender';
 
+/** Reads the auth cookie, so it must never be statically optimised. */
+export const dynamic = 'force-dynamic';
+
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();

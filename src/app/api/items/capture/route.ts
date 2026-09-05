@@ -6,6 +6,11 @@ import crypto from 'crypto';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { validateArtisanClaim } from '@/lib/benchmarkData';
 import { estimateCraftValuation, getPricingDiscrepancy } from '@/lib/pricing';
+import { dataUrlBytes, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/fileToDataUrl';
+
+/** Reads the auth cookie, so it must never be statically optimised. */
+export const dynamic = 'force-dynamic';
+
 
 export async function POST(req: Request) {
   try {
@@ -46,8 +51,9 @@ export async function POST(req: Request) {
       claimsFlag,
       aiTier,
       advanceEligible,
+      rawMaterialProofUrl,
     } = body;
-    
+
     console.log(`[Capture API] Received payload with ${images ? images.length : 'NO'} images.`);
     if (images && images.length > 0) {
       console.log(`[Capture API] First image length: ${images[0].length}`);
@@ -55,6 +61,30 @@ export async function POST(req: Request) {
 
     if (!craftType || rawMaterialCost === undefined || laborDays === undefined) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    /**
+     * Optional raw-material bill. JPEG/PNG/PDF only, and capped at the same
+     * MAX_UPLOAD_BYTES every other stored upload obeys — an oversized or
+     * unrecognised file is rejected outright rather than silently dropped, so
+     * the artisan is never told their proof was filed when it was not.
+     */
+    let billProofUrl: string | null = null;
+    if (typeof rawMaterialProofUrl === 'string' && rawMaterialProofUrl.trim()) {
+      const candidate = rawMaterialProofUrl.trim();
+      if (!/^data:(image\/jpeg|image\/png|application\/pdf);base64,/i.test(candidate)) {
+        return NextResponse.json(
+          { error: 'The raw material bill must be a JPEG, PNG or PDF.' },
+          { status: 400 }
+        );
+      }
+      if (dataUrlBytes(candidate) > MAX_UPLOAD_BYTES) {
+        return NextResponse.json(
+          { error: `The raw material bill is larger than ${MAX_UPLOAD_LABEL}.` },
+          { status: 400 }
+        );
+      }
+      billProofUrl = candidate;
     }
 
     const rawCost = Number(rawMaterialCost);
@@ -176,6 +206,7 @@ export async function POST(req: Request) {
         tags: tags || [],
         images: images || [],
         rawMaterialCost: rawCost,
+        rawMaterialProofUrl: billProofUrl,
         laborDays: days,
         fairWageFloor,
         standardMarketPrice,

@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 
+/** Reads the auth cookie, so it must never be statically optimised. */
+export const dynamic = 'force-dynamic';
+
+
 export async function GET(req: Request) {
   try {
     const cookieStore = await cookies();

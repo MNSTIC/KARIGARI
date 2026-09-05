@@ -82,7 +82,7 @@ export function Avatar({ name, src, size = 40, className }: AvatarProps) {
           sizes={`${size}px`}
           /* Uploaded avatars are base64 data URLs, which the image optimizer
              cannot fetch. Seeded `/seed/...` paths go through it normally. */
-          unoptimized={photo.startsWith("data:")}
+          unoptimized={photo.startsWith("data:") || photo.startsWith("/api/")}
           className="object-cover"
         />
       </div>

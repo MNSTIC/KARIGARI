@@ -231,7 +231,7 @@ export default function NotificationsPage() {
                                       alt={product.craftType}
                                       fill
                                       sizes="56px"
-                                      unoptimized={product.image.startsWith("data:")}
+                                      unoptimized={product.image.startsWith("data:") || product.image.startsWith("/api/")}
                                       className="object-cover"
                                     />
                                   ) : (

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateContentWithFallback } from '@/lib/gemini';
+import { describeSaving, prepareForVision } from '@/lib/imagePrep';
 
 /**
  * Combined photo-description match + quality/background assessment.
@@ -68,7 +69,12 @@ export async function POST(req: NextRequest) {
                      targetLanguage === 'te' ? 'Telugu' :
                      targetLanguage === 'or' ? 'Odia' : 'English';
 
-    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+    // Downscale + re-encode before the model call: the upload leg to Google is
+    // on the request the artisan is waiting for, so shipping a 2 MB capture
+    // costs them seconds on a weak link for no gain in match accuracy.
+    const prepared = await prepareForVision(imageBase64);
+    console.log(`[vision-verify] image ${describeSaving(prepared)}`);
+    const base64Data = prepared.base64;
 
     const prompt = `Product described as: "${description}"
 Craft type: "${craftType || 'not specified'}"
@@ -111,6 +117,9 @@ Reply strictly in JSON:
       ],
       {
         responseMimeType: "application/json",
+        // Photo/description match is a classification, not a reasoning task.
+        // Deliberately NOT cached: every capture must be judged on its own frame.
+        thinkingConfig: { thinkingBudget: 0 },
         responseSchema: {
           type: "OBJECT",
           properties: {

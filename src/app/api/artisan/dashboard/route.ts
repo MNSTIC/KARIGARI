@@ -3,6 +3,11 @@ import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 import { STAGE1_ADVANCE_PAID_40, STAGE2_SETTLED_89 } from '@/lib/escrow';
+import {
+  HEALTH_MAX,
+  HEALTH_PENALTY_GUILTY,
+  HEALTH_REWARD_VERIFIED,
+} from '@/lib/artisanHealth';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,6 +79,8 @@ export async function GET(req: Request) {
       demandSettledAgg,
       pastWeekDemandAgg,
       demandSettledSeries,
+      ticketCounts,
+      recentGuiltyTicketRows,
     ] = await Promise.all([
       prisma.user.findUnique({ 
         where: { id: artisanId }, 
@@ -193,6 +200,23 @@ export async function GET(req: Request) {
         where: { artisanId, settledAt: { gte: seriesStart } },
         select: { settledAmount: true, settledAt: true },
       }),
+      // --- Buyer dispute tickets against this artisan's own pieces ----------
+      // Grouped in one round trip rather than three counts.
+      prisma.ticket.groupBy({
+        by: ['status'],
+        where: { craftItem: { artisanId } },
+        _count: { _all: true },
+      }),
+      prisma.ticket.findMany({
+        where: { craftItem: { artisanId }, status: 'RESOLVED_GUILTY' },
+        orderBy: { resolvedAt: 'desc' },
+        take: 5,
+        select: {
+          id: true,
+          resolvedAt: true,
+          craftItem: { select: { craftType: true, images: true, patchId: true } },
+        },
+      }),
     ]);
 
     if (!user) {
@@ -204,6 +228,10 @@ export async function GET(req: Request) {
 
     // Only money actually disbursed counts. The `fairWageFloor` fallback that used
     // to sit here invented an advance for every item that had not been paid yet.
+    /** Pull one status out of the grouped ticket counts. Absent status → 0. */
+    const ticketCountFor = (status: string) =>
+      ticketCounts.find((row) => row.status === status)?._count._all ?? 0;
+
     const totalAdvances = advancedItems.reduce((sum: number, item: any) => sum + (item.advancePaid || 0), 0);
     // Demand-order stream, denominated in on-screen agreed price. NEVER
     // overlaps the CraftItem escrow ledger — demand orders have no CraftItem
@@ -348,6 +376,24 @@ export async function GET(req: Request) {
         demandEarnings,
         pastWeekDemandEarnings,
         healthScore: user?.artisanProfile?.healthScore ?? 100,
+        /** The bounds the Trust card reads, so it never hard-codes "/100". */
+        healthMax: HEALTH_MAX,
+        healthRewardVerified: HEALTH_REWARD_VERIFIED,
+        healthPenaltyGuilty: HEALTH_PENALTY_GUILTY,
+        /** Successful buyer scans; each one awarded HEALTH_REWARD_VERIFIED. */
+        verifiedGenuineCount: user?.artisanProfile?.verifiedGenuineCount ?? 0,
+        openTickets: ticketCountFor('OPEN'),
+        guiltyTickets: ticketCountFor('RESOLVED_GUILTY'),
+        notGuiltyTickets: ticketCountFor('RESOLVED_NOT_GUILTY'),
+        recentGuiltyTickets: recentGuiltyTicketRows.map((ticket) => ({
+          id: ticket.id,
+          resolvedAt: ticket.resolvedAt?.toISOString() ?? null,
+          craftItem: {
+            craftType: ticket.craftItem.craftType,
+            image: ticket.craftItem.images?.[0] ?? null,
+            patchId: ticket.craftItem.patchId,
+          },
+        })),
         // Live earnings + direct-UPI settlement tracker. `upiId` is the only
         // payout destination the escrow engine ever writes to.
         totalGrossSales: grossSales._sum.salePrice || 0,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -156,10 +156,38 @@ export default function DemandMap({
 }) {
   const { t } = useLanguage();
 
+  /**
+   * Tear Leaflet down explicitly when this component goes away.
+   *
+   * Leaflet stamps its instance onto the container DOM node and refuses to
+   * initialise a second time on the same node. React 19's development
+   * double-mount runs the effect, cleans up, and runs it again against that
+   * same node, which threw "Map container is being reused by another instance"
+   * followed by `TypeError: Cannot read properties of undefined (reading
+   * 'appendChild')` as the half-built map unwound. react-leaflet does not
+   * `remove()` the map itself, so we do — that clears the stamp and makes the
+   * second initialisation legal.
+   *
+   * The key is belt-and-braces: it guarantees a fresh node whenever the
+   * component genuinely remounts. Safe because both call sites load this with
+   * `ssr: false`, so there is no server markup for it to disagree with.
+   */
+  const [mapKey] = useState(() => `map-${Math.random().toString(36).slice(2)}`);
+  const mapRef = useRef<L.Map | null>(null);
+  useEffect(
+    () => () => {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    },
+    []
+  );
+
   return (
     <div className="relative w-full aspect-video rounded-xl border border-gray-200 overflow-hidden shadow-inner">
       <style>{`@keyframes karigari-pin-ping{75%,100%{transform:scale(1.9);opacity:0}}`}</style>
       <MapContainer
+        key={mapKey}
+        ref={mapRef}
         center={home ? [home.lat, home.lon] : INDIA_CENTER}
         zoom={home ? 6 : 4}
         scrollWheelZoom={false}

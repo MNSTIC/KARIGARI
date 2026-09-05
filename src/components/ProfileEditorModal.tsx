@@ -239,7 +239,7 @@ export function ProfileEditorModal({ isOpen, onClose, artisanData, onSaved }: Pr
                   /* Only base64 bypasses the optimizer. A stored `/seed/...`
                      path is a normal file and goes through it as usual —
                      the same rule every other image in the app follows. */
-                  unoptimized={photoUrl.startsWith("data:")}
+                  unoptimized={photoUrl.startsWith("data:") || photoUrl.startsWith("/api/")}
                   className="object-cover"
                 />
               ) : (

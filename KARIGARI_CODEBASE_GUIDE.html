@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>KARIGARI Codebase, Explained Simply</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --ground:#F4F2EA; --surface:#FCFBF6; --surface-2:#EEEADD;
+    --ink:#20303F; --ink-soft:#4C5A67; --ink-faint:#7E8B94;
+    --line:#DFD9C9; --line-strong:#CFC7B2;
+    --accent:#C0870A; --accent-ink:#8A5E00; --accent-bg:#F6ECD3;
+    --c-screen:#2F7A57; --c-screen-bg:#E4EFE7;
+    --c-api:#B0563A;    --c-api-bg:#F4E4DC;
+    --c-db:#8A6D2E;     --c-db-bg:#F0E7D0;
+    --c-brain:#3C5A8C;  --c-brain-bg:#E2E8F2;
+    --shadow:0 1px 2px rgba(32,48,63,.05), 0 8px 24px rgba(32,48,63,.06);
+    --radius:14px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#141E29; --surface:#1C2836; --surface-2:#243240;
+      --ink:#ECE6D7; --ink-soft:#B6BFC8; --ink-faint:#87949F;
+      --line:#31404D; --line-strong:#3E4E5B;
+      --accent:#EEB42B; --accent-ink:#F3C862; --accent-bg:#2B2818;
+      --c-screen:#61BB8E; --c-screen-bg:#1D3A2C;
+      --c-api:#E28C6D;    --c-api-bg:#38271F;
+      --c-db:#D3AF60;     --c-db-bg:#312A17;
+      --c-brain:#8CAADB;  --c-brain-bg:#1E2A3E;
+      --shadow:0 1px 2px rgba(0,0,0,.25), 0 10px 30px rgba(0,0,0,.28);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#141E29; --surface:#1C2836; --surface-2:#243240;
+    --ink:#ECE6D7; --ink-soft:#B6BFC8; --ink-faint:#87949F;
+    --line:#31404D; --line-strong:#3E4E5B;
+    --accent:#EEB42B; --accent-ink:#F3C862; --accent-bg:#2B2818;
+    --c-screen:#61BB8E; --c-screen-bg:#1D3A2C;
+    --c-api:#E28C6D;    --c-api-bg:#38271F;
+    --c-db:#D3AF60;     --c-db-bg:#312A17;
+    --c-brain:#8CAADB;  --c-brain-bg:#1E2A3E;
+    --shadow:0 1px 2px rgba(0,0,0,.25), 0 10px 30px rgba(0,0,0,.28);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:"IBM Plex Sans", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    font-size:16.5px; line-height:1.65; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1200px; margin:0 auto; padding:0 22px}
+  .layout{display:grid; grid-template-columns:1fr; gap:0}
+  @media(min-width:1000px){
+    .layout{grid-template-columns:232px minmax(0,1fr); gap:48px; align-items:start}
+  }
+
+  /* ---------- headings & prose ---------- */
+  h1,h2,h3{font-family:"Bricolage Grotesque", system-ui, sans-serif; line-height:1.12; text-wrap:balance; letter-spacing:-.01em}
+  h2{font-size:clamp(1.55rem,3.4vw,2.15rem); font-weight:700; margin:0 0 .35em; padding-top:.2em}
+  h3{font-size:1.16rem; font-weight:700; margin:1.6em 0 .4em}
+  p{margin:.7em 0; max-width:68ch}
+  a{color:var(--accent-ink); text-decoration-color:color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset:2px}
+  strong{font-weight:600; color:var(--ink)}
+  .lead{font-size:1.12rem; color:var(--ink-soft); max-width:60ch}
+
+  /* ---------- contents rail ---------- */
+  .rail{position:sticky; top:0; align-self:start; padding:22px 0; display:none}
+  @media(min-width:1000px){.rail{display:block}}
+  .rail .brandmark{font-family:"Bricolage Grotesque",sans-serif; font-weight:800; font-size:1.05rem; letter-spacing:.12em; color:var(--ink); margin-bottom:2px}
+  .rail .brandsub{font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:18px}
+  .rail nav{display:flex; flex-direction:column; gap:1px; border-left:2px solid var(--line)}
+  .rail nav a{
+    font-size:.9rem; color:var(--ink-soft); text-decoration:none; padding:5px 0 5px 14px;
+    margin-left:-2px; border-left:2px solid transparent; transition:color .15s, border-color .15s;
+  }
+  .rail nav a:hover{color:var(--accent-ink); border-left-color:var(--accent)}
+  .rail nav a .n{font-family:"IBM Plex Mono",monospace; font-size:.72rem; color:var(--ink-faint); margin-right:8px}
+
+  /* ---------- hero ---------- */
+  .hero{padding:54px 0 30px}
+  .warp{display:flex; flex-direction:column; gap:5px; margin-bottom:26px; max-width:340px}
+  .warp span{height:6px; border-radius:6px; display:block}
+  .warp span:nth-child(1){width:100%; background:var(--c-screen)}
+  .warp span:nth-child(2){width:86%;  background:var(--c-api)}
+  .warp span:nth-child(3){width:72%;  background:var(--c-brain)}
+  .warp span:nth-child(4){width:58%;  background:var(--c-db)}
+  .eyebrow{font-family:"IBM Plex Mono",monospace; font-size:.74rem; letter-spacing:.2em; text-transform:uppercase; color:var(--accent-ink)}
+  .hero h1{font-size:clamp(2.3rem,6vw,3.9rem); font-weight:800; margin:.24em 0 .18em; letter-spacing:-.02em}
+  .hero h1 em{font-style:normal; color:var(--accent-ink)}
+  .statline{display:flex; flex-wrap:wrap; gap:10px; margin-top:26px}
+  .stat{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:12px 16px; box-shadow:var(--shadow)}
+  .stat b{font-family:"Bricolage Grotesque",sans-serif; font-size:1.5rem; font-weight:800; display:block; line-height:1; font-variant-numeric:tabular-nums}
+  .stat span{font-family:"IBM Plex Mono",monospace; font-size:.7rem; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint)}
+
+  /* ---------- section rhythm ---------- */
+  section{padding:34px 0; border-top:1px solid var(--line)}
+  section:first-of-type{border-top:none}
+  .kicker{font-family:"IBM Plex Mono",monospace; font-size:.72rem; letter-spacing:.16em; text-transform:uppercase; color:var(--accent-ink); margin-bottom:6px}
+
+  /* ---------- callout ---------- */
+  .kid{background:var(--accent-bg); border:1px solid color-mix(in srgb,var(--accent) 30%, var(--line)); border-radius:var(--radius); padding:14px 16px 14px 46px; position:relative; margin:16px 0; max-width:68ch}
+  .kid::before{content:"🧒"; position:absolute; left:14px; top:12px; font-size:1.1rem}
+  .kid b{color:var(--accent-ink)}
+  .note{background:var(--surface-2); border-left:3px solid var(--line-strong); border-radius:0 10px 10px 0; padding:10px 15px; margin:14px 0; font-size:.95rem; color:var(--ink-soft); max-width:68ch}
+
+  /* ---------- generic cards ---------- */
+  .grid{display:grid; gap:14px; margin-top:18px}
+  .g2{grid-template-columns:1fr} @media(min-width:640px){.g2{grid-template-columns:1fr 1fr}}
+  .g3{grid-template-columns:1fr} @media(min-width:560px){.g3{grid-template-columns:1fr 1fr}} @media(min-width:900px){.g3{grid-template-columns:1fr 1fr 1fr}}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px 17px; box-shadow:var(--shadow)}
+  .card h3{margin:0 0 .3em; font-size:1.04rem}
+  .card p{margin:.35em 0; font-size:.94rem; color:var(--ink-soft)}
+
+  /* ---------- table ---------- */
+  .tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); margin-top:16px; background:var(--surface)}
+  table{border-collapse:collapse; width:100%; font-size:.93rem; min-width:460px}
+  th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint); background:var(--surface-2)}
+  tr:last-child td{border-bottom:none}
+  td:first-child{font-weight:600; white-space:nowrap}
+  .tbl-mono td:first-child{font-family:"IBM Plex Mono",monospace; font-weight:500; color:var(--accent-ink)}
+
+  /* ---------- file chips (color coded) ---------- */
+  code, .chip{font-family:"IBM Plex Mono",monospace}
+  code{background:var(--surface-2); padding:1.5px 6px; border-radius:6px; font-size:.86em; color:var(--ink)}
+  .chip{display:inline-block; font-size:.78rem; padding:2.5px 9px; border-radius:999px; margin:3px 5px 0 0; border:1px solid; white-space:nowrap}
+  .c-screen{color:var(--c-screen); background:var(--c-screen-bg); border-color:color-mix(in srgb,var(--c-screen) 35%, transparent)}
+  .c-api{color:var(--c-api); background:var(--c-api-bg); border-color:color-mix(in srgb,var(--c-api) 35%, transparent)}
+  .c-db{color:var(--c-db); background:var(--c-db-bg); border-color:color-mix(in srgb,var(--c-db) 35%, transparent)}
+  .c-brain{color:var(--c-brain); background:var(--c-brain-bg); border-color:color-mix(in srgb,var(--c-brain) 35%, transparent)}
+  .legend{display:flex; flex-wrap:wrap; gap:8px 16px; margin:14px 0 0; font-size:.85rem}
+  .legend span{display:inline-flex; align-items:center; gap:7px; color:var(--ink-soft)}
+  .dot{width:11px; height:11px; border-radius:3px; display:inline-block}
+
+  /* ---------- folder tree ---------- */
+  .tree{overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); margin-top:16px}
+  .tree pre{margin:0; padding:18px 20px; font-family:"IBM Plex Mono",monospace; font-size:.83rem; line-height:1.75; color:var(--ink-soft)}
+  .tree .f{color:var(--ink); font-weight:500}
+  .tree .cm{color:var(--ink-faint)}
+  .tree .s-screen{color:var(--c-screen)} .tree .s-api{color:var(--c-api)} .tree .s-db{color:var(--c-db)} .tree .s-brain{color:var(--c-brain)}
+
+  /* ---------- lifecycle stepper ---------- */
+  .steps{margin-top:20px; display:flex; flex-direction:column; gap:0}
+  .step{display:grid; grid-template-columns:44px 1fr; gap:16px; padding-bottom:22px; position:relative}
+  .step:not(:last-child)::before{content:""; position:absolute; left:21px; top:40px; bottom:-2px; width:2px; background:var(--line-strong)}
+  .step .num{width:42px; height:42px; border-radius:50%; background:var(--surface); border:2px solid var(--accent); color:var(--accent-ink); font-family:"Bricolage Grotesque",sans-serif; font-weight:800; display:flex; align-items:center; justify-content:center; z-index:1; box-shadow:var(--shadow)}
+  .step .body h3{margin:.35em 0 .25em; font-size:1.05rem}
+  .step .body p{margin:.2em 0; font-size:.94rem; color:var(--ink-soft)}
+  .statuspill{font-family:"IBM Plex Mono",monospace; font-size:.72rem; padding:2px 8px; border-radius:6px; background:var(--c-db-bg); color:var(--c-db); border:1px solid color-mix(in srgb,var(--c-db) 30%, transparent)}
+
+  /* ---------- feature cards ---------- */
+  .feat{background:var(--surface); border:1px solid var(--line); border-left-width:5px; border-radius:var(--radius); padding:18px 19px; box-shadow:var(--shadow); margin-top:16px}
+  .feat.f-brain{border-left-color:var(--c-brain)} .feat.f-api{border-left-color:var(--c-api)}
+  .feat.f-screen{border-left-color:var(--c-screen)} .feat.f-db{border-left-color:var(--c-db)}
+  .feat h3{margin:0 0 .3em; font-size:1.18rem; display:flex; align-items:center; gap:10px}
+  .feat .emoji{font-size:1.3rem}
+  .feat .row{margin:.55em 0}
+  .feat .lbl{font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint); display:block; margin-bottom:2px}
+  .feat p{margin:.15em 0; font-size:.95rem}
+
+  /* ---------- pattern boxes ---------- */
+  .patt{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow); margin-top:16px}
+  .patt ul{margin:.5em 0; padding-left:1.15em}
+  .patt li{margin:.4em 0; font-size:.95rem; color:var(--ink-soft)}
+  .patt li b{color:var(--ink)}
+
+  ul.plain{padding-left:1.15em}
+  ul.plain li{margin:.42em 0}
+  ul.plain li b{color:var(--ink)}
+
+  .footer{border-top:1px solid var(--line); margin-top:8px; padding:30px 0 60px; color:var(--ink-faint); font-size:.9rem}
+  .footer .big{font-family:"Bricolage Grotesque",sans-serif; color:var(--ink); font-weight:700; font-size:1.15rem; max-width:60ch; line-height:1.4; margin-bottom:10px}
+  .footer .big em{font-style:normal; color:var(--accent-ink)}
+
+  :focus-visible{outline:2.5px solid var(--accent); outline-offset:2px; border-radius:4px}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap layout">
+
+  <!-- ============ CONTENTS RAIL ============ -->
+  <aside class="rail">
+    <div class="brandmark">KARIGARI</div>
+    <div class="brandsub">codebase · explained</div>
+    <nav>
+      <a href="#decoder"><span class="n">00</span>Word decoder</a>
+      <a href="#idea"><span class="n">01</span>The big idea</a>
+      <a href="#stack"><span class="n">02</span>The tools</a>
+      <a href="#map"><span class="n">03</span>Folder map</a>
+      <a href="#notebook"><span class="n">04</span>The notebook</a>
+      <a href="#story"><span class="n">05</span>Story of a saree</a>
+      <a href="#people"><span class="n">06</span>The 3 people</a>
+      <a href="#features"><span class="n">07</span>Big features</a>
+      <a href="#brains"><span class="n">08</span>The brains</a>
+      <a href="#waiters"><span class="n">09</span>The waiters</a>
+      <a href="#screens"><span class="n">10</span>The screens</a>
+      <a href="#blocks"><span class="n">11</span>The blocks</a>
+      <a href="#patterns"><span class="n">12</span>Golden patterns</a>
+      <a href="#glossary"><span class="n">13</span>Glossary</a>
+    </nav>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main>
+
+    <!-- HERO -->
+    <header class="hero" id="start">
+      <div class="warp" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+      <div class="eyebrow">A friendly tour · SIH 2026</div>
+      <h1>The whole codebase, explained like you're <em>10</em>.</h1>
+      <p class="lead">KARIGARI is an app that helps village artisans sell their handmade crafts fairly and prove they're real. This guide explains what every part of the code does — using shops, notebooks, waiters, and robot helpers instead of scary words.</p>
+      <div class="statline">
+        <div class="stat"><b>220</b><span>code files</span></div>
+        <div class="stat"><b>49.5k</b><span>lines</span></div>
+        <div class="stat"><b>78</b><span>backend jobs</span></div>
+        <div class="stat"><b>13</b><span>notebook pages</span></div>
+        <div class="stat"><b>4</b><span>languages</span></div>
+      </div>
+    </header>
+
+    <!-- 00 DECODER -->
+    <section id="decoder">
+      <div class="kicker">00 · The secret decoder</div>
+      <h2>First, a cheat-sheet for the scary words</h2>
+      <p>Programmers use big words for simple things. Whenever you meet one of these later, just picture the everyday thing next to it. That's the whole trick.</p>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Scary word</th><th>Just think of it as…</th></tr></thead>
+          <tbody>
+            <tr><td>App / Frontend</td><td>The <strong>screens</strong> you tap and look at (a shop window)</td></tr>
+            <tr><td>Backend / API</td><td>The <strong>waiters</strong> who run to the kitchen to fetch or save things</td></tr>
+            <tr><td>Database</td><td>A <strong>giant notebook</strong> the app writes everything down in</td></tr>
+            <tr><td>Table</td><td>One <strong>page</strong> in that notebook (the "people" page, the "products" page)</td></tr>
+            <tr><td>Prisma</td><td>The <strong>translator</strong> between the app and the notebook</td></tr>
+            <tr><td>Component</td><td>A <strong>LEGO block</strong> for building screens (a button, a card, a pop-up)</td></tr>
+            <tr><td>Library</td><td>A <strong>toolbox</strong> someone already built that we borrow</td></tr>
+            <tr><td>AI model</td><td>A <strong>smart robot helper</strong> we ask questions to</td></tr>
+            <tr><td>JWT cookie</td><td>A <strong>wristband</strong> that proves who you are</td></tr>
+            <tr><td>Route</td><td>One <strong>job</strong> a waiter knows how to do</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 01 BIG IDEA -->
+    <section id="idea">
+      <div class="kicker">01 · What is KARIGARI?</div>
+      <h2>A super-honest helper for village artisans</h2>
+      <p>Imagine someone who weaves beautiful sarees by hand. They're brilliant at making things, but they face three big problems. KARIGARI is built to fix all three.</p>
+      <div class="grid g3">
+        <div class="card"><h3>😟 Middlemen cheat them</h3><p>A trader buys the saree cheap and resells it for a lot, keeping the profit.</p><p><strong>Fix:</strong> KARIGARI connects the maker straight to the buyer, and pays them ~89 of every ₹100.</p></div>
+        <div class="card"><h3>😕 Selling online is hard</h3><p>They may not read English, type well, or have good internet.</p><p><strong>Fix:</strong> They just <strong>talk</strong> to the app; a robot cleans the photo and writes the description. It even works offline, by SMS, or by phone call.</p></div>
+        <div class="card"><h3>😠 Fakes copy them</h3><p>Cheap machine-made copies pretend to be real handloom.</p><p><strong>Fix:</strong> A QR sticker + a live-photo AI check proves each item is 100% real.</p></div>
+      </div>
+      <div class="kid"><b>In one line:</b> KARIGARI is a <b>"trust bridge"</b> — it links the maker to the buyer, proves the craft is real, and makes sure the maker is paid fairly. Its motto: <em>"Fair pay. Proven craft. Every time."</em></div>
+    </section>
+
+    <!-- 02 TOOLS -->
+    <section id="stack">
+      <div class="kicker">02 · The tech stack</div>
+      <h2>The tools we cook with</h2>
+      <p>Every app is built from tools. Here's what each one is really <em>for</em>. The full list lives in <code>package.json</code> — the app's shopping list.</p>
+      <div class="tablewrap">
+        <table class="tbl-mono">
+          <thead><tr><th>Tool</th><th>What it really is → why we use it</th></tr></thead>
+          <tbody>
+            <tr><td>Next.js</td><td><strong>Kitchen + dining room in one building</strong> → runs the screens AND the waiters together</td></tr>
+            <tr><td>React</td><td><strong>The screen builder</strong> → turns LEGO blocks into what you tap</td></tr>
+            <tr><td>TypeScript</td><td><strong>JavaScript with a spell-checker</strong> → catches mistakes before users do</td></tr>
+            <tr><td>Tailwind CSS</td><td><strong>A box of paint and rulers</strong> → colors, spacing, layout</td></tr>
+            <tr><td>PostgreSQL</td><td><strong>The giant notebook itself</strong> → where all real data lives</td></tr>
+            <tr><td>Prisma</td><td><strong>The notebook translator</strong> → safe reading/writing</td></tr>
+            <tr><td>Google Gemini</td><td><strong>A smart robot that sees & reads</strong> → checks real photos, understands voice, writes text</td></tr>
+            <tr><td>Groq + Whisper</td><td><strong>A super-fast robot ear</strong> → turns speech into text quickly</td></tr>
+            <tr><td>background-removal</td><td><strong>A magic eraser</strong> → removes messy photo backgrounds, on the phone</td></tr>
+            <tr><td>bcryptjs</td><td><strong>A password scrambler</strong> → stores passwords unreadable</td></tr>
+            <tr><td>JWT</td><td><strong>A wristband printer</strong> → proves who's logged in</td></tr>
+            <tr><td>Razorpay</td><td><strong>A cash register</strong> → collects payment</td></tr>
+            <tr><td>Twilio</td><td><strong>A phone + SMS operator</strong> → texts and the toll-free line</td></tr>
+            <tr><td>next-pwa</td><td><strong>An "install me" + offline kit</strong> → app works with no internet</td></tr>
+            <tr><td>IndexedDB (idb)</td><td><strong>A notebook on your phone</strong> → saves work offline</td></tr>
+            <tr><td>Leaflet / Recharts</td><td><strong>A map / a graph drawer</strong> → clusters map + earnings charts</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note"><strong>One golden rule:</strong> every robot (Gemini, Groq, Razorpay, Twilio) is <strong>optional</strong>. If its password isn't set, the app doesn't crash — it politely uses a backup. (More in section 12.)</div>
+    </section>
+
+    <!-- 03 MAP -->
+    <section id="map">
+      <div class="kicker">03 · The map</div>
+      <h2>How the project folder is laid out</h2>
+      <p>Here's the whole building. You mostly care about the <code>src</code> floor — that's where the real app lives. The colors below match the rest of this guide.</p>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--c-screen)"></i> Screens (what you see)</span>
+        <span><i class="dot" style="background:var(--c-api)"></i> Waiters (backend jobs)</span>
+        <span><i class="dot" style="background:var(--c-brain)"></i> Brains (rules & robots)</span>
+        <span><i class="dot" style="background:var(--c-db)"></i> Notebook (database)</span>
+      </div>
+      <div class="tree">
+<pre>KARIGARI/
+├── <span class="f">package.json</span>        <span class="cm"># the shopping list of tools</span>
+├── <span class="f">next.config.ts</span>      <span class="cm"># app-wide settings (incl. offline mode)</span>
+├── prisma/
+│   ├── <span class="s-db">schema.prisma</span>   <span class="cm"># ★ the DESIGN of the notebook (13 tables)</span>
+│   └── <span class="s-db">seed.ts</span>         <span class="cm"># fills it with demo data for the show</span>
+├── public/            <span class="cm"># pictures, icons, logos, sample photos</span>
+├── scripts/           <span class="cm"># little helper programs run by hand</span>
+├── docs/              <span class="cm"># flowcharts & extra notes (great reading!)</span>
+└── src/               <span class="f">★ THE REAL APP ★</span>
+    ├── app/
+    │   ├── <span class="s-screen">page.tsx</span>       <span class="cm"># the public home page</span>
+    │   ├── <span class="s-screen">layout.tsx</span>     <span class="cm"># the frame around every screen</span>
+    │   ├── <span class="s-screen">artisan/</span>       <span class="cm"># all the maker's screens</span>
+    │   ├── <span class="s-screen">admin/</span>         <span class="cm"># the government officer screens</span>
+    │   ├── <span class="s-screen">marketplace/</span>   <span class="cm"># the public shop</span>
+    │   ├── <span class="s-screen">verify/</span>        <span class="cm"># "scan the QR to check it's real"</span>
+    │   └── <span class="s-api">api/</span>           <span class="cm"># ★ 78 WAITERS (backend jobs) ★</span>
+    ├── <span class="s-screen">components/</span>     <span class="cm"># the LEGO blocks (buttons, pop-ups, cards)</span>
+    ├── <span class="s-brain">lib/</span>            <span class="cm"># ★ THE BRAINS (rules, math, robot code) ★</span>
+    └── types/          <span class="cm"># extra "shape" definitions</span></pre>
+      </div>
+    </section>
+
+    <!-- 04 NOTEBOOK -->
+    <section id="notebook">
+      <div class="kicker">04 · The database</div>
+      <h2>The app's giant notebook</h2>
+      <p>The notebook's design lives in <code>prisma/schema.prisma</code>. It has <strong>13 pages (tables)</strong>. Here's what each one remembers.</p>
+      <div class="tablewrap">
+        <table class="tbl-mono">
+          <thead><tr><th>Page</th><th>Remembers… → think of it as</th></tr></thead>
+          <tbody>
+            <tr><td>User</td><td>Login: name, email, scrambled password, role → the <strong>member list</strong></td></tr>
+            <tr><td>ArtisanProfile</td><td>Craft, village, UPI, health score, cluster → the maker's <strong>ID card</strong></td></tr>
+            <tr><td>CraftItem</td><td>One product: photos, price, status, QR, buyer → the <strong>product tag</strong> (busiest page!)</td></tr>
+            <tr><td>AuditLog</td><td>Every important event, forever → the <strong>diary that can't be erased</strong></td></tr>
+            <tr><td>SchemeApplication</td><td>Government schemes applied to → a <strong>form tracker</strong></td></tr>
+            <tr><td>Demand</td><td>"I need 50 sarees" → a <strong>wish on a board</strong></td></tr>
+            <tr><td>ArtisanOrder</td><td>"I'll make those 50" → a <strong>promise to fill a wish</strong></td></tr>
+            <tr><td>OrderLog</td><td>Progress notes + photos → <strong>status updates</strong></td></tr>
+            <tr><td>Review</td><td>Buyer star ratings → <strong>feedback stickers</strong></td></tr>
+            <tr><td>ResourceRequest</td><td>"Can a neighbour lend wool?" → a <strong>help board</strong></td></tr>
+            <tr><td>Notification</td><td>Alerts for a maker → the <strong>bell messages</strong></td></tr>
+            <tr><td>Creator</td><td>An influencer who promotes crafts → a <strong>shop promoter</strong></td></tr>
+            <tr><td>AffiliateClick</td><td>Someone clicked a promoter's link → a <strong>counter</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>The star of the show: a <code>CraftItem</code>'s "status"</h3>
+      <p>A product moves through life-stages like a caterpillar becoming a butterfly. The most important field on it is its <strong>status</strong>:</p>
+      <div class="tree">
+<pre><span class="statuspill">PENDING_VERIFICATION</span>  <span class="cm"># maker just uploaded it; waiting for an officer</span>
+        ↓
+<span class="statuspill">VERIFIED</span>              <span class="cm"># officer approved it + printed a unique QR tag</span>
+        ↓
+<span class="statuspill">TAG_ATTACHED</span>          <span class="cm"># maker stuck the QR on + re-photographed it</span>
+        ↓
+<span class="statuspill">ADVANCE_PAID</span>          <span class="cm"># maker chose how to sell (+ got money early!)</span>
+        ↓
+<span class="statuspill">SOLD_FINAL</span>            <span class="cm"># buyer scanned QR, AI confirmed real, sale done</span>
+        ↓
+<span class="statuspill">PAYOUT_COMPLETED</span>      <span class="cm"># the money was settled</span>
+
+<span class="cm"># ⚠ side path: if a buyer's scan keeps failing →</span> <span class="statuspill">FLAGGED</span> <span class="cm">→</span> <span class="statuspill">APPLIED_FOR_REVIEW</span></pre>
+      </div>
+      <div class="kid"><b>The clever bit:</b> every time an item changes status, the app writes a line in the <b>AuditLog diary</b>. Nothing can be secretly changed, so the government can trust the whole story of every item.</div>
+    </section>
+
+    <!-- 05 STORY -->
+    <section id="story">
+      <div class="kicker">05 · The whole app in one story</div>
+      <h2>Follow one saree from start to finish 🧵</h2>
+      <p>This is the entire app in eight steps. Each step names the file that does the work.</p>
+      <div class="steps">
+        <div class="step"><div class="num">1</div><div class="body">
+          <h3>Lakshmi <em>speaks</em> to the app</h3>
+          <p>In Odia: "I wove a Sambalpuri saree, it took 14 days, silk cost ₹4000." Her voice becomes text.</p>
+          <div><span class="chip c-brain">src/lib/voiceParse.ts</span></div>
+        </div></div>
+        <div class="step"><div class="num">2</div><div class="body">
+          <h3>The app cleans the photo & prices it</h3>
+          <p>The magic eraser removes the messy background; the price brain works out a fair wage floor + market range.</p>
+          <div><span class="chip c-brain">src/lib/imageEnhance.ts</span><span class="chip c-brain">src/lib/pricing.ts</span></div>
+        </div></div>
+        <div class="step"><div class="num">3</div><div class="body">
+          <h3>She saves it</h3>
+          <p>A waiter saves a new <code>CraftItem</code> as <span class="statuspill">PENDING_VERIFICATION</span> and writes a diary line.</p>
+          <div><span class="chip c-api">src/app/api/items/capture/route.ts</span></div>
+        </div></div>
+        <div class="step"><div class="num">4</div><div class="body">
+          <h3>An officer approves it</h3>
+          <p>Approval prints a <strong>unique QR tag</strong> and moves it to <span class="statuspill">VERIFIED</span>.</p>
+          <div><span class="chip c-api">src/app/api/admin/verify-batch/route.ts</span></div>
+        </div></div>
+        <div class="step"><div class="num">5</div><div class="body">
+          <h3>She sticks the QR on & re-photographs</h3>
+          <p>The AI checks the new photo matches the original — so nobody can swap tags.</p>
+          <div><span class="chip c-screen">src/components/QrAttachModal.tsx</span><span class="chip c-api">api/items/attach-verify</span></div>
+        </div></div>
+        <div class="step"><div class="num">6</div><div class="body">
+          <h3>She picks how to sell + gets an advance</h3>
+          <p>Choosing "Karigari Advance" pays her the fair-wage floor <strong>immediately</strong> — before it even sells.</p>
+          <div><span class="chip c-api">src/app/api/disbursement/apply/route.ts</span></div>
+        </div></div>
+        <div class="step"><div class="num">7</div><div class="body">
+          <h3>A buyer scans the QR</h3>
+          <p>They take a live photo; Gemini compares it to the original. Match (≥75) → <span class="statuspill">SOLD_FINAL</span>. Keeps failing → <span class="statuspill">FLAGGED</span>.</p>
+          <div><span class="chip c-api">src/app/api/verify-authenticity/route.ts</span></div>
+        </div></div>
+        <div class="step"><div class="num">8</div><div class="body">
+          <h3>Money is split fairly, and it's all in the diary</h3>
+          <p>The escrow rules give the maker ~₹89 of every ₹100, zero middleman — and every step above wrote an unerasable diary line.</p>
+          <div><span class="chip c-brain">src/lib/escrow.ts</span></div>
+        </div></div>
+      </div>
+    </section>
+
+    <!-- 06 PEOPLE -->
+    <section id="people">
+      <div class="kicker">06 · Who uses it</div>
+      <h2>The three kinds of people</h2>
+      <p>There are only <strong>two login roles</strong> in the code (<code>ADMIN</code> and <code>ARTISAN</code>), but three kinds of people use the app.</p>
+      <div class="grid g3">
+        <div class="card"><h3>🧵 The Artisan</h3><p>The maker. Logs in, uploads crafts, gets paid. Most of the app is built for them.</p></div>
+        <div class="card"><h3>🏛️ The Admin</h3><p>The government helper — one login, two views: <strong>Facilitator</strong> (field worker: checks items, prints QR tags, sees real names) and <strong>Nodal</strong> (big-boss: watches the numbers + diary, never sees private info).</p></div>
+        <div class="card"><h3>🛍️ The Buyer</h3><p>Doesn't even need an account! They just scan a QR or shop the public store. Their name ties their orders together.</p></div>
+      </div>
+    </section>
+
+    <!-- 07 FEATURES -->
+    <section id="features">
+      <div class="kicker">07 · The big features & where they live</div>
+      <h2>Each feature — what, where, how</h2>
+      <p>The hackathon asked for three AI features. KARIGARI built those <em>and much more</em>. Chips are colour-coded: <span class="chip c-brain">brain</span> <span class="chip c-api">waiter</span> <span class="chip c-screen">screen</span>.</p>
+
+      <div class="feat f-brain">
+        <h3><span class="emoji">🎙️</span> Talk instead of type</h3>
+        <div class="row"><span class="lbl">What</span><p>The maker speaks in Odia/Hindi/Telugu/English. The app writes it down, translates it, figures out the product, the days of work, and material cost — and asks a follow-up if something's missing.</p></div>
+        <div class="row"><span class="lbl">Where</span><span class="chip c-brain">src/lib/voiceParse.ts</span><span class="chip c-api">api/items/voice-parse</span><span class="chip c-api">api/ivr/collect-item</span></div>
+        <div class="row"><span class="lbl">How</span><p>Audio → <strong>Groq Whisper</strong> (fast). Odia isn't supported there, so it falls back to <strong>Gemini</strong>, which handles it. If both robots are down, her exact spoken words are still saved.</p></div>
+      </div>
+
+      <div class="feat f-brain">
+        <h3><span class="emoji">📸</span> Make photos look professional</h3>
+        <div class="row"><span class="lbl">What</span><p>Turns a messy phone photo into a clean, white-background catalogue shot.</p></div>
+        <div class="row"><span class="lbl">Where</span><span class="chip c-brain">src/lib/imageEnhance.ts</span></div>
+        <div class="row"><span class="lbl">How</span><p>A machine-learning "magic eraser" runs <strong>on the phone</strong> (private, no internet), cuts out the product, adds a soft shadow, fixes light & color, sharpens. Too-weak phone? It skips the cut-out instead of freezing.</p></div>
+      </div>
+
+      <div class="feat f-brain">
+        <h3><span class="emoji">💰</span> A fair price, both ways</h3>
+        <div class="row"><span class="lbl">What</span><p>Suggests a fair price and warns if it's <strong>too low</strong> (a middleman squeezing) OR <strong>too high</strong> (gouging the buyer).</p></div>
+        <div class="row"><span class="lbl">Where</span><span class="chip c-brain">src/lib/pricing.ts</span><span class="chip c-brain">src/lib/benchmarkData.ts</span></div>
+        <div class="row"><span class="lbl">How</span><p>Fair floor = (days × daily wage) + materials + 10%. Market price = 1.2×–1.6× that. A wild price gets <strong>flagged for a human</strong>. Impossible claims ("saree took 200 days") are rejected.</p></div>
+      </div>
+
+      <div class="feat f-api">
+        <h3><span class="emoji">🔒</span> Prove it's real (QR + AI Vision)</h3>
+        <div class="row"><span class="lbl">What</span><p>Each real item gets a physical QR sticker. To buy, you take a live photo and the AI checks it matches the original.</p></div>
+        <div class="row"><span class="lbl">Where</span><span class="chip c-api">api/admin/verify-batch</span><span class="chip c-api">api/verify-authenticity</span><span class="chip c-screen">components/VerificationCamera.tsx</span></div>
+        <div class="row"><span class="lbl">How</span><p>Gemini returns a similarity score. ≥75 = real → sold. There's a <strong>5-minute, 10-try grace window</strong> so a bad angle doesn't fail an honest buyer. Keeps failing → flagged, maker's health score drops 15 (a real match later restores it).</p></div>
+      </div>
+
+      <div class="feat f-brain">
+        <h3><span class="emoji">🤝</span> Fair money, no middleman</h3>
+        <div class="row"><span class="lbl">What</span><p>Of every ₹100 a buyer pays, ~<strong>₹89 goes straight to the maker</strong> (40% on dispatch, ~49% on delivery). A promoter, if any, gets ₹5 from the <em>platform's</em> share — never the maker's.</p></div>
+        <div class="row"><span class="lbl">Where</span><span class="chip c-brain">src/lib/escrow.ts</span><span class="chip c-brain">src/lib/razorpay.ts</span><span class="chip c-api">api/payments/*</span></div>
+        <div class="row"><span class="lbl">How</span><p>Razorpay only <em>collects</em> money, so the final pay-out is a recorded "programmatic settlement". The ledger, math & diary are real; the bank transfer is simulated in this prototype — and the code never pretends otherwise.</p></div>
+      </div>
+
+      <div class="feat f-brain">
+        <h3><span class="emoji">📶</span> Works with no internet</h3>
+        <div class="row"><span class="lbl">What</span><p>The app installs like a real app and keeps working offline. Captures made offline upload themselves when signal returns.</p></div>
+        <div class="row"><span class="lbl">Where</span><span class="chip c-db">next.config.ts</span><span class="chip c-brain">src/lib/offlineQueue.ts</span><span class="chip c-brain">src/lib/offlineSync.ts</span></div>
+        <div class="row"><span class="lbl">How</span><p>A "service worker" caches the app. New captures wait in the phone's IndexedDB and are <strong>replayed</strong> automatically when back online. A row is deleted only after the server confirms it saved — nothing is ever lost.</p></div>
+      </div>
+
+      <div class="feat f-api">
+        <h3><span class="emoji">📱</span> Reach people with no smartphone</h3>
+        <div class="row"><span class="lbl">What</span><p>Basic-phone users get an <strong>SMS</strong> when a buyer wants their craft (reply "1" to accept), or can <strong>call a toll-free number</strong> and just talk.</p></div>
+        <div class="row"><span class="lbl">Where</span><span class="chip c-brain">src/lib/sms.ts</span><span class="chip c-brain">src/lib/twilioIvr.ts</span><span class="chip c-api">api/ivr/*</span><span class="chip c-api">api/sms/inbound</span></div>
+        <div class="row"><span class="lbl">How</span><p>Twilio sends the SMS + runs the phone menu. A call's audio uses the <em>same</em> <code>voiceParse.ts</code> brain as the app, so the phone and app always agree. Phone webhooks are signature-checked so nobody can fake a call.</p></div>
+      </div>
+
+      <div class="feat f-brain">
+        <h3><span class="emoji">🏛️</span> Government schemes made easy</h3>
+        <div class="row"><span class="lbl">What</span><p>Tells a maker which government help-schemes they qualify for (PM Vishwakarma, NSFDC, GeM…) and helps them apply.</p></div>
+        <div class="row"><span class="lbl">Where</span><span class="chip c-brain">src/lib/schemes.ts</span><span class="chip c-brain">src/lib/artisanEligibility.ts</span><span class="chip c-screen">/artisan/schemes</span></div>
+        <div class="row"><span class="lbl">How</span><p>Pure, readable rules — <strong>no AI black box</strong> — so the answer is auditable. Anything that can't be checked from data becomes a tick-box the maker declares, never silently auto-passed.</p></div>
+      </div>
+
+      <div class="feat f-brain">
+        <h3><span class="emoji">🛒</span> One listing, many shops</h3>
+        <div class="row"><span class="lbl">What</span><p>A single listing can broadcast to many places (Paytm & Magicpin via ONDC, GeM, Amazon Karigar) — <strong>without opening any seller accounts</strong>.</p></div>
+        <div class="row"><span class="lbl">Where</span><span class="chip c-brain">src/lib/syndication.ts</span><span class="chip c-brain">src/lib/ondcCatalog.ts</span><span class="chip c-brain">src/lib/gemCatalog.ts</span></div>
+        <div class="row"><span class="lbl">How</span><p>Generates the correct data file for each platform + a price comparison proving "buy direct = cheapest". It marks items broadcast-ready; it doesn't literally push to live marketplaces in the prototype — and says so.</p></div>
+      </div>
+
+      <div class="feat f-db">
+        <h3><span class="emoji">👥</span> Neighbours helping neighbours</h3>
+        <div class="row"><span class="lbl">What</span><p>Weavers team up to fill big orders (cluster pooling), lend materials, and answer bulk buyer demands. Plus a creator/influencer program.</p></div>
+        <div class="row"><span class="lbl">Where</span><span class="chip c-brain">src/lib/notifications.ts</span><span class="chip c-brain">src/lib/creators.ts</span><span class="chip c-api">api/demand/*</span><span class="chip c-screen">/artisan/cluster</span></div>
+        <div class="row"><span class="lbl">How</span><p>When a buyer posts a demand, the app scores which makers match best (a "Sambalpuri" weaver ranks above a generic "silk" one) and alerts them in-app + by SMS.</p></div>
+      </div>
+    </section>
+
+    <!-- 08 BRAINS -->
+    <section id="brains">
+      <div class="kicker">08 · <span style="color:var(--c-brain)">src/lib</span></div>
+      <h2>The brains</h2>
+      <p><code>src/lib</code> is where the clever thinking lives, kept separate from the screens so it can be reused and tested. The big ones to know:</p>
+      <div class="grid g2">
+        <div class="card"><h3>pricing.ts</h3><p>The fair-price engine: fair-wage floor + market band, and the "too low / too high" guard. One source of truth for every screen.</p></div>
+        <div class="card"><h3>escrow.ts</h3><p>The money-splitting rules — exactly how ₹100 is divided between maker, platform, and (maybe) a creator.</p></div>
+        <div class="card"><h3>gemini.ts &amp; groq.ts</h3><p>The connections to the robot helpers. Both cleverly try several AI models in order, and tell "busy, retry" apart from "wrong password".</p></div>
+        <div class="card"><h3>voiceParse.ts</h3><p>Turns spoken words (4 languages) into neat product fields. Shared by the app AND the phone line, so they never disagree.</p></div>
+        <div class="card"><h3>imageEnhance.ts</h3><p>The photo magic-eraser + beautifier that runs right on the phone.</p></div>
+        <div class="card"><h3>schemes.ts</h3><p>The government-scheme rulebook — pure rules, no AI, fully auditable.</p></div>
+        <div class="card"><h3>offlineQueue.ts + offlineSync.ts</h3><p>The offline safety net: save captures on the phone, auto-upload when internet returns.</p></div>
+        <div class="card"><h3>auditLogger.ts</h3><p>The tiny helper that writes a line in the unerasable diary every time something important happens.</p></div>
+      </div>
+      <p style="margin-top:18px"><strong>Smaller helpers</strong> (grouped): <code>prisma.ts</code> (opens the notebook), <code>artisanAuth.ts</code> (the bouncer), <code>sms.ts</code>/<code>twilioIvr.ts</code> (texting + phone line), <code>razorpay*.ts</code> (payments), <code>syndication.ts</code>/<code>ondcCatalog.ts</code>/<code>gemCatalog.ts</code> (marketplace files), <code>notifications.ts</code> (demand matching), <code>festivals.ts</code>/<code>suppliers.ts</code>/<code>giLabels.ts</code>/<code>indiaGeo.ts</code> (data lists), <code>translations.ts</code> + <code>i18n/</code> (4 languages), and small utilities like <code>utils.ts</code> and <code>urlTab.ts</code>.</p>
+    </section>
+
+    <!-- 09 WAITERS -->
+    <section id="waiters">
+      <div class="kicker">09 · <span style="color:var(--c-api)">src/app/api</span></div>
+      <h2>The waiters (78 jobs)</h2>
+      <p>Every file named <code>route.ts</code> under <code>src/app/api</code> is one job, and the folder path <em>is</em> the web address. Almost every one starts the same way: <strong>check the wristband → check the role → do the job → write a diary line.</strong></p>
+      <div class="grid g2">
+        <div class="card"><h3>🔑 auth/…</h3><p><code>register</code>, <code>login</code>, <code>logout</code>, <code>me</code> — make accounts and print/tear off wristbands.</p></div>
+        <div class="card"><h3>🧵 items/…</h3><p><code>capture</code> (save + price), <code>voice-parse</code>, <code>vision-verify</code>, <code>smart-draft</code>, price helpers, the public <code>market</code> feed, <code>attach-verify</code>.</p></div>
+        <div class="card"><h3>👩‍🎨 artisan/…</h3><p><code>dashboard</code>, <code>profile</code>, <code>orders</code>, <code>schemes</code>, <code>insights</code>, <code>notifications</code>, <code>syndicate</code>, <code>request-review</code>, and more.</p></div>
+        <div class="card"><h3>🏛️ admin/…</h3><p><code>verify-batch</code> (approve + QR), <code>facilitator-queue</code>, <code>cluster</code>, <code>resolve-flag</code>, <code>nodal-analytics</code>, <code>audit-trace</code>, <code>export-compliance</code>.</p></div>
+        <div class="card"><h3>🛍️ payments &amp; verify</h3><p>The 3-step flow <code>create-order → verify-payment → settle-escrow</code>, plus public <code>verify/[patchId]</code>, <code>verify-authenticity</code>, and <code>reviews</code>.</p></div>
+        <div class="card"><h3>📣 everything else</h3><p><code>demand/*</code> (wish board), <code>creators/*</code>, <code>ondc/catalog</code>, <code>ivr/*</code> (phone line), <code>sms/inbound</code>, <code>disbursement/apply</code>.</p></div>
+      </div>
+      <div class="note">💡 The repo's <code>ARCHITECTURE.md</code> maps every screen to the exact waiter it calls — and even honestly lists which brief features are "Not Yet Implemented".</div>
+    </section>
+
+    <!-- 10 SCREENS -->
+    <section id="screens">
+      <div class="kicker">10 · <span style="color:var(--c-screen)">src/app</span> pages</div>
+      <h2>The screens</h2>
+      <p>Any file called <code>page.tsx</code> is a screen; a <code>loading.tsx</code> beside it is the "please wait" placeholder; a <code>layout.tsx</code> is a frame wrapped around a group of screens.</p>
+      <ul class="plain">
+        <li><b>layout.tsx</b> (top) — the outer frame: loads fonts, makes the app <b>installable</b>, and mounts the offline auto-uploader once for everything.</li>
+        <li><b>page.tsx</b> — the public home page with <b>real</b> listed items, live stats, and a demand map (never fake numbers).</li>
+        <li><b>login / register</b> — sign-in and sign-up (Artisan tab + Admin tab).</li>
+        <li><b>artisan/</b> — the maker's world, guarded by <code>artisan/layout.tsx</code> (not a maker? bounced to login): <code>dashboard, earnings, insights, market, marketing, materials, news, notifications, orders, schemes, learn, cluster</code>.</li>
+        <li><b>admin/</b> — <code>facilitator</code> (field view) and <code>nodal</code> (big-boss view).</li>
+        <li><b>marketplace/</b> — the public shop + a page per product.</li>
+        <li><b>verify/[patchId]</b> — where a buyer lands after scanning a QR: the item's story, fair-pay proof, and the live-photo check.</li>
+        <li><b>offline/</b> — the friendly page shown with no internet.</li>
+      </ul>
+    </section>
+
+    <!-- 11 BLOCKS -->
+    <section id="blocks">
+      <div class="kicker">11 · <span style="color:var(--c-screen)">src/components</span></div>
+      <h2>The LEGO blocks</h2>
+      <p>Reusable pieces the screens are built from. The tiniest, most-reused ones (buttons, cards, badges, the sidebar, star ratings) live in <code>src/components/ui/</code>. The bigger "feature" blocks:</p>
+      <div class="grid g3">
+        <div class="card"><h3>CaptureModal.tsx</h3><p>The big "add a craft" wizard — talk, photo, price. The largest block in the app.</p></div>
+        <div class="card"><h3>VerificationCamera.tsx</h3><p>The live-photo camera for the buyer's authenticity check.</p></div>
+        <div class="card"><h3>VoiceOnboarding.tsx</h3><p>The floating voice-assistant bubble.</p></div>
+        <div class="card"><h3>AgentHandoffModal.tsx</h3><p>The "how do you want to sell + get advance" step.</p></div>
+        <div class="card"><h3>QrAttachModal.tsx</h3><p>Walks the maker through sticking the QR on + re-photographing.</p></div>
+        <div class="card"><h3>PostDemandModal · DemandMap</h3><p>The buyer demand board + the map of where demand is.</p></div>
+        <div class="card"><h3>EarningsAnalytics.tsx</h3><p>The maker's money charts (built with Recharts).</p></div>
+        <div class="card"><h3>OfflineSyncProvider.tsx</h3><p>Shows offline status + runs the auto-upload for the whole app.</p></div>
+        <div class="card"><h3>AssistedOnboardingModal.tsx</h3><p>Lets a field officer onboard a maker on their behalf.</p></div>
+      </div>
+    </section>
+
+    <!-- 12 PATTERNS -->
+    <section id="patterns">
+      <div class="kicker">12 · How it's written</div>
+      <h2>Two golden patterns that repeat everywhere</h2>
+      <p>Remember just these two things about <em>how</em> this code is written — they're what make it trustworthy, and judges love them.</p>
+      <div class="patt">
+        <h3>🛟 Pattern A — "The robot always has a backup"</h3>
+        <p>Every robot/helper can fail (no internet, wrong key, too busy). The code <strong>never crashes</strong>; it degrades gracefully:</p>
+        <ul>
+          <li><b>Gemini busy?</b> → try the next AI model.</li>
+          <li><b>Whisper can't do Odia?</b> → fall back to Gemini for the audio.</li>
+          <li><b>All robots down?</b> → keep the maker's exact words + safe placeholder numbers, clearly marked as placeholders.</li>
+          <li><b>Twilio/Razorpay not set up?</b> → the demand still posts / an honest "checkout not configured" appears.</li>
+        </ul>
+      </div>
+      <div class="patt">
+        <h3>🫡 Pattern B — "Be honest about real vs pretend"</h3>
+        <p>It's a prototype, and the code is refreshingly honest about it — it never dresses a simulation up as the real thing:</p>
+        <ul>
+          <li>The final bank pay-out is a <b>recorded settlement</b>, never labelled a confirmed bank transfer.</li>
+          <li>The demo charge is <b>₹1</b> on purpose, while every displayed price stays real.</li>
+          <li>Marketplace "syndication" makes the correct files but doesn't literally push to Amazon/Paytm yet — the comments say so.</li>
+          <li>The AuditLog diary, escrow ladder, pricing math, QR checks, offline queue and login are <b>all genuinely real</b>.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 13 GLOSSARY -->
+    <section id="glossary">
+      <div class="kicker">13 · Mini glossary</div>
+      <h2>Words you'll hear the team say</h2>
+      <div class="tablewrap">
+        <table>
+          <tbody>
+            <tr><td>patchId</td><td>The unique code on an item's physical QR sticker (e.g. <code>PATCH-MTK9…</code>)</td></tr>
+            <tr><td>Fair Wage Floor</td><td>The lowest fair price = labour + materials + 10%</td></tr>
+            <tr><td>Health Score</td><td>A maker's trust score (starts 100; fakes lower it, real sales raise it)</td></tr>
+            <tr><td>Escrow</td><td>Money held safely and released in stages (dispatch, then delivery)</td></tr>
+            <tr><td>PWA</td><td>A website that installs and works like a phone app, even offline</td></tr>
+            <tr><td>IVR</td><td>The "press 1 for…" automated phone line</td></tr>
+            <tr><td>ONDC / GeM</td><td>India's open shopping network / the government e-marketplace</td></tr>
+            <tr><td>JWT / auth-token</td><td>The wristband cookie that proves you're logged in</td></tr>
+            <tr><td>Seed data</td><td>Fake demo data loaded so the app looks full in a demo</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p class="big">In one sentence: <em>KARIGARI lets an artisan talk to add a craft, a robot cleans the photo and sets a fair price, a QR + AI photo-check proves it's real, the maker gets ~89% with no middleman — and it all works even by SMS, phone, or with no internet, with an unerasable diary so the government can trust every step.</em></p>
+      <p>You now understand the whole codebase. Go build something great. 🇮🇳</p>
+    </footer>
+
+  </main>
+</div>
+
+</body>
+</html>

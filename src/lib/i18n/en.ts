@@ -1017,6 +1017,70 @@ const dict: Record<string, string> = {
   artisan_paid_label: "Artisan paid",
   artisan_paid_note:
     "the on-screen agreed price, credited to their dashboard on delivery.",
+
+  /* Buyer scan-and-verify + dispute tickets */
+  nav_tickets_reports: "Tickets & Reports",
+  scan_and_verify: "Scan & verify",
+  scan_verify_title: "Scan & verify your delivery",
+  scan_verify_lede:
+    "Scan the QR patch on the piece you received, add a photo of it, and we will check it against the artisan's original capture.",
+  scan_open_camera: "Open camera",
+  scan_close_camera: "Close camera",
+  scan_manual_hint: "No QR detected — enter the code manually below.",
+  scan_camera_denied: "Camera unavailable. Enter the patch ID manually below.",
+  scan_pointing_hint: "Point the camera at the QR patch on your product.",
+  scanned_via_qr: "Scanned via QR",
+  qr_match: "QR matches item",
+  patch_id_not_found: "Patch ID not found. Check the QR label on the product.",
+  report_product: "Report this product",
+  report_submitting: "Sending your report…",
+  report_submitted_title: "Report received",
+  report_submitted_body: "The admin will review your report.",
+  report_ticket_id: "Report ID",
+  report_under_review: "Report under review",
+  report_discarded_title: "Your report was reviewed and discarded.",
+  report_discarded_reason: "Reason from admin",
+  refund_initiated_title: "A refund will be initiated.",
+  refund_initiated_body: "We are sorry for the inconvenience.",
+  verify_missing_fields: "Enter a patch ID and add a photo of what you received.",
+
+  /* Artisan — Trust & Reports card */
+  trust_and_reports: "Trust & Reports",
+  health_score_label: "Health score",
+  verified_genuine_deliveries: "verified genuine deliveries",
+  verified_genuine_note: "+{reward}% each, cap {max}",
+  tickets_open_label: "Open",
+  tickets_guilty_label: "Upheld",
+  tickets_not_guilty_label: "Discarded",
+  guilty_verdict: "Guilty verdict",
+  guilty_verdict_body:
+    "We are sorry — a refund is being processed. Your health score has decreased by {penalty}%.",
+  trust_no_reports: "No buyer reports against your work. Keep it up.",
+
+  /* Admin — Tickets & Reports console */
+  tickets_console_title: "Buyer reports",
+  tickets_console_lede:
+    "Every row is a real buyer scan that failed. Compare both photos, then record a verdict.",
+  tickets_filter_open: "Open",
+  tickets_filter_resolved: "Resolved",
+  tickets_filter_all: "All",
+  tickets_empty: "No reports in this view.",
+  tickets_artisan_capture: "Artisan capture",
+  tickets_buyer_photo: "Buyer photo",
+  tickets_ai_similarity: "AI similarity",
+  tickets_ai_reasoning: "AI reasoning",
+  tickets_buyer: "Buyer",
+  tickets_artisan: "Artisan",
+  tickets_health_now: "Health score now",
+  tickets_verdict_guilty: "Guilty",
+  tickets_verdict_not_guilty: "Not guilty",
+  tickets_note_label: "Message to buyer (optional)",
+  tickets_submit_verdict: "Submit verdict",
+  tickets_resolved_badge: "Resolved",
+  tickets_load_failed: "Could not load reports. Retrying on the next poll.",
+
+  /* Low-bandwidth mode */
+  slow_connection_pill: "Slow connection — reduced media",
 };
 
 export default dict;

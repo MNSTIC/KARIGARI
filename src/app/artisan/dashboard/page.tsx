@@ -326,6 +326,9 @@ export default function ArtisanDashboard() {
         </div>
       </div>
 
+      {/* ===================================== Trust & buyer reports */}
+      <TrustAndReportsCard data={dashboardData} t={t} />
+
       {listNotice && (
         <div
           className={cn(
@@ -1039,5 +1042,136 @@ function Fact({ label, value }: { label: string; value: React.ReactNode }) {
       <dt className="kg-label font-medium text-gray-500">{label}</dt>
       <dd className="mt-1 truncate text-sm font-semibold text-gray-900">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * Trust & Reports — the artisan's own view of buyer verification outcomes.
+ *
+ * Every figure is live from `/api/artisan/dashboard`: the health score, its
+ * ceiling, the reward/penalty sizes and the ticket counts all arrive from the
+ * server, so the copy can quote the real numbers without this file hard-coding
+ * any of the health-score arithmetic.
+ */
+function TrustAndReportsCard({
+  data,
+  t,
+}: {
+  data: any;
+  t: (key: string) => string;
+}) {
+  if (!data) return null;
+
+  const healthMax = Number(data.healthMax) || 100;
+  const health = Math.round(Number(data.healthScore ?? healthMax));
+  const reward = Number(data.healthRewardVerified ?? 0);
+  const penalty = Number(data.healthPenaltyGuilty ?? 0);
+  const verifiedCount = Number(data.verifiedGenuineCount ?? 0);
+  const openTickets = Number(data.openTickets ?? 0);
+  const guiltyTickets = Number(data.guiltyTickets ?? 0);
+  const notGuiltyTickets = Number(data.notGuiltyTickets ?? 0);
+  const recent: any[] = Array.isArray(data.recentGuiltyTickets) ? data.recentGuiltyTickets : [];
+
+  const healthTone =
+    health >= 80 ? "success" : health >= 50 ? "warning" : "danger";
+
+  return (
+    <section className="mt-12" aria-labelledby="trust-heading">
+      <SectionHeading id="trust-heading" size="md">
+        {t("trust_and_reports")}
+      </SectionHeading>
+
+      <Card pad="lg" className="kg-enter">
+        <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          {/* ---------------------------------------- health score */}
+          <div className="min-w-0">
+            <div className="flex items-end justify-between gap-3">
+              <span className="kg-label font-medium text-gray-500">
+                {t("health_score_label")}
+              </span>
+              <span className="font-sans text-2xl font-black text-gray-900">
+                {health}
+                <span className="text-sm font-bold text-gray-400">/{healthMax}</span>
+              </span>
+            </div>
+            <ProgressBar
+              value={health}
+              max={healthMax}
+              label={t("health_score_label")}
+              tone={healthTone}
+              className="mt-3"
+            />
+
+            <p className="mt-4 text-2xl font-black text-primary">{verifiedCount}</p>
+            <p className="text-xs leading-relaxed text-gray-500">
+              {t("verified_genuine_deliveries")} —{" "}
+              {t("verified_genuine_note")
+                .replace("{reward}", String(reward))
+                .replace("{max}", String(healthMax))}
+            </p>
+          </div>
+
+          {/* ---------------------------------------- ticket counts */}
+          <div className="grid grid-cols-3 gap-3 self-start">
+            <Fact label={t("tickets_open_label")} value={openTickets} />
+            <Fact label={t("tickets_guilty_label")} value={guiltyTickets} />
+            <Fact label={t("tickets_not_guilty_label")} value={notGuiltyTickets} />
+          </div>
+        </div>
+
+        {/* ---------------------------------------- upheld reports */}
+        {recent.length === 0 ? (
+          <p className="mt-6 border-t border-gray-100 pt-5 text-sm leading-relaxed text-gray-500">
+            {t("trust_no_reports")}
+          </p>
+        ) : (
+          <ul className="mt-6 space-y-3 border-t border-gray-100 pt-5">
+            {recent.map((ticket) => (
+              <li
+                key={ticket.id}
+                className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-3.5"
+              >
+                {ticket.craftItem?.image ? (
+                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-gray-100">
+                    <Image
+                      src={ticket.craftItem.image}
+                      alt=""
+                      fill
+                      sizes="48px"
+                      unoptimized={
+                        String(ticket.craftItem.image).startsWith("data:") ||
+                        String(ticket.craftItem.image).startsWith("/api/")
+                      }
+                      className="object-cover"
+                    />
+                  </div>
+                ) : (
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-400">
+                    <QrCode size={18} />
+                  </span>
+                )}
+
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-red-800">
+                    {ticket.craftItem?.craftType || "—"}
+                  </p>
+                  {ticket.craftItem?.patchId && (
+                    <p className="font-mono text-[11px] text-red-700/70">
+                      {ticket.craftItem.patchId}
+                    </p>
+                  )}
+                  <p className="mt-1 text-[11px] font-bold uppercase tracking-wider text-red-700">
+                    {t("guilty_verdict")}
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-red-700/90">
+                    {t("guilty_verdict_body").replace("{penalty}", String(penalty))}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </section>
   );
 }

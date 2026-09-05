@@ -334,7 +334,7 @@ export function ReviewSection({ craftItemId }: { craftItemId: string }) {
                         alt=""
                         fill
                         sizes="80px"
-                        unoptimized={src.startsWith("data:")}
+                        unoptimized={src.startsWith("data:") || src.startsWith("/api/")}
                         className="object-cover"
                       />
                     </div>

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Globe, LogOut, Menu, Package, Search } from "lucide-react";
+import { ChevronDown, Globe, LogOut, Menu, Package, Search, SignalLow } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { logout } from "@/lib/authClient";
 import { NotificationsBell } from "@/components/NotificationsBell";
@@ -11,6 +11,7 @@ import { OfflineQueueBadge } from "@/components/OfflineQueueBadge";
 import { groupsForRole, type ShellRole } from "@/components/ui/Sidebar";
 import { useArtisanIdentity } from "@/lib/artisanIdentity";
 import { useLanguage, type Language } from "@/lib/translations";
+import { useNetworkQuality } from "@/lib/useNetworkQuality";
 import { cn } from "@/lib/utils";
 
 /**
@@ -332,6 +333,7 @@ export function TopBar({
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+          <SlowConnectionPill />
           <OfflineQueueBadge />
           {actions}
           <LanguageMenu />
@@ -366,5 +368,26 @@ export function TopBar({
         <SearchBox role={role} />
       </div>
     </header>
+  );
+}
+
+/**
+ * "Slow connection — reduced media".
+ *
+ * Only renders on a 2G-class link or with Data Saver on. It exists so the
+ * artisan understands WHY their thumbnails got smaller and the dashboard
+ * refreshes less often, rather than concluding the app is broken.
+ */
+function SlowConnectionPill() {
+  const { t } = useLanguage();
+  const network = useNetworkQuality();
+  if (!network.isSlow) return null;
+  return (
+    <span
+      title={t("slow_connection_pill")}
+      className="kg-label hidden items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1.5 font-medium text-amber-800 sm:inline-flex"
+    >
+      <SignalLow size={13} /> {t("slow_connection_pill")}
+    </span>
   );
 }

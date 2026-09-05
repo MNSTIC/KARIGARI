@@ -164,6 +164,9 @@ Return JSON only:
     ],
     {
       responseMimeType: 'application/json',
+      // Same-piece check is a classification. Never cached — two different
+      // photos must never share one verdict.
+      thinkingConfig: { thinkingBudget: 0 },
       responseSchema: {
         type: 'OBJECT',
         properties: {

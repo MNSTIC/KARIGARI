@@ -57,7 +57,7 @@ function Thumb({
         alt={alt}
         fill
         sizes={sizes}
-        unoptimized={src.startsWith("data:")}
+        unoptimized={src.startsWith("data:") || src.startsWith("/api/")}
         className="object-cover"
       />
     </span>

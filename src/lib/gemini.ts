@@ -50,12 +50,41 @@ export const ai = new GoogleGenAI({ apiKey: RAW_KEY });
  * `gemini-2.5-flash` is deliberately absent: it now 404s with
  * "no longer available to new users".
  */
+/**
+ * Fastest-first. Measured on this account (median of 5, dev server, Sept 2026):
+ * the old order led with `gemini-3.7-flash`, which answers 503 "high demand" on
+ * every single call, then `gemini-3.5-flash` answers 429 (free-tier daily quota),
+ * then `gemini-flash-latest` answers 503 again — three failed round trips before
+ * `gemini-3.1-flash-lite` finally serves the request. That cost 18-24s of pure
+ * waiting on EVERY Gemini route. Leading with the model that actually answers
+ * removes all three.
+ */
 export const FALLBACK_MODELS = [
-  'gemini-3.7-flash',
+  'gemini-3.1-flash-lite',
   'gemini-3.5-flash',
+  'gemini-flash-latest',
+  'gemini-3.7-flash',
+];
+
+/**
+ * For callers that genuinely need the strongest reasoning and can pay the
+ * latency: smart-draft's domain questioning, claims validation, insights.
+ * Same members, strongest-first.
+ */
+export const FALLBACK_MODELS_QUALITY = [
+  'gemini-3.5-flash',
+  'gemini-3.7-flash',
   'gemini-flash-latest',
   'gemini-3.1-flash-lite',
 ];
+
+/**
+ * Per-attempt ceilings. Google's own default is ~60s, which is what let a
+ * single stalled model hold a whole request open. A classification that has not
+ * answered in 6s is not going to; fall through to the next model instead.
+ */
+export const TIMEOUT_FAST_MS = 6_000;
+export const TIMEOUT_THINKING_MS = 15_000;
 
 /** An HTTP-ish status pulled off whatever shape the SDK threw. */
 export function geminiErrorStatus(error: unknown): number | null {
@@ -115,36 +144,143 @@ function hasThinkingConfig(config: GenerateContentConfig): boolean {
   return config.thinkingConfig !== undefined;
 }
 
+/** True when the caller explicitly asked for zero thinking budget. */
+function isThinkingDisabled(config?: GenerateContentConfig): boolean {
+  const budget = (config?.thinkingConfig as { thinkingBudget?: number } | undefined)?.thinkingBudget;
+  return budget === 0;
+}
+
+/** An aborted attempt is retryable — same class as a 503, not a hard failure. */
+function isAbortError(error: unknown): boolean {
+  const name = (error as { name?: unknown } | null)?.name;
+  const message = String((error as { message?: unknown } | null)?.message ?? '');
+  return name === 'AbortError' || /abort|timed? ?out/i.test(message);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Response cache                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Small in-memory LRU for IDEMPOTENT prompts.
+ *
+ * Opt-in per call (`cacheKey`), because most of this app's Gemini traffic must
+ * never be cached: a vision authenticity check has to run fresh against the
+ * photo in front of it, or two different products could share one verdict.
+ * Only pricing/catalog/parse style calls — where the same input genuinely means
+ * the same answer — pass a key.
+ *
+ * Process-local by design. This is a latency cache, not a source of truth; a
+ * cold lambda simply pays the model call once more.
+ */
+const CACHE_MAX = 200;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const responseCache = new Map<string, { at: number; value: unknown }>();
+
+function cacheGet(key: string): unknown | undefined {
+  const hit = responseCache.get(key);
+  if (!hit) return undefined;
+  if (Date.now() - hit.at > CACHE_TTL_MS) {
+    responseCache.delete(key);
+    return undefined;
+  }
+  // Refresh recency — Map preserves insertion order, so re-inserting moves it
+  // to the end and keeps the eviction below honest about what is actually cold.
+  responseCache.delete(key);
+  responseCache.set(key, hit);
+  return hit.value;
+}
+
+function cacheSet(key: string, value: unknown): void {
+  if (responseCache.size >= CACHE_MAX) {
+    const oldest = responseCache.keys().next().value;
+    if (oldest !== undefined) responseCache.delete(oldest);
+  }
+  responseCache.set(key, { at: Date.now(), value });
+}
+
+/** Stable digest for a cache key. Cheap, non-cryptographic use of SHA-1. */
+export function promptDigest(...parts: (string | undefined | null)[]): string {
+  // Imported lazily so the browser bundle never pulls node:crypto through a
+  // stray client import of this module.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createHash } = require('node:crypto') as typeof import('node:crypto');
+  const hash = createHash('sha1');
+  for (const part of parts) hash.update(String(part ?? ''), 'utf8');
+  return hash.digest('hex');
+}
+
 /**
  * Utility function to attempt generating content with multiple models.
  * If a model fails because THAT model is the problem (503 high demand, 404
  * unknown model, 429 per-model quota) it automatically tries the next model in
  * the fallback list.
  *
- * `models` lets a latency-sensitive caller (the voice assistant) choose its own
- * order instead of paying for a slow first choice on every request.
+ * The third argument accepts either a bare model array (legacy call sites) or
+ * an options object with `models`, a per-attempt `timeoutMs`, and a `cacheKey`
+ * for idempotent prompts.
  */
+export interface GenerateOptions {
+  /** Model order to walk. Defaults to the fastest-first FALLBACK_MODELS. */
+  models?: string[];
+  /** Per-attempt ceiling. Defaults by whether thinking is disabled. */
+  timeoutMs?: number;
+  /**
+   * Opt in to the 5-minute response cache. Only pass this when the same key
+   * genuinely implies the same answer — never for vision/authenticity work.
+   */
+  cacheKey?: string;
+}
+
 export async function generateContentWithFallback(
   contents: ContentListUnion,
   config?: GenerateContentConfig,
-  models: string[] = FALLBACK_MODELS
+  modelsOrOptions: string[] | GenerateOptions = FALLBACK_MODELS
 ) {
+  // Back-compat: callers that already pass a bare model array keep working.
+  const options: GenerateOptions = Array.isArray(modelsOrOptions)
+    ? { models: modelsOrOptions }
+    : modelsOrOptions;
+  const models = options.models ?? FALLBACK_MODELS;
+  const timeoutMs =
+    options.timeoutMs ?? (isThinkingDisabled(config) ? TIMEOUT_FAST_MS : TIMEOUT_THINKING_MS);
+
   if (!GEMINI_CONFIGURED) {
     const error = new Error('GEMINI_API_KEY is not configured') as Error & { status: number };
     error.status = 401;
     throw error;
   }
 
+  if (options.cacheKey) {
+    const cached = cacheGet(options.cacheKey);
+    if (cached !== undefined) {
+      console.log('[Gemini] cache hit');
+      return cached as Awaited<ReturnType<typeof ai.models.generateContent>>;
+    }
+  }
+
   let lastError: unknown;
+
+  /** One attempt, bounded by its own AbortController. */
+  const attempt = async (model: string, cfg?: GenerateContentConfig) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await ai.models.generateContent({
+        model,
+        contents,
+        config: { ...(cfg ?? {}), abortSignal: controller.signal },
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 
   for (const model of models) {
     try {
       console.log(`[Gemini] Attempting to use model: ${model}...`);
-      const response = await ai.models.generateContent({
-        model: model,
-        contents: contents,
-        config: config,
-      });
+      const response = await attempt(model, config);
+      if (options.cacheKey) cacheSet(options.cacheKey, response);
       return response; // Success! Return the response.
     } catch (error) {
       const status = geminiErrorStatus(error);
@@ -165,7 +301,9 @@ export async function generateContentWithFallback(
         delete rest.thinkingConfig;
         try {
           console.log(`[Gemini] Retrying ${model} without thinkingConfig...`);
-          return await ai.models.generateContent({ model, contents, config: rest });
+          const retried = await attempt(model, rest);
+          if (options.cacheKey) cacheSet(options.cacheKey, retried);
+          return retried;
         } catch (retryError) {
           console.warn(`[Gemini] Model ${model} retry failed: ${describe(retryError)}`);
           lastError = retryError;
@@ -173,11 +311,12 @@ export async function generateContentWithFallback(
       }
 
       // Continue to the next model when THIS model is the problem:
-      // 503 (high demand), 500, 404 (unknown model), or 429 (per-model quota
-      // exhausted — the free tier meters each model separately, so the next
-      // one in the list usually still has budget).
+      // 503 (high demand), 500, 404 (unknown model), 429 (per-model quota —
+      // the free tier meters each model separately, so the next one usually
+      // still has budget), or our own per-attempt timeout.
       if (
         isGeminiBusyError(error) ||
+        isAbortError(error) ||
         status === 404 ||
         message.includes('is not found') ||
         message.includes('no longer available')

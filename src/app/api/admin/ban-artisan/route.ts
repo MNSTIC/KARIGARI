@@ -3,6 +3,10 @@ import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 
+/** Reads the auth cookie, so it must never be statically optimised. */
+export const dynamic = 'force-dynamic';
+
+
 export async function POST(req: Request) {
   try {
     const cookieStore = await cookies();

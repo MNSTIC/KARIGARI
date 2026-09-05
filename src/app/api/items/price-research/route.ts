@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { generateContentWithFallback } from '@/lib/gemini';
+import { generateContentWithFallback, promptDigest } from '@/lib/gemini';
 import { firstArray, languageInstruction } from '@/lib/groq';
 import { estimateCraftValuation } from '@/lib/pricing';
 
@@ -83,14 +83,23 @@ Return strict JSON:
 }`;
 
   try {
-    const result = await generateContentWithFallback([{ text: prompt }], {
-      responseMimeType: 'application/json',
-    });
+    const result = await generateContentWithFallback(
+      [{ text: prompt }],
+      {
+        responseMimeType: 'application/json',
+        // Comparable-price lookup is recall, not reasoning: a thinking budget
+        // added seconds without changing the numbers.
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+      // Same craft + same claimed inputs means the same comparables, so a
+      // repeat within the cache window is served without a second model call.
+      { cacheKey: promptDigest('price-research', prompt) }
+    );
     const rawText =
       typeof result === 'string' ? result : (result as { text?: string })?.text || '{}';
-    const parsed = JSON.parse(
-      rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
-    ) as Record<string, unknown>;
+    // `responseMimeType: application/json` is enforced above, so no fence
+    // stripping is needed — a fenced reply would be a contract violation.
+    const parsed = JSON.parse(rawText.trim()) as Record<string, unknown>;
 
     const rows = firstArray(parsed.comparables ?? parsed) as Record<string, unknown>[];
     const comparables: Comparable[] = rows

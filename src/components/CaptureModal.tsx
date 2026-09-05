@@ -5,6 +5,12 @@ import { Mic, UploadCloud, FileText, ArrowRight, X, Sparkles, CheckCircle2, Came
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/translations";
+import {
+  dataUrlBytes,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_LABEL,
+  readFileAsDataUrl,
+} from "@/lib/fileToDataUrl";
 import { estimateCraftValuation, formatRupees } from "@/lib/pricing";
 import { downscaleImage, enhanceProductPhoto } from "@/lib/imageEnhance";
 import { Avatar } from "@/components/ui/Avatar";
@@ -28,6 +34,13 @@ type Message = { id: string; role: "assistant" | "user"; text: string; isProcess
  * The price quote in Step 3 is computed from the same values, so the artisan is
  * always shown the band that will actually be persisted on their item.
  */
+/**
+ * What the raw-material bill dropzone accepts. Declared once and used for BOTH
+ * the `accept` attribute and the validation, so the picker and the check can
+ * never disagree about what a valid bill is.
+ */
+const BILL_ACCEPT = "image/jpeg,image/png,application/pdf";
+
 const FALLBACK_CRAFT_TYPE = "Crafted Item";
 const FALLBACK_LABOR_DAYS = 9;
 const FALLBACK_MATERIAL_COST = 2800;
@@ -125,6 +138,40 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
    * only downgraded back to text if the artisan never speaks.
    */
   const [primaryInputMethod, setPrimaryInputMethod] = useState<"voice" | "text">("text");
+
+  /**
+   * Optional raw-material bill. Stored as a data URL like every other upload
+   * here and sent to the capture API as `rawMaterialProofUrl`.
+   */
+  const [billDataUrl, setBillDataUrl] = useState<string | null>(null);
+  const [billFileName, setBillFileName] = useState("");
+  const billIsPdf = Boolean(billDataUrl?.startsWith("data:application/pdf"));
+
+  const onBillPicked = useCallback(
+    async (file: File | null) => {
+      if (!file) return;
+      if (!BILL_ACCEPT.split(",").includes(file.type)) {
+        setNotice({
+          tone: "warning",
+          title: t('upload_bill'),
+          body: `${file.name}: JPEG, PNG, or PDF only.`,
+        });
+        return;
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setNotice({
+          tone: "warning",
+          title: t('upload_bill'),
+          body: `"${file.name}" is over ${MAX_UPLOAD_LABEL}.`,
+        });
+        return;
+      }
+      setBillDataUrl(await readFileAsDataUrl(file));
+      setBillFileName(file.name);
+      setNotice(null);
+    },
+    [t]
+  );
 
   /**
    * V8.1 — Smart-draft runs INLINE in the main chat, no separate assistant
@@ -588,6 +635,9 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
       claimsFlag,
       aiTier,
       advanceEligible,
+      // Optional raw-material bill. Rides in the same payload so a capture
+      // queued offline keeps its proof when it is POSTed later.
+      rawMaterialProofUrl: billDataUrl,
     };
 
     /**
@@ -1274,6 +1324,8 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
     setTimeout(() => {
       setStep(1);
       setIsProcessed(false);
+      setBillDataUrl(null);
+      setBillFileName("");
       setSmartDraftStarted(false);
       setSmartDraftPending(false);
       setSmartDraftComplete(false);
@@ -1681,7 +1733,7 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
                           alt={`Capture ${idx}`}
                           fill
                           sizes="(max-width: 640px) 33vw, 180px"
-                          unoptimized={String(img).startsWith("data:")}
+                          unoptimized={String(img).startsWith("data:") || String(img).startsWith("/api/")}
                           className={cn("object-cover transition-all duration-1000", isVisionVerified ? "brightness-110 contrast-105 saturate-110" : "")}
                         />
                         <button 
@@ -1946,11 +1998,61 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
                 <p><strong>Optional:</strong> Upload your raw material bills or receipts. This increases your <strong>Fairness Score</strong> and helps you get a better valuation.</p>
               </div>
               
-              <div className="w-full h-48 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-500 cursor-pointer hover:bg-gray-100 transition-colors mb-6">
-                <FileText size={40} className="mb-3 text-gray-400" />
-                <span className="font-medium text-gray-700">{t('upload_bill')}</span>
-                <span className="text-xs text-gray-400 mt-1">JPEG, PNG, or PDF</span>
-              </div>
+              {/* A bare <div> lived here, which is why the file explorer never
+                  opened: there was no <input> behind it at all. The input is
+                  nested inside the label, so the whole dropzone is the target. */}
+              {!billDataUrl ? (
+                <label className="w-full h-48 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-500 cursor-pointer hover:bg-gray-100 transition-colors mb-6">
+                  <FileText size={40} className="mb-3 text-gray-400" />
+                  <span className="font-medium text-gray-700">{t('upload_bill')}</span>
+                  <span className="text-xs text-gray-400 mt-1">JPEG, PNG, or PDF</span>
+                  <input
+                    type="file"
+                    accept={BILL_ACCEPT}
+                    onChange={(e) => void onBillPicked(e.target.files?.[0] ?? null)}
+                    className="hidden"
+                  />
+                </label>
+              ) : (
+                <div className="mb-6 flex items-center gap-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                  {billIsPdf ? (
+                    <span className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-400">
+                      <FileText size={28} />
+                    </span>
+                  ) : (
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-gray-200 bg-white">
+                      <Image
+                        src={billDataUrl}
+                        alt=""
+                        fill
+                        sizes="80px"
+                        unoptimized
+                        className="object-cover"
+                      />
+                    </div>
+                  )}
+
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-gray-900">
+                      {billFileName || t('upload_bill')}
+                    </p>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      {(dataUrlBytes(billDataUrl) / 1024).toFixed(0)} KB
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBillDataUrl(null);
+                      setBillFileName("");
+                    }}
+                    className="kg-press inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-xs font-bold text-gray-600 hover:bg-gray-100"
+                  >
+                    <Trash2 size={14} /> {t('remove')}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

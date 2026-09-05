@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import QRCode from "react-qr-code";
+import { buildPatchVerifyUrl, SCAN_QUERY_KEY, SCAN_QUERY_VALUE } from "@/lib/qrPatch";
 import {
   AlertTriangle,
   Camera,
@@ -63,9 +64,14 @@ export function QrAttachModal({ isOpen, onClose, item, onVerified }: QrAttachMod
 
   const patchId = item.patchId || "";
   // The QR resolves to the public passport, so a buyer scanning the physical
-  // product lands on this exact item's provenance page.
+  // product lands on this exact item's provenance page. `?scan=1` marks the QR
+  // (rather than a typed visit) as the source — an external scan still opens
+  // the passport exactly as before, and an in-app scan can trust the patch id
+  // it decoded out of the path segment.
   const verifyUrl =
-    typeof window !== "undefined" ? `${window.location.origin}/verify/${patchId}` : `/verify/${patchId}`;
+    typeof window !== "undefined"
+      ? buildPatchVerifyUrl(window.location.origin, patchId)
+      : `/verify/${patchId}?${SCAN_QUERY_KEY}=${SCAN_QUERY_VALUE}`;
 
   /** Rasterise the inline SVG to a PNG the artisan can print. */
   const downloadQr = () => {

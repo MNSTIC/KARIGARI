@@ -71,12 +71,41 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const decodedImage = decodeDataUrl(first);
     if (!decodedImage) return NextResponse.json({ error: 'Unreadable image' }, { status: 404 });
 
-    return new NextResponse(new Uint8Array(decodedImage.body), {
+    /**
+     * `?w=` serves a narrower variant.
+     *
+     * The network-quality hook asks for `?w=200` on a 2G connection, where the
+     * full-size capture is several hundred kilobytes for a 48px avatar. Clamped
+     * so a caller cannot ask us to upscale or to burn CPU on an absurd size.
+     */
+    const requestedWidth = Number(new URL(_req.url).searchParams.get('w'));
+    let body = decodedImage.body;
+    let contentType = decodedImage.contentType;
+
+    if (Number.isFinite(requestedWidth) && requestedWidth >= 32 && requestedWidth <= 1600) {
+      try {
+        const sharp = (await import('sharp')).default;
+        body = await sharp(decodedImage.body)
+          .rotate()
+          .resize({ width: Math.round(requestedWidth), withoutEnlargement: true })
+          .jpeg({ quality: 70, mozjpeg: true })
+          .toBuffer();
+        contentType = 'image/jpeg';
+      } catch (resizeError) {
+        // A format sharp cannot read still deserves its full-size bytes.
+        console.warn('[thumbnail] resize skipped:', (resizeError as Error)?.message);
+      }
+    }
+
+    return new NextResponse(new Uint8Array(body), {
       headers: {
-        'Content-Type': decodedImage.contentType,
+        'Content-Type': contentType,
         // Private: this is one artisan's own photo, and it is served behind
         // their session cookie. A shared cache must never hold it.
-        'Cache-Control': 'private, max-age=3600',
+        // Immutable-ish: the bytes for a given id+width never change, so a
+        // re-render inside the day costs nothing.
+        'Cache-Control': 'private, max-age=86400, stale-while-revalidate=604800',
+        Vary: 'Cookie',
       },
     });
   } catch (error) {
