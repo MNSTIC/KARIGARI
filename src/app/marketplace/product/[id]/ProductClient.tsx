@@ -550,6 +550,17 @@ export function ProductClient({ id }: { id: string }) {
                 />
                 {t(RAZORPAY_LIVE_MODE ? 'razorpay_live_note' : 'razorpay_test_note')}
               </p>
+
+              {/* Checkout opens on UPI first, and in test mode that QR is a
+                  simulated one — GPay/PhonePe reject it as invalid, which
+                  reads as a broken payment rather than an expected limit of
+                  test mode. Say so, and name an instrument that does work. */}
+              {!RAZORPAY_LIVE_MODE && (
+                <p className="mt-2 flex items-start gap-2 rounded-xl border border-gray-200 bg-[var(--color-gray-100)] p-3 text-[11px] font-medium leading-relaxed text-gray-600">
+                  <Info size={12} className="mt-0.5 shrink-0 text-gray-400" />
+                  {t('razorpay_test_howto')}
+                </p>
+              )}
             </div>
           </div>
         )}

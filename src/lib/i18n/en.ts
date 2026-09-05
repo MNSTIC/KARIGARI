@@ -564,6 +564,8 @@ const dict: Record<string, string> = {
   price_not_set: "Price not set yet",
   product_unavailable: "This piece is no longer available.",
   razorpay_test_note: "Prototype: Razorpay runs in TEST mode, so no live charge is made. The demo charge is ₹1 — the price above is the real listing price, and it is what the artisan's escrow tranches and earnings are computed from.",
+  razorpay_test_howto:
+    "Paying in test mode: the UPI QR here is simulated, so a real UPI app will call it invalid. Choose Card instead and use Razorpay's test card 4111 1111 1111 1111 with any future expiry and any CVV.",
   escrow_hold_note: "Escrow-protected · your payment is held until the artisan dispatches, then 40% is released to them as a fair-wage advance.",
 
   /* --- F1: AI demand recommendation --- */
