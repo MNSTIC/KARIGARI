@@ -507,7 +507,7 @@ const dict: Record<string, string> = {
   pricing_estimates_note: "Estimated market comparables, not live listings. Your own fair-wage floor always wins.",
   pricing_searching: "Comparing across platforms...",
   qr_download: "Download QR",
-  qr_honesty_note: "Two real checks run: the QR must decode to this item's patch ID, and the AI must match the photo to your original capture.",
+  qr_honesty_note: "The AI matches your photo against your original capture to confirm it is the same piece. Attach the printed patch before photographing it.",
   qr_modal_title: "Attach your QR patch",
   qr_step_1: "Step 1 — Print the patch",
   qr_step_1_body: "Download this QR, print it, and stick it on the finished piece. Scanning it opens this item's passport.",

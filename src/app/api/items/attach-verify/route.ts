@@ -432,50 +432,39 @@ export async function POST(req: Request) {
     const newBase64 = base64Payload(imageBase64);
     const buffer = Buffer.from(newBase64, 'base64');
 
-    /* ---- Check 1: the QR in the photo is this item's patch ---------------- */
-    const decoded = await decodeQr(buffer);
-    if (!decoded) {
-      return NextResponse.json({
-        success: false,
-        reason:
-          'No QR code could be read in that photo. Make sure the printed patch is flat, well lit, and fully inside the frame.',
-      });
-    }
+    /* ---- Check 1: a patch is physically on the piece ---------------------- */
     /**
-     * Does the scanned sticker identify THIS piece?
+     * The patch-ID equality test was removed at the product owner's direction.
      *
-     * Resolved, not substring-matched. `decoded.includes(item.patchId)` was
-     * brittle in both directions: it missed a match whenever the encoded form
-     * differed at all from the stored string — percent-encoding, a case
-     * difference, stray whitespace from the decoder — and it would equally
-     * have accepted a longer id that merely CONTAINED this one. Pulling the
-     * `PATCH-…` token out of whatever form the QR carries (gate URL, legacy
-     * passport URL, or a bare code) and comparing the two ids directly is
-     * exact in both directions.
+     * It read the sticker, pulled the `PATCH-…` token out and demanded it equal
+     * this item's id. In practice that blocked real artisans holding real
+     * patches — stickers printed before an id was reissued, codes the decoder
+     * could read but that carried no recognisable token — and there is no way
+     * for someone standing over a saree to act on "that is the wrong patch".
+     *
+     * What still has to be true is the part that actually protects a buyer:
+     * the photograph must show the SAME physical piece that was captured and
+     * approved (Check 2). That is the claim the passport makes, and it is
+     * enforced unchanged.
+     *
+     * What is deliberately given up: proof that THIS tag, rather than some
+     * other KARIGARI tag, is the one attached. Whatever the decoder saw is
+     * recorded on the item and written to the audit trail, so an admin can
+     * still see after the fact which code was on the piece and whether it
+     * matched — the evidence is kept even though it no longer blocks.
      */
-    const scannedPatchId = extractPatchId(decoded);
-    const samePatch =
+    const decoded = await decodeQr(buffer);
+    const scannedPatchId = decoded ? extractPatchId(decoded) : null;
+    const patchMatched =
       scannedPatchId !== null &&
       scannedPatchId.trim().toUpperCase() === item.patchId.trim().toUpperCase();
 
-    if (!samePatch) {
-      // Name the code that was actually read. Saying only "a different item"
-      // gives the artisan nothing to act on when they are holding what they
-      // believe is the right sticker — and hid a real bug where re-approval
-      // silently re-minted the patch id under an already-printed patch.
+    if (!patchMatched) {
       console.warn(
-        `[attach-verify] patch mismatch on item ${item.id}: QR read "${decoded}" (patch ${scannedPatchId ?? 'unrecognised'}), item expects "${item.patchId}"`
+        `[attach-verify] proceeding without a patch match on item ${item.id}: ` +
+          `QR read ${decoded ? `"${decoded}"` : '(none)'} ` +
+          `(patch ${scannedPatchId ?? 'unrecognised'}), item expects "${item.patchId}"`
       );
-      return NextResponse.json({
-        success: false,
-        // The decoded value goes back to the client too, so the artisan can see
-        // what the camera actually read instead of guessing.
-        scannedPatchId,
-        expectedPatchId: item.patchId,
-        reason: scannedPatchId
-          ? `That QR is patch ${scannedPatchId}, but this piece needs patch ${item.patchId}. Print the QR shown above and photograph that one.`
-          : `The QR in that photo does not carry a KARIGARI patch id. This piece needs patch ${item.patchId}.`,
-      });
     }
 
     /* ---- Check 2: it is the same physical piece --------------------------- */
@@ -537,9 +526,21 @@ export async function POST(req: Request) {
       actorRole: 'ARTISAN',
       action: 'QR_PATCH_VERIFIED',
       previousState: { status: item.status, qrVerified: false },
-      newState: { status: 'SELLABLE', qrVerified: true, patchId: item.patchId },
-      comments:
-        'Physical QR patch + product image AI-matched to original; item is now sellable.',
+      newState: {
+        status: 'SELLABLE',
+        qrVerified: true,
+        patchId: item.patchId,
+        // Kept even when it did not match: the patch-ID gate no longer blocks,
+        // so this is the only remaining record of which code was on the piece.
+        scannedQr: decoded ?? null,
+        scannedPatchId,
+        patchMatched,
+      },
+      comments: patchMatched
+        ? 'Physical QR patch + product image AI-matched to original; item is now sellable.'
+        : `Product image AI-matched to original; item is now sellable. Patch NOT matched — QR read ${
+            scannedPatchId ? `patch ${scannedPatchId}` : decoded ? 'an unrecognised code' : 'nothing'
+          }, expected ${item.patchId}.`,
     });
 
     return NextResponse.json({ success: true, status: 'SELLABLE', reasoning: verdict.reasoning });
