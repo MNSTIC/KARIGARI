@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
-  ArrowLeft,
   CheckCircle2,
   ChevronDown,
   Clock,
@@ -621,6 +620,9 @@ export default function MarketPage() {
               <div>
                 <p className="font-bold mb-1">{t("bulk_orders_title")}</p>
                 <p className="text-primary/75 text-xs leading-relaxed">{t("bulk_orders_body")}</p>
+                <p className="mt-1.5 text-primary/75 text-xs leading-relaxed">
+                  {t("bulk_orders_preview_note")}
+                </p>
               </div>
             </div>
 
@@ -682,11 +684,17 @@ export default function MarketPage() {
                     </div>
                   </div>
 
+                  {/* One accept path, one source of truth. This tab is a
+                      read-only preview of the same board; every row deep-links
+                      into /artisan/orders, which is where the demand can
+                      actually be accepted, negotiated and tracked. Before V9
+                      this pointed at the insights map and left the artisan to
+                      find the accept button themselves. */}
                   <Link
-                    href="/artisan/insights"
+                    href={`/artisan/orders?tab=demands&demandId=${encodeURIComponent(demand.id)}`}
                     className="bg-primary text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-primary-dark transition-colors whitespace-nowrap text-center shrink-0"
                   >
-                    {t("live_demand_map")}
+                    {t("view_and_accept")}
                   </Link>
                 </div>
               ))

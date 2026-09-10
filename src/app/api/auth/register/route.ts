@@ -1,37 +1,38 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
-import { normalizeGender } from '@/lib/gender';
+import { issueSession } from '@/lib/authSession';
+import { validateSignup } from '@/lib/registrationRules';
 
 /** Reads the auth cookie, so it must never be statically optimised. */
 export const dynamic = 'force-dynamic';
 
-
+/**
+ * Password sign-up — unchanged in behaviour by V10.
+ *
+ * What moved: the artisan-field validation now lives in
+ * `src/lib/registrationRules.ts` and the session minting in
+ * `src/lib/authSession.ts`, because `/api/auth/google/complete` creates accounts
+ * too and two copies of these rules would drift the first time one gained a
+ * field. Every error string, every default and every cookie flag is what this
+ * route already returned.
+ */
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { name, email, password, role, craftType, location, experienceYears, aadhaarLast4, annualIncome, clusterName, shgGroupLink, gender, photoUrl } = body;
+    const { email, password } = body;
 
-    // Validation
-    if (!name || !email || !password || !role) {
+    if (!email || !password) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
-    const normalizedEmail = email.toLowerCase().trim();
-    if (role === 'ARTISAN' && (!aadhaarLast4 || !annualIncome)) {
-      return NextResponse.json({ error: 'Aadhaar Last 4 and Annual Income are required for artisans' }, { status: 400 });
-    }
 
-    // Required from here on: without it the app cannot tell an artisan whether
-    // they qualify for the women-only Womaniya sub-target on GeM.
-    const normalizedGender = normalizeGender(gender);
-    if (role === 'ARTISAN' && !normalizedGender) {
-      return NextResponse.json(
-        { error: 'Please select a gender. It is used to check women-only scheme eligibility.' },
-        { status: 400 }
-      );
+    const validation = validateSignup(body);
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
+    const { name, role, artisanProfile } = validation.value;
+
+    const normalizedEmail = String(email).toLowerCase().trim();
 
     const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     if (existingUser) {
@@ -45,51 +46,18 @@ export async function POST(req: Request) {
         name,
         email: normalizedEmail,
         passwordHash,
+        // Explicit rather than relying on the column default, so a reader of
+        // this route can see which of the three providers it creates.
+        authProvider: 'PASSWORD',
         role,
-        ...(role === 'ARTISAN' && {
-          artisanProfile: {
-            create: {
-              craftType: craftType || 'Unspecified',
-              location: location || 'Unspecified',
-              experienceYears: Number(experienceYears) || 0,
-              aadhaarLast4: aadhaarLast4,
-              annualIncome: Number(annualIncome) || 0,
-              clusterName: clusterName || 'Independent',
-              // Optional at signup — becomes the cluster key on the /artisan/cluster
-              // page when set, otherwise the page falls back to grouping by location.
-              shgGroupLink:
-                typeof shgGroupLink === 'string' && shgGroupLink.trim()
-                  ? shgGroupLink.trim().slice(0, 500)
-                  : null,
-              gender: normalizedGender,
-              // Optional at signup. Left null when they skip it, so <Avatar />
-              // draws their initials rather than a stock stranger's face.
-              photoUrl: typeof photoUrl === 'string' && photoUrl.startsWith('data:image/')
-                ? photoUrl
-                : null,
-            }
-          }
-        })
-      }
+        ...(artisanProfile ? { artisanProfile: { create: artisanProfile } } : {}),
+      },
     });
 
-    const token = jwt.sign(
-      { userId: user.id, role: user.role },
-      process.env.JWT_SECRET || 'fallback-secret',
-      { expiresIn: '7d' }
-    );
-
-    const cookieStore = await cookies();
-    cookieStore.set('auth-token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60 // 7 days
-    });
+    await issueSession(user);
 
     return NextResponse.json({ success: true, user: { id: user.id, name: user.name, role: user.role } });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Registration error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

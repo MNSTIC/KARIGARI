@@ -186,7 +186,7 @@ export async function GET(req: Request) {
       // --- Demand-order settlements ----------------------------------------
       // Separate income stream from the CraftItem escrow ledger. Written by
       // /api/buyer/orders/delivered on "Mark delivered" — always the on-screen
-      // agreed price, never the ₹1 demo charge. Summed lifetime, past-week,
+      // agreed price, never the ₹10 demo charge. Summed lifetime, past-week,
       // and per-month for the 12-month chart.
       prisma.artisanOrder.aggregate({
         _sum: { settledAmount: true },

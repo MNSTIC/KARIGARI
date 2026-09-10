@@ -7,13 +7,13 @@
 | Concern | Reality in code |
 |---|---|
 | Framework | Next.js **App Router** (TypeScript, React server + client components) |
-| Data | **Prisma → PostgreSQL** via `PrismaPg` adapter. Models: `User`, `ArtisanProfile`, `CraftItem`, `AuditLog`, `SchemeApplication` |
-| Auth | **JWT** (`jsonwebtoken`) in an **httpOnly cookie** `auth-token` (7d), password hashed with `bcryptjs` |
+| Data | **Prisma → PostgreSQL** via `PrismaPg` adapter. Models: `User`, `ArtisanProfile`, `CraftItem`, `AuditLog`, `SchemeApplication`, `Demand`, `ArtisanOrder`, `OrderLog`, `Notification`, `BuyerNotification`, `Ticket`, `Review`, `ResourceRequest`, `Creator`, `AffiliateClick` |
+| Auth | **JWT** (`jsonwebtoken`) in an **httpOnly cookie** `auth-token` (7d), minted in one place (`src/lib/authSession.ts`). Three ways to get one: **password** (`bcryptjs`), **Google** (hand-rolled OAuth 2.0 + PKCE, `id_token` verified against Google's JWKS with `node:crypto` — no `next-auth`), and **passkeys** (`@simplewebauthn`). `User.authProvider` records which. Google and passkeys are for NEW accounts only: a Google sign-in on an email that already has a password account is **refused**, never auto-linked |
 | RBAC | **No `middleware.ts`.** Every protected handler runs `jwt.verify()` then checks `decoded.role`; else `401/403` |
-| Roles | Prisma `Role` enum is **`ADMIN | ARTISAN` only** — there is **no Buyer role** |
+| Roles | Prisma `Role` enum is **`ADMIN | ARTISAN` only** — there is still **no Buyer role**. Buyers are identified by a free-text `buyerName` matched case-insensitively on `Demand`, `CraftItem`, `Review`, `Ticket` and `BuyerNotification`. This is why buyer alerts live in their own model rather than in nullable-user `Notification` rows |
 | Admin model | One `ADMIN` role, two dashboard views: **Facilitator** (field, unmasked PII) and **Nodal** (macro, no PII) |
 | AI | Google **Gemini** (`@google/genai`) for vision/valuation/voice; **OpenAI Whisper** for STT. All fall back to simulated output if keys are absent |
-| Payments | **No Stripe/Razorpay.** UPI concept + a simulated advance/final-payout ledger |
+| Payments | **Razorpay Checkout is wired and live.** `/api/payments/create-order` opens it; `/api/payments/verify-payment` is the trust boundary and writes nothing until the HMAC signature checks out. The charge is a flat ₹1 demo amount (`paidAmountPaise`); the sale is always booked at the DISPLAYED price (`salePrice`). Money **out** to an artisan needs RazorpayX, which is not enabled — `/api/payments/settle-escrow` records each tranche as `SIMULATED`, never as a bank credit |
 
 ---
 
@@ -115,47 +115,56 @@ graph TD
   classDef flag fill:#F6DBD3,stroke:#B14B39,color:#5A1E12;
   classDef ext fill:#D8E4DC,stroke:#24332C,color:#14211B;
 
-  BSTART["No Buyer account exists<br/>role BUYER - NOT YET IMPLEMENTED"]:::flag
+  BSTART["Buyers have no account.<br/>Identity is a free-text buyerName,<br/>matched case-insensitively"]:::flag
 
-  subgraph PUBLIC["Real Buyer Touchpoint - Public QR Provenance - no auth"]
-    QR["Scan patch QR to /verify/patchId"]:::ui
-    QR --> VGET["Server component<br/>prisma.craftItem.findFirst"]:::api
-    VGET --> VPUB["GET /api/verify/patchId<br/>public provenance + passportHash"]:::api
-    VGET --> VITEM[("CraftItem + Artisan<br/>+ AuditLog timeline")]:::db
-    VPUB --> VCLIENT["VerificationClient:<br/>authentic / fair-pay / story"]:::ui
-    VCLIENT --> CAM["VerificationCamera<br/>capture 1 to 3 photos"]:::ui
-    CAM --> VAUTH["POST /api/verify-authenticity<br/>Gemini image compare"]:::ai
-    VAUTH --> DEC{"similarityScore >= 75<br/>and isAuthentic?"}
-    DEC -->|Yes| SOLD[("status SOLD_FINAL<br/>reset scan counters")]:::db
-    DEC -->|"No, within grace"| SOFT["Soft reject:<br/>under 5 min, under 10 tries"]:::api
-    DEC -->|"No, grace expired"| FLAGN[("status FLAGGED<br/>healthScore -15")]:::flag
-    SOFT --> CAM
-    SOLD --> REVEAL["Post-purchase reveal:<br/>artisan story + fair pay proof"]:::ui
+  subgraph PUBLIC["Public QR provenance - no auth"]
+    QR["Scan patch QR to /buyer/verify?patchId"]:::ui
+    QR --> GATE["Verification gate:<br/>patch id + photo of the piece"]:::ui
+    GATE --> VITEM2["POST /api/buyer/verify-item<br/>compareProductPhotos"]:::ai
+    VITEM2 --> PASS{"patch resolves,<br/>photo matches,<br/>artisan owns the order?"}
+    PASS -->|Yes| PASSPORT["Forward to /verify/patchId<br/>Digital Craft Passport"]:::ui
+    PASS -->|No| TICKET["POST /api/buyer/tickets<br/>admin reviews both photos"]:::api
   end
 
-  SOLD -. notifies .-> ARTDASH["Artisan earnings /artisan/dashboard"]:::ext
-  FLAGN -. raises .-> ADMINQ["Admin facilitator queue"]:::ext
-  SOLD -. feeds .-> AUDIT["Admin nodal audit-trace ledger"]:::ext
-
-  subgraph MOCK["B2B Marketplace /buyer - UI SIMULATION ONLY, zero backend"]
-    MSTART["/buyer dashboard<br/>hardcoded Rajesh Retailers"]:::flag
-    MSTART --> MQ["Post New Demand - static button"]:::flag
-    MQ --> MSIM["Simulate Artisan Match<br/>setState only, no API call"]:::flag
-    MSIM --> MQUOTE["Quote to Accept to LogisticsMap<br/>nothing persisted"]:::flag
+  subgraph BOARD["Demand board /buyer - real rows, real fan-out"]
+    B1["Raise a Demand - 5 sections"]:::ui
+    B1 --> B2["POST /api/demand<br/>category, size, customisation,<br/>requiredBy, purchaseType,<br/>4 reference photos, flexibility"]:::api
+    B2 --> BDEM[("Demand row")]:::db
+    B2 --> FAN["notifyArtisansForDemand<br/>craft 50 / material 15 / category 10 /<br/>colour 10 / location 10 / capacity 5"]:::ai
+    FAN --> BNOTIF[("Notification per matched artisan<br/>+ Why you: reason line")]:::db
+    FAN -.->|best effort, swallowed| SMS["Twilio SMS, 160 char"]:::ext
+    B1 --> REC["POST /api/demand/recommend<br/>fair-wage floor, debounced 1s"]:::ai
+    BDEM --> MATCH["GET /api/demand/match<br/>text rank, then Gemini vision<br/>when a reference photo exists"]:::ai
+    MATCH --> BUY["Buy through a listing<br/>?demand= rides to checkout"]:::ui
   end
 
-  subgraph MISSING["Requested in brief but NOT YET IMPLEMENTED"]
+  subgraph ORDERS["My Orders /buyer - paid rows only"]
+    O1["GET /api/buyer/orders<br/>grouped by relatedDemandId"]:::api
+    O1 --> O2["OrderTimeline ladder<br/>+ ready / packed / dispatched chain<br/>+ daily updates and staleness"]:::ui
+    O2 --> O3["Mark delivered<br/>POST /api/buyer/orders/delivered"]:::ui
+    O3 --> O4[("Demand FULFILLED<br/>every uncredited ArtisanOrder<br/>credited once at the agreed price")]:::db
+    O4 --> O5["Scan and verify the delivery"]:::ui
+  end
+
+  BELL["BuyerNotificationsBell<br/>GET /api/buyer/notifications"]:::ui
+  BNOTIF2[("BuyerNotification:<br/>DEMAND_MATCHED, ORDER_ACCEPTED,<br/>DAILY_UPDATE, ORDER_READY, ORDER_PACKED,<br/>ORDER_DISPATCHED, ORDER_DELIVERED,<br/>PURCHASE_CONFIRMED")]:::db
+  BNOTIF2 --> BELL
+  B2 -.-> BNOTIF2
+  O3 -.-> BNOTIF2
+
+  subgraph MISSING["Still not implemented"]
     N1["Buyer signup / login / accounts"]:::flag
-    N2["Catalog browse, search, category filters"]:::flag
-    N3["Cart and wishlist"]:::flag
-    N4["Stripe / Razorpay checkout + payment gateway"]:::flag
-    N5["Order history, reviews, support / returns"]:::flag
+    N2["Cart and wishlist"]:::flag
+    N3["Returns"]:::flag
+    N5["RazorpayX payouts - money OUT to the artisan"]:::flag
   end
 ```
 
-**Real (public, no auth):** `/verify/[patchId]` (SSR provenance) · `GET /api/verify/[patchId]` · `POST /api/verify-authenticity` → Gemini compare → `SOLD_FINAL` or, after a 5-min/10-try grace window, `FLAGGED` (artisan health −15).
-**Mock:** `/buyer` B2B dashboard is a `setState`-only simulation, no backend.
-**[Not Yet Implemented]:** buyer accounts, catalog/search/filters, cart, wishlist, Stripe/Razorpay checkout, order history, reviews, returns.
+**Real (public, no auth):** `/buyer` demand board and My Orders · `/buyer/verify` scan gate · `/verify/[patchId]` passport · `POST /api/demand` (+ fan-out) · `GET /api/demand/match` · `GET /api/demand/track` · `GET /api/buyer/orders` · `POST /api/buyer/orders/delivered` · `POST /api/buyer/orders/verify` · `POST /api/buyer/verify-item` · `GET|POST /api/buyer/notifications` · `POST /api/buyer/tickets` · Razorpay checkout and `POST /api/payments/verify-payment`.
+
+**Identity boundary — read this before adding a buyer route.** Every one of those endpoints is public and scoped by an exact, case-insensitive `buyerName`. Anyone who knows the name can read that buyer's board and feed. Never widen the match to `contains` or a prefix, and never return a patch id, contact number or artisan payout field from a route reachable without the purchase behind it.
+
+**[Not Yet Implemented]:** buyer accounts, cart, wishlist, returns, and RazorpayX payouts. The escrow ladder, the ledger fields and the audit trail are real; the bank credit at the end of it is not.
 
 ---
 
@@ -249,6 +258,75 @@ graph LR
 ### CraftItem status machine
 `PENDING_VERIFICATION → VERIFIED → TAG_ATTACHED → (ADVANCE_PAID | SOLD_MIDDLEMAN | LISTED_AUCTION | PENDING_DISBURSEMENT) → SOLD_FINAL → PAYOUT_COMPLETED`; penalty branch `FLAGGED → APPLIED_FOR_REVIEW`. Every transition writes an immutable `AuditLog` row (hash-ledger via `ledgerHash`).
 
+
+### Demand + ArtisanOrder status machine (V9)
+
+Two ordered vocabularies, both monotonic. Every writer goes through
+`advanceDemandStatus()` / `advanceOrderStatus()` in `src/lib/orderStage.ts`;
+an endpoint that assigns a status literal is a bug.
+
+`Demand.status`: `OPEN → MATCHED → IN_PRODUCTION → FULFILLED`
+`ArtisanOrder.status`: `ACCEPTED → IN_PROGRESS → READY → PACKED → DISPATCHED → DELIVERED → COMPLETED`
+
+`CANCELLED` is in both vocabularies because `POST /api/artisan/orders` refuses
+to accept against a cancelled demand, but **nothing in this app writes it**.
+
+| Transition | Demand | ArtisanOrder | Endpoint | Actor |
+|---|---|---|---|---|
+| Buyer posts | `OPEN` | — | `POST /api/demand` | buyer (public) |
+| Artisan accepts | `→ MATCHED` | *create* `ACCEPTED` | `POST /api/artisan/orders` | artisan |
+| First daily update | `→ IN_PRODUCTION` | `→ IN_PROGRESS` + `lastLogAt` | `POST /api/artisan/orders/log` | artisan |
+| Ready check passes | — | `→ READY` + `craftItemId` bound | `POST /api/artisan/orders/verify-ready` | artisan |
+| Ready check fails | — | **nothing written** | same | artisan |
+| Packs | — | `→ PACKED` + `packedAt` | `PATCH …` `action:"pack"` | artisan |
+| Dispatches | — | `→ DISPATCHED` + `dispatchedAt` | `PATCH …` `action:"dispatch"` | artisan |
+| Closes the job | — | `→ COMPLETED` (needs `readyVerified`) | `PATCH …` `action:"complete"` | artisan |
+| Buyer pays | `→ MATCHED` or `FULFILLED` | binds `craftItemId`, `→ IN_PROGRESS` | `POST /api/payments/verify-payment` | buyer (post-HMAC) |
+| Buyer marks delivered | `→ FULFILLED` + `deliveredAt` | `→ DELIVERED` + credit | `POST /api/buyer/orders/delivered` | buyer |
+
+**The buyer-facing ladder stays six rungs** — `PLACED · ACCEPTED · IN_PRODUCTION ·
+QUALITY_CHECK · DISPATCHED · DELIVERED`. `READY` and `PACKED` both map onto
+`QUALITY_CHECK`. A seventh rung would appear on every storefront `CraftItem`
+timeline too, where nothing ever packs, leaving a rung that could never fill.
+
+**The ready check is the gate.** `PATCH action:"complete"` requires
+`readyVerified === true`, so the pre-V9 path — any 2 MB photo, straight to
+COMPLETED — no longer exists. The check itself resolves the scanned patch to a
+`CraftItem` **owned by the calling artisan**, and binds it to the order. That
+binding is what later lets `verifyBuyerImage()` ask "is this the piece that was
+promised" instead of "does this artisan hold any order on this demand".
+
+
+### The 40% demand advance (V10)
+
+A fifth status rides alongside `ArtisanOrder.status`, because paying for work
+and doing it are different clocks:
+
+`ArtisanOrder.advanceStatus`: `ADVANCE_PENDING → ADVANCE_INITIATED → ADVANCE_PAID`,
+plus `ADVANCE_WAIVED` set once at acceptance when no price could be resolved.
+
+| Transition | Who | Endpoint |
+|---|---|---|
+| `ADVANCE_PENDING` + `advanceDueAmount` written | artisan accepts | `POST /api/artisan/orders` |
+| `ADVANCE_WAIVED` when no price resolves | artisan accepts | same |
+| `→ ADVANCE_INITIATED` | buyer | `POST /api/payments/demand-advance/create-order` |
+| `→ ADVANCE_PAID`, `status → IN_PROGRESS` | buyer, **post-HMAC** | `POST /api/payments/demand-advance/verify` |
+
+**The production gate.** `POST /api/artisan/orders/log`,
+`POST /api/artisan/orders/verify-ready` and the `pack` / `dispatch` PATCH
+actions all return **409** while `advanceStatus` is neither `ADVANCE_PAID` nor
+`ADVANCE_WAIVED`. One predicate, in `src/lib/advanceGate.ts`. `complete` is
+deliberately not gated: an order that reached DISPATCHED must stay closable.
+
+**Two amounts, never conflated.** `advanceDueAmount` is the real 40% of the
+agreed price and is what both sides are shown. `advanceChargedPaise` is the flat
+₹4 Razorpay actually took. They live in different columns for the same reason
+`CraftItem.salePrice` and `CraftItem.paidAmountPaise` do.
+
+**The balance.** `/api/buyer/orders/delivered` credits `balanceDueAmount` when
+the advance was paid and the full agreed price otherwise. Advance + balance
+reconstructs the agreed price to the rupee.
+
 ---
 
 
@@ -297,13 +375,16 @@ To ensure **100% digital inclusion** and B2B scalability, KARIGARI implements fo
 
 | Assumed in brief | Status | What exists instead |
 |---|---|---|
-| Buyer signup / login / accounts | **[Not Yet Implemented]** | Anonymous public QR verification |
-| Catalog browse / search / filters | **[Not Yet Implemented]** | Single-item passport pages by `patchId` |
+| Buyer signup / login / accounts | **[Not Yet Implemented]** | Free-text `buyerName`, matched case-insensitively on every public buyer route |
+| Catalog browse / search / filters | **Implemented** | `/marketplace` + `GET /api/items/market`; demand-scoped ranking in `GET /api/demand/match` |
 | Cart & wishlist | **[Not Yet Implemented]** | — |
-| Stripe / Razorpay checkout | **[Not Yet Implemented]** | UPI concept + simulated ledger |
-| Order history / reviews / returns | **[Not Yet Implemented]** | AuditLog timeline on the passport page |
-| ONDC B2B listing | **[UI stub]** | `/artisan/market`, no backend |
+| Razorpay checkout | **Implemented (money IN)** | Live keys, HMAC-verified in `verify-payment`. ₹1 demo charge; sale booked at the displayed price. Money OUT still `SIMULATED` |
+| Order history / reviews | **Implemented** | `/buyer` My Orders (`GET /api/buyer/orders`), `POST /api/reviews`. Returns still absent |
+| ONDC B2B listing | **Partial** | `/artisan/market` is real (listings, syndication hub, `GET /api/ondc/catalog`). Its `buyers` tab is now a read-only preview that deep-links to `/artisan/orders?tab=demands&demandId=` — one accept path, one source of truth |
 | Product moderation / disputes | **Implemented** | `resolve-flag`, `request-review`, grace-period flagging |
-| Payout / commission tracking | **Partial** | Endpoints + ledger exist; payout button not wired |
+| Payout / commission tracking | **Partial** | Endpoints + ledger exist and are exercised; RazorpayX is off, so each tranche is recorded `SIMULATED` and must never be described as paid |
+| Buyer↔artisan order sync | **Implemented (V9)** | One lifecycle, `BuyerNotification` feed, ready/pack/dispatch chain, unified `GET /api/demand/track` |
+| Google sign-in / passkeys | **Implemented (V10)** | New accounts only. Hand-rolled OAuth + PKCE, `@simplewebauthn` passkeys. Both env-flagged; password sign-in unchanged |
+| Buyer advance on acceptance | **Implemented (V10)** | Real 40% shown and recorded, ₹4 charged, production gated until paid, balance credited on delivery |
 | Artisan verification & RBAC | **Implemented** | `verify-batch`, per-route JWT role guards |
 | Platform metrics & transaction logs | **Implemented** | `nodal-analytics`, `audit-trace`, CSV export |

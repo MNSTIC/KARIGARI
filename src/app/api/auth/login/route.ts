@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
+import { issueSession } from '@/lib/authSession';
 
 /** Reads the auth cookie, so it must never be statically optimised. */
 export const dynamic = 'force-dynamic';
@@ -26,28 +25,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
+    // A Google or passkey account has no password to compare against. bcryptjs
+    // THROWS on a null hash, and a caught throw that fell through to "valid"
+    // would be a total authentication bypass — so this is checked before the
+    // call, not around it.
+    //
+    // The response is the same generic 401 an unknown email and a wrong password
+    // both get. Saying "this account uses Google" would confirm the address
+    // exists and name its provider to anyone who asked, which is an account
+    // enumeration leak. The real reason is logged server-side instead.
+    if (!user.passwordHash) {
+      console.warn(
+        `[auth/login] password attempt on a ${user.authProvider} account: ${user.id}`
+      );
+      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
+
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
 
-    const token = jwt.sign(
-      { userId: user.id, role: user.role },
-      process.env.JWT_SECRET || 'fallback-secret',
-      { expiresIn: '7d' }
-    );
-
-    const cookieStore = await cookies();
-    cookieStore.set('auth-token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 7 * 24 * 60 * 60
-    });
+    await issueSession(user);
 
     return NextResponse.json({ success: true, user: { id: user.id, name: user.name, role: user.role } });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }

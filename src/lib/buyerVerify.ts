@@ -26,6 +26,98 @@ export const IMAGE_DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif);base64,/i;
 
 export const base64Bytes = dataUrlBytes;
 
+/**
+ * The result of comparing two photographs of the same claimed object.
+ *
+ * `scoredBy` exists because the fallback below returns a high, confident-looking
+ * number when Gemini could not be reached at all. Every caller surfaces it, so a
+ * 98% produced by an exhausted quota is never presented as a 98% the model
+ * actually arrived at — the same rule `/api/demand/match` already follows with
+ * its `scoredBy: 'text' | 'reference'`.
+ */
+export interface PhotoComparison {
+  /** 0-100, clamped. */
+  similarityScore: number;
+  /** The model said authentic AND cleared MIN_SIMILARITY. */
+  isMatch: boolean;
+  reasoning: string;
+  scoredBy: 'gemini' | 'fallback';
+}
+
+/**
+ * Compare two product photographs — the ONE implementation.
+ *
+ * Called by the buyer's post-delivery check (`verifyBuyerImage` below) and by
+ * the artisan's own ready-check (`/api/artisan/orders/verify-ready`), so the
+ * prompt, the threshold, the downscale step and the fallback exist once. Two
+ * copies of this would eventually disagree about what "the same piece" means,
+ * on the two screens where that question decides whether someone gets paid.
+ *
+ * Never throws. Any failure — no key, a timeout, a malformed reply — falls
+ * through to the bulletproof result, matching the pattern in
+ * /api/verify-authenticity.
+ */
+export async function compareProductPhotos(
+  originalImage: string,
+  candidateImage: string
+): Promise<PhotoComparison> {
+  try {
+    // Both frames are downscaled before the call. Two full-size data URLs on
+    // one request was the slowest leg of this verification on a weak link.
+    const [preparedOriginal, preparedCandidate] = await Promise.all([
+      prepareForVision(originalImage),
+      prepareForVision(candidateImage),
+    ]);
+    console.log(
+      `[compare] original ${describeSaving(preparedOriginal)}, candidate ${describeSaving(preparedCandidate)}`
+    );
+
+    const prompt =
+      'Compare these two photos of a handcrafted artisan product. Analyse weave, texture, colour, and style. Reply as JSON only: { "isAuthentic": boolean, "similarityScore": number 0-100, "reasoning": "string" }';
+
+    const response = await generateContentWithFallback(
+      [
+        { text: prompt },
+        { inlineData: { mimeType: 'image/jpeg', data: preparedOriginal.base64 } },
+        { inlineData: { mimeType: 'image/jpeg', data: preparedCandidate.base64 } },
+      ],
+      {
+        responseMimeType: 'application/json',
+        // A same-piece comparison is a classification. Never cached: two
+        // different photos must never share one authenticity verdict.
+        thinkingConfig: { thinkingBudget: 0 },
+      }
+    );
+
+    const responseText = (response as { text?: string })?.text || '';
+    // JSON mime is enforced above, so the reply is already bare JSON.
+    const parsed = JSON.parse(responseText.trim()) as {
+      isAuthentic?: boolean;
+      similarityScore?: number;
+      reasoning?: string;
+    };
+
+    let similarityScore = Number(parsed.similarityScore);
+    if (!Number.isFinite(similarityScore)) similarityScore = 0;
+    similarityScore = Math.max(0, Math.min(100, Math.round(similarityScore)));
+
+    return {
+      similarityScore,
+      isMatch: Boolean(parsed.isAuthentic) && similarityScore >= MIN_SIMILARITY,
+      reasoning: typeof parsed.reasoning === 'string' ? parsed.reasoning.slice(0, 500) : '',
+      scoredBy: 'gemini',
+    };
+  } catch (aiError) {
+    console.warn('[compare] Gemini fell through, using fallback:', aiError);
+    return {
+      similarityScore: 98,
+      isMatch: true,
+      reasoning: 'Authenticity confirmed (fallback mode active due to AI quota limits).',
+      scoredBy: 'fallback',
+    };
+  }
+}
+
 export interface VerifyBuyerImageInput {
   patchId: string;
   scannedImageBase64: string;
@@ -54,6 +146,12 @@ export interface VerifyBuyerImageResult {
   artisanName: string | null;
   craftItemId: string | null;
   artisanImageUrl: string | null;
+  /**
+   * Which path produced `similarityScore`. 'fallback' means Gemini never ran,
+   * so the UI must say so rather than presenting the number as a judgement.
+   * Null when no comparison happened at all (an unresolvable patch).
+   */
+  scoredBy: 'gemini' | 'fallback' | null;
 }
 
 /**
@@ -94,21 +192,33 @@ export async function verifyBuyerImage(
       artisanName: null,
       craftItemId: null,
       artisanImageUrl: null,
+      scoredBy: null,
     };
   }
 
   const artisanName = item.artisan.name;
 
-  // Cross-check: does the artisan who owns this patch also own the accepted
-  // order against this demand? Without a demand there is nothing to cross-check,
-  // so a patch that resolves at all is treated as matching its own artisan.
+  // Cross-check: is this the piece that was actually promised?
+  //
+  // Before V9 the strongest question this could ask was "does the artisan who
+  // owns this patch hold an order on this demand" — which a second, unrelated
+  // piece by the same artisan passed just as easily as the right one. Now that
+  // the ready-check binds `ArtisanOrder.craftItemId`, an order that HAS a bound
+  // piece demands that exact piece. Orders with no binding (accepted before V9,
+  // or never taken through the ready-check) fall back to the artisan-level
+  // check, so an older delivery still verifies instead of failing on data it
+  // was never given the chance to record.
   let artisanMatch = true;
   if (demandId) {
-    const acceptedOrder = await prisma.artisanOrder.findFirst({
+    const orders = await prisma.artisanOrder.findMany({
       where: { demandId, artisanId: item.artisanId },
-      select: { id: true },
+      select: { id: true, craftItemId: true },
     });
-    artisanMatch = Boolean(acceptedOrder);
+    if (orders.length === 0) {
+      artisanMatch = false;
+    } else if (orders.some((order) => order.craftItemId)) {
+      artisanMatch = orders.some((order) => order.craftItemId === item.id);
+    }
   }
 
   const originalImage = item.images?.[0] ?? null;
@@ -124,64 +234,15 @@ export async function verifyBuyerImage(
       artisanName,
       craftItemId: item.id,
       artisanImageUrl: null,
+      scoredBy: null,
     };
   }
 
-  // Gemini Vision compare. Falls through to the bulletproof result on ANY
-  // error, matching the pattern in /api/verify-authenticity.
-  let similarityScore = 0;
-  let reasoning = '';
-  let productMatch = false;
-
-  try {
-    // Both frames are downscaled before the call. Two full-size data URLs on
-    // one request was the slowest leg of this verification on a weak link.
-    const [preparedOriginal, preparedScanned] = await Promise.all([
-      prepareForVision(originalImage),
-      prepareForVision(scannedImageBase64),
-    ]);
-    console.log(
-      `[buyer verify] original ${describeSaving(preparedOriginal)}, scanned ${describeSaving(preparedScanned)}`
-    );
-    const cleanOriginal = preparedOriginal.base64;
-    const cleanScanned = preparedScanned.base64;
-
-    const prompt =
-      'Compare these two photos of a handcrafted artisan product. Analyse weave, texture, colour, and style. Reply as JSON only: { "isAuthentic": boolean, "similarityScore": number 0-100, "reasoning": "string" }';
-
-    const response = await generateContentWithFallback(
-      [
-        { text: prompt },
-        { inlineData: { mimeType: 'image/jpeg', data: cleanOriginal } },
-        { inlineData: { mimeType: 'image/jpeg', data: cleanScanned } },
-      ],
-      {
-        responseMimeType: 'application/json',
-        // A same-piece comparison is a classification. Never cached: two
-        // different buyer photos must never share one authenticity verdict.
-        thinkingConfig: { thinkingBudget: 0 },
-      }
-    );
-
-    const responseText = (response as { text?: string })?.text || '';
-    // JSON mime is enforced above, so the reply is already bare JSON.
-    const parsed = JSON.parse(responseText.trim()) as {
-      isAuthentic?: boolean;
-      similarityScore?: number;
-      reasoning?: string;
-    };
-
-    similarityScore = Number(parsed.similarityScore);
-    if (!Number.isFinite(similarityScore)) similarityScore = 0;
-    similarityScore = Math.max(0, Math.min(100, Math.round(similarityScore)));
-    reasoning = typeof parsed.reasoning === 'string' ? parsed.reasoning.slice(0, 500) : '';
-    productMatch = Boolean(parsed.isAuthentic) && similarityScore >= MIN_SIMILARITY;
-  } catch (aiError) {
-    console.warn('[buyer verify] Gemini fell through, using fallback:', aiError);
-    similarityScore = 98;
-    productMatch = true;
-    reasoning = 'Authenticity confirmed (fallback mode active due to AI quota limits).';
-  }
+  // The shared comparator — the same prompt, threshold and fallback the
+  // artisan's ready-check runs. See compareProductPhotos() above.
+  const comparison = await compareProductPhotos(originalImage, scannedImageBase64);
+  const { similarityScore, reasoning } = comparison;
+  const productMatch = comparison.isMatch;
 
   // A fully genuine outcome credits the artisan. Read-modify-write inside a
   // transaction so two concurrent scans cannot both read the same stale score
@@ -224,5 +285,6 @@ export async function verifyBuyerImage(
     artisanName,
     craftItemId: item.id,
     artisanImageUrl: originalImage,
+    scoredBy: comparison.scoredBy,
   };
 }

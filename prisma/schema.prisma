@@ -15,7 +15,32 @@ model User {
   id             String          @id @default(uuid())
   name           String
   email          String          @unique
-  passwordHash   String
+  /// Null for accounts created through Google or a passkey — those identities
+  /// have no password to hash. Every row written before V10 keeps the hash it
+  /// already has; widening this column takes nothing away.
+  ///
+  /// There is exactly ONE read site, `bcrypt.compare` in /api/auth/login, and it
+  /// must branch on null BEFORE calling compare: bcryptjs throws on a null hash,
+  /// and a caught throw that fell through to "valid" would be a total auth
+  /// bypass.
+  passwordHash   String?
+  /// PASSWORD | GOOGLE | PASSKEY — how this account was created, and therefore
+  /// which sign-in paths it may use. Defaulted so every pre-V10 row reads
+  /// PASSWORD, which is what those rows actually are.
+  authProvider   String          @default("PASSWORD")
+  /// Google's `sub` claim, which is the only identifier Google guarantees is
+  /// stable and never reused. Deliberately NOT the email: a Google address can
+  /// change, and a recycled Workspace address must never inherit an account.
+  /// Unique so one Google identity cannot be attached to two users.
+  googleId       String?         @unique
+  /// True only when Google asserted `email_verified`. This app sends no
+  /// verification mail of its own, so a PASSWORD account stays false. It records
+  /// what we were told, not what we checked, and nothing is gated on it yet.
+  emailVerified  Boolean         @default(false)
+  /// Google's `picture` claim, kept as the remote URL rather than copied into a
+  /// data URL: it is already public, and re-hosting someone else's CDN content
+  /// on our rows buys nothing.
+  avatarUrl      String?
   role           Role
   accountStatus  String          @default("ACTIVE")
   createdAt      DateTime        @default(now())
@@ -32,10 +57,48 @@ model User {
   // Demand acceptances — distinct from CraftItem sales. An ArtisanOrder is a
   // commitment against a buyer's bulk request; a CraftItem is a piece.
   artisanOrders            ArtisanOrder[]
+  passkeys                 Passkey[]
 
   // Admin fields
   patchBankBalance Int @default(5000)
   patchBankIssued  Int @default(0)
+}
+
+/// One WebAuthn credential belonging to one user.
+///
+/// The private key never leaves the authenticator. What is stored here is the
+/// public half plus the bookkeeping needed to notice a cloned one: `counter` is
+/// the load-bearing field, because a genuine authenticator's signature counter
+/// only ever increases, so a replayed or cloned assertion shows up as a counter
+/// that did not advance.
+model Passkey {
+  id            String    @id @default(uuid())
+  userId        String
+  /// Cascade on purpose: a deleted user's credentials mean nothing, and leaving
+  /// orphans would keep a `credentialId` claimed forever.
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// base64url, as the browser returned it. Unique across the whole table — one
+  /// physical credential must never resolve to two accounts.
+  credentialId  String    @unique
+  /// base64url-encoded COSE public key.
+  publicKey     String
+  /// Signature counter. Some authenticators — notably synced platform passkeys —
+  /// always report 0, so the verify route treats "was 0, still 0" as the one
+  /// legitimate non-advance and rejects every other regression.
+  counter       Int       @default(0)
+  /// usb | nfc | ble | internal | hybrid, as reported at enrolment. Fed back
+  /// into the next login's allowCredentials so the right prompt appears.
+  transports    String[]
+  /// Derived from the User-Agent at enrolment ("Chrome on Windows"), so someone
+  /// holding three passkeys can tell which one they are revoking.
+  deviceLabel   String?
+  /// Whether the credential is backed up or synced. Worth showing: a
+  /// device-bound key is lost with the device and a synced one is not.
+  backedUp      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  lastUsedAt    DateTime?
+
+  @@index([userId])
 }
 
 model ArtisanProfile {
@@ -232,6 +295,10 @@ model CraftItem {
   auditLogs           AuditLog[]
   reviews             Review[]
   tickets             Ticket[]
+  /// Demand commitments this piece was bound to at ready-check time. A list
+  /// rather than a single row because the same piece could, in principle, be
+  /// the one presented against more than one demand over its life.
+  artisanOrders       ArtisanOrder[]
 
   @@index([artisanId])
   @@index([patchId])
@@ -302,7 +369,63 @@ model Demand {
   /// run or the model was unavailable — never a fabricated score.
   matchScore        Float?
 
-  artisanOrders    ArtisanOrder[]
+  // ---- V9: what the buyer actually asked for, structured. -------------------
+  // Everything below is written by POST /api/demand from the five-section
+  // "Raise a Demand" form, and read by the matcher (src/lib/notifications.ts)
+  // and by the artisan before they accept (DemandRequestCard).
+
+  /// Top-level craft family the buyer picked from the form's fixed list
+  /// ("Saree & Textile", "Pottery & Ceramics", …). Distinct from `craftType`,
+  /// which stays the buyer's own words: the category is what the matcher can
+  /// compare across artisans, the craftType is what the artisan reads.
+  category               String?
+  /// The specific article inside that category ("Dupatta", "Dinner set").
+  /// Free text with a datalist, so a buyer is never blocked by a missing option.
+  productType            String?
+  /// Dimensions in the buyer's own words — "6.3 m x 1.1 m", "18 inch tall".
+  /// Deliberately unparsed: a furniture buyer and a saree buyer do not share a
+  /// unit, and guessing one wrong is worse than showing the artisan the string.
+  sizeSpec               String?
+  /// Whether the buyer wants something made to their spec rather than off the
+  /// shelf. Defaulted rather than nullable so every row written before V9 reads
+  /// "no", which is what those rows actually meant.
+  customizationRequired  Boolean   @default(false)
+  /// Only meaningful when `customizationRequired`. Never shown otherwise.
+  customizationDetails   String?
+  /// Up to four reference photos, data URLs like every other image in this
+  /// schema. `referenceImageUrl` above is kept as the legacy first-image mirror
+  /// so every reader written before V9 keeps working untouched.
+  referenceImageUrls     String[]
+  /// When the buyer needs the goods in hand. Null means "flexible" — the form
+  /// offers that explicitly, so null is a choice here rather than missing data.
+  requiredBy             DateTime?
+  /// DELIVERY | PICKUP. Guarded against an allow-list in POST /api/demand; an
+  /// unknown value falls back to the default rather than failing the post.
+  deliveryMode           String    @default("DELIVERY")
+  /// INDIVIDUAL | BULK | WHOLESALE. Drives the capacity signal in the matcher.
+  purchaseType           String    @default("INDIVIDUAL")
+  /// "Anything else the artisan should know?" — the artisan-facing free text
+  /// that replaces `notes` on the form. `notes` is never written again after
+  /// V9, but the column stays because live rows carry content in it and the
+  /// buyer board renders it; readers use `additionalRequirements ?? notes`.
+  additionalRequirements String?
+
+  // Flexibility matrix: what the artisan may propose INSTEAD of what the buyer
+  // literally asked for. Every one defaults to the stricter reading, so a row
+  // written before V9 is never presented as more permissive than the buyer was.
+  /// STRICT | FLEXIBLE
+  flexBudget             String    @default("STRICT")
+  /// STRICT | FLEXIBLE
+  flexColor              String    @default("STRICT")
+  /// STRICT | FLEXIBLE
+  flexMaterial           String    @default("STRICT")
+  /// STRICT | FLEXIBLE
+  flexDelivery           String    @default("STRICT")
+  /// EXACT | SIMILAR
+  flexDesign             String    @default("EXACT")
+
+  artisanOrders      ArtisanOrder[]
+  buyerNotifications BuyerNotification[]
 
   /// Set by /api/buyer/orders/delivered when the buyer marks the goods received.
   /// Distinct from the CraftItem-level DELIVERED stage: this is the buyer's own
@@ -320,6 +443,12 @@ model Demand {
   @@index([craftType])
   @@index([status])
   @@index([createdAt])
+  // No index on `buyerName` or `category`: nothing filters a Demand by either.
+  // The buyer's board fetches the whole board and narrows by name in React, and
+  // `category` is read off a row that has already been loaded rather than
+  // searched on. An index with no WHERE clause behind it is write cost and a
+  // false promise to whoever reads this file next — add one when a query
+  // actually needs it.
 }
 
 /// One buyer's star + text review of a `CraftItem` they bought.
@@ -386,7 +515,13 @@ model ArtisanOrder {
   artisan         User       @relation(fields: [artisanId], references: [id])
   demandId        String
   demand          Demand     @relation(fields: [demandId], references: [id])
-  /// ACCEPTED | IN_PROGRESS | COMPLETED | CANCELLED. Set at the API layer.
+  /// ACCEPTED | IN_PROGRESS | READY | PACKED | DISPATCHED | DELIVERED |
+  /// COMPLETED | CANCELLED. Monotonic: every writer goes through
+  /// `advanceOrderStatus()` in src/lib/orderStage.ts, so an order can never be
+  /// walked backwards. Each value has exactly one writer, listed in
+  /// docs/DEMAND_SYNC_V9_PLAN.md §2. CANCELLED is in the vocabulary because
+  /// POST /api/artisan/orders already refuses to accept against a cancelled
+  /// demand, but nothing in this app writes it.
   status          String     @default("ACCEPTED")
   /// Only set when the artisan negotiated; null means they took the listed price.
   negotiatedPrice Float?
@@ -403,7 +538,82 @@ model ArtisanOrder {
   /// When the credit landed. Presence is the idempotency guard: a second
   /// "mark delivered" click on the same demand cannot credit twice.
   settledAt       DateTime?
-  logs            OrderLog[]
+
+  // ---- V9: the piece, and the ready → packed → dispatched ladder. -----------
+
+  /// The specific piece this order was fulfilled with, bound at ready-check
+  /// time by /api/artisan/orders/verify-ready. Before V9 there was no link at
+  /// all, so `verifyBuyerImage` could only ask "does this patch's artisan hold
+  /// an order on this demand" — never "is this the piece that was promised".
+  craftItemId     String?
+  craftItem       CraftItem? @relation(fields: [craftItemId], references: [id])
+
+  /// True once the artisan scanned the piece's own patch and the shared
+  /// comparator matched their finished photo against its original capture.
+  /// Written ONLY on a pass, in one transaction; a failed check writes nothing,
+  /// so the fields below never describe an attempt that did not succeed.
+  readyVerified        Boolean   @default(false)
+  /// The artisan's photo of the finished piece that passed the comparison.
+  readyImageUrl        String?
+  /// The patch id that resolved to `craftItemId`, kept so a later dispute can
+  /// see which sticker the artisan actually scanned.
+  readyScanPatchId     String?
+  /// 0–100 from the shared comparator. Null when no check has passed — never a
+  /// placeholder number.
+  readySimilarityScore Float?
+  readyVerifiedAt      DateTime?
+
+  /// Set by PATCH action:"pack". Requires `readyVerified`, so an artisan cannot
+  /// tell a buyer a piece is boxed before it has been proved to be the piece.
+  packedAt        DateTime?
+  /// Set by PATCH action:"dispatch". Requires `packedAt`.
+  dispatchedAt    DateTime?
+  courierName     String?
+  trackingRef     String?
+
+  /// When the artisan last posted an OrderLog. Mirrored onto the order rather
+  /// than derived, so the "no update in N days" query is a column comparison
+  /// instead of a subquery per order.
+  lastLogAt       DateTime?
+
+  // ---- V10: the buyer's 40% advance, paid on acceptance. -------------------
+
+  /// ADVANCE_PENDING | ADVANCE_INITIATED | ADVANCE_PAID | ADVANCE_WAIVED.
+  /// Written by POST /api/artisan/orders on acceptance and by the two routes
+  /// under /api/payments/demand-advance. Monotonic, like every other status
+  /// here. ADVANCE_WAIVED is set once, at accept time, when no price could be
+  /// resolved to take 40% of — nothing transitions into it afterwards.
+  advanceStatus            String    @default("ADVANCE_PENDING")
+  /// The REAL 40% of the agreed price, from `advanceFor()` in src/lib/escrow.ts.
+  /// This is the figure the buyer is shown and the artisan is told is coming.
+  /// Null when no price resolved, which is also when advanceStatus is
+  /// ADVANCE_WAIVED: a zero-rupee advance is not a fact, it is a missing one.
+  advanceDueAmount         Float?
+  /// What Razorpay ACTUALLY took, in paise — DEMO_ADVANCE_PAISE. Kept apart from
+  /// `advanceDueAmount` for the same reason `CraftItem.paidAmountPaise` is kept
+  /// apart from `salePrice`: one is the demo charge and the other is the real
+  /// figure, and conflating them would be the most misleading thing this app
+  /// could do.
+  advanceChargedPaise      Int?
+  advanceRazorpayOrderId   String?
+  /// Written ONLY after the HMAC signature checks out, in demand-advance/verify.
+  advanceRazorpayPaymentId String?
+  advanceRazorpaySignature String?
+  /// Presence is the idempotency guard: the verify route's updateMany predicate
+  /// is `advancePaidAt: null`, so a double submit cannot record two advances.
+  advancePaidAt            DateTime?
+  /// The remaining 60%, credited on delivery. Computed as
+  /// `agreed - advanceDueAmount` rather than `agreed * 0.6`, which is correct by construction: the balance is whatever is left after the
+    /// advance, so it cannot drift however `advanceFor()` rounds, and it stays
+    /// right if ADVANCE_RATE ever becomes a figure like 1/3 that does not
+    /// divide cleanly. (`agreed * 0.6` happens to agree today — for an integer
+    /// price, 0.4x can never land exactly on a .5 boundary, so the two
+    /// roundings always complement — but that is a coincidence of the current
+    /// rate rather than a property worth relying on.)
+  balanceDueAmount         Float?
+
+  logs               OrderLog[]
+  buyerNotifications BuyerNotification[]
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -411,6 +621,14 @@ model ArtisanOrder {
   @@index([demandId])
   @@index([status])
   @@index([artisanId, demandId])
+  // `craftItemId` is a foreign key, and Postgres does not index those on its
+  // own — without this, every delete or update on the referenced CraftItem
+  // scans this table to check the constraint.
+  @@index([craftItemId])
+  // Deliberately no `[artisanId, status]` or `[lastLogAt]`: the orders page
+  // loads one artisan's rows on `artisanId` alone and does the status filtering
+  // and the staleness arithmetic in JavaScript, so neither would ever be
+  // consulted by the planner.
 }
 
 /// A dated update the artisan posts against one ArtisanOrder. Text, photo, or
@@ -452,6 +670,48 @@ model Notification {
   @@index([createdAt])
 }
 
+
+/// One alert for one buyer — acceptance, daily update, ready, packed,
+/// dispatched, delivered, purchase.
+///
+/// Deliberately NOT a nullable-user `Notification`. `Notification.userId` is a
+/// required FK onto `User`, and buyers have no `User` row: `Role` is
+/// ADMIN | ARTISAN and nothing in this app creates a buyer account. Making that
+/// column nullable would mean every existing artisan query (`where: { userId }`,
+/// the unread count, the mark-all-read `updateMany`) starts scanning rows that
+/// can never belong to an artisan, and a single missing `userId: { not: null }`
+/// guard would leak a buyer's alerts into an artisan's bell. Worse, it would put
+/// a free-text name in a column whose name and type promise a user id — exactly
+/// the kind of join a later reader makes by accident.
+///
+/// A separate model keeps the two identity models apart at the type level: this
+/// table has no `userId` to misuse, and `Notification` has no `buyerName`.
+model BuyerNotification {
+  id             String        @id @default(uuid())
+  /// Free-text buyer identity, the same convention `Demand.buyerName`,
+  /// `CraftItem.buyerName`, `Review.buyerName` and `Ticket.buyerName` use.
+  /// Matched case-insensitively, because the buyer types it by hand each visit.
+  buyerName      String
+  demandId       String
+  demand         Demand        @relation(fields: [demandId], references: [id])
+  /// Null for events that belong to the demand rather than to one artisan's
+  /// commitment — DEMAND_MATCHED, and PURCHASE_CONFIRMED on a demand with no
+  /// accepted order behind it.
+  artisanOrderId String?
+  artisanOrder   ArtisanOrder? @relation(fields: [artisanOrderId], references: [id])
+  /// DEMAND_MATCHED | ORDER_ACCEPTED | DAILY_UPDATE | ORDER_READY |
+  /// ORDER_PACKED | ORDER_DISPATCHED | ORDER_DELIVERED | PURCHASE_CONFIRMED
+  type           String
+  title          String
+  message        String
+  read           Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+
+  @@index([buyerName, read])
+  @@index([createdAt])
+  @@index([demandId])
+  @@index([artisanOrderId])
+}
 
 /// A buyer's dispute against a piece they received.
 ///

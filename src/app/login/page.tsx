@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { useLanguage, type Language } from "@/lib/translations";
 import { cn } from "@/lib/utils";
+import { AltSignIn } from "@/components/AltSignIn";
 
 type Role = "ARTISAN" | "ADMIN";
 
@@ -33,6 +34,35 @@ export default function LoginPage() {
   const [error, setError] = useState("");
 
   const [formData, setFormData] = useState({ email: "", password: "" });
+  /**
+   * Why a Google attempt bounced back here.
+   *
+   * The callback never renders its own error page — it redirects with a code,
+   * and this turns the code into a sentence. Read off the URL in a deferred
+   * effect rather than via useSearchParams, so this page needs no Suspense
+   * boundary, matching the pattern the buyer board and market page use.
+   */
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    const kickoff = setTimeout(() => {
+      const code = new URLSearchParams(window.location.search).get("notice");
+      if (!code) return;
+      const KNOWN = [
+        "existing_password_account",
+        "google_cancelled",
+        "google_state",
+        "google_exchange",
+        "google_token",
+        "google_unavailable",
+        "google_failed",
+      ];
+      // An unrecognised code becomes the generic message rather than being
+      // echoed back — this value comes from the query string.
+      setNotice(KNOWN.includes(code) ? `auth_notice_${code}` : "auth_notice_google_failed");
+    }, 0);
+    return () => clearTimeout(kickoff);
+  }, []);
 
   // "For Admins" on the landing page arrives as /login?role=admin. Read it off
   // the URL in a deferred effect rather than via useSearchParams, so this fully
@@ -157,6 +187,15 @@ export default function LoginPage() {
             })}
           </div>
 
+          {notice && (
+            <p
+              role="alert"
+              className="mt-8 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+            >
+              {t(notice)}
+            </p>
+          )}
+
           <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
             {error && (
               <p
@@ -221,6 +260,11 @@ export default function LoginPage() {
               {loading ? t("signing_in") : "Verify & Login"}
             </button>
           </form>
+
+          {/* Google and passkeys, for accounts created with them. The existing
+              password form above is untouched — V10 changed nothing about how
+              an existing account signs in. */}
+          <AltSignIn role={role} />
 
           <div className="mt-12 border-t border-gray-200 pt-8 text-center">
             <p className="text-[14px] text-gray-600">New to the platform?</p>

@@ -4,12 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
+  Box,
   Camera,
   CheckCircle2,
   ClipboardList,
   ImagePlus,
   Loader2,
   Package,
+  ScanLine,
   ShieldCheck,
   ShoppingBag,
   Truck,
@@ -20,10 +22,11 @@ import {
   BuyerVerifyResult,
   type BuyerVerifyResultShape,
 } from "@/components/BuyerVerifyResult";
-import { MAX_UPLOAD_BYTES, readFileAsDataUrl } from "@/lib/fileToDataUrl";
+import { MAX_UPLOAD_BYTES } from "@/lib/fileToDataUrl";
 import { prepareImage } from "@/lib/clientImagePrep";
 import { ORDER_STAGE_KEYS, stageIndex, type OrderStage } from "@/lib/orderStage";
 import { formatRupees } from "@/lib/pricing";
+import { AdvancePanel } from "@/components/AdvancePanel";
 import { useLanguage } from "@/lib/translations";
 
 /**
@@ -59,7 +62,7 @@ export interface BuyerOrder extends TrackPayload {
   escrowStatus: string | null;
   productionStage: string | null;
   paidAt: string | null;
-  /** Sum of the DISPLAYED prices. Never the ₹1 actually charged. */
+  /** Sum of the DISPLAYED prices. Never the demo amount actually charged. */
   amountPaid: number;
   /** What Razorpay really took, in paise, so the demo charge stays visible. */
   chargedPaise: number;
@@ -72,6 +75,30 @@ export interface BuyerOrder extends TrackPayload {
   /** On-screen agreed price credited on delivery — V8. */
   artisanSettledAmount: number | null;
   artisanSettledAt: string | null;
+
+  // ---- V9: the ready → packed → dispatched chain. All optional, because an
+  // order placed before V9 has none of it and every card must still render.
+  artisanCraftItemId?: string | null;
+  readyVerified?: boolean;
+  readyImageUrl?: string | null;
+  readySimilarityScore?: number | null;
+  readyVerifiedAt?: string | null;
+  packedAt?: string | null;
+  dispatchedAt?: string | null;
+  courierName?: string | null;
+  trackingRef?: string | null;
+  lastLogAt?: string | null;
+
+  // ---- V10: the buyer's 40% advance. Optional — an order placed before V10,
+  // or a plain storefront purchase, has no demand order behind it.
+  artisanOrderId?: string | null;
+  advanceStatus?: string | null;
+  /** The REAL 40% of the agreed price. Never the demo charge. */
+  advanceDueAmount?: number | null;
+  balanceDueAmount?: number | null;
+  /** What Razorpay actually took, in paise, so the panel can show both. */
+  advanceChargedPaise?: number | null;
+  advancePaidAt?: string | null;
 
   // ---- Buyer-side delivery + verification (WI2) -------------------------
   deliveredAt: string | null;
@@ -100,6 +127,20 @@ function orderDate(iso: string | null): string {
     year: "numeric",
     timeZone: "Asia/Kolkata",
   });
+}
+
+/**
+ * Whole days since an ISO timestamp. Null when there is nothing to measure.
+ *
+ * Used for the honest staleness line. A buyer looking at a bulk order they paid
+ * for deserves to know the last thing they heard was nine days ago, rather than
+ * being shown a timeline that simply stops.
+ */
+function daysSince(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return Math.floor(ms / 86_400_000);
 }
 
 /**
@@ -455,13 +496,40 @@ export function BuyerOrders({
                 {t("order_charged_note")}
               </p>
 
+              {/* -------------------- V10: the 40% advance -------------------- */}
+              {order.artisanOrderId && order.advanceStatus && (
+                <AdvancePanel
+                  order={{
+                    artisanOrderId: order.artisanOrderId,
+                    advanceStatus: order.advanceStatus,
+                    advanceDueAmount: order.advanceDueAmount ?? null,
+                    balanceDueAmount: order.balanceDueAmount ?? null,
+                    advanceChargedPaise: order.advanceChargedPaise ?? null,
+                    advancePaidAt: order.advancePaidAt ?? null,
+                    artisanName: order.artisanName,
+                    craftType: order.craftType,
+                  }}
+                  buyerName={buyerName}
+                  onPaid={load}
+                />
+              )}
+
+              {/* -------------------- V9: the fulfilment chain -------------------- */}
+              <OrderChain order={order} t={t} />
+
               {/* -------------------- WI6: Live Production Updates -------------------- */}
               {order.dailyUpdates && order.dailyUpdates.length > 0 && (
                 <div className="mt-5 border-t border-gray-100 pt-5">
-                  <h4 className="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-gray-500">
-                    <ClipboardList size={13} />
-                    {t("live_production_updates")}
-                  </h4>
+                  <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                    <h4 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                      <ClipboardList size={13} />
+                      {t("live_production_updates")}
+                    </h4>
+                    {/* The honest staleness line. Nine days of silence is a
+                        fact the buyer should be told, not one they have to
+                        work out from the newest timestamp in the list. */}
+                    <LastUpdateLine iso={order.lastLogAt ?? order.dailyUpdates[0]?.createdAt} t={t} />
+                  </div>
 
                   {order.fulfilled > 0 && order.requested > 0 && (
                     <div className="mb-4">
@@ -514,8 +582,15 @@ export function BuyerOrders({
                 </div>
               )}
 
+              {/* Honest empty state. Previously gated on ACCEPTED alone, so an
+                  order that had reached READY or PACKED without any logs showed
+                  the buyer nothing at all — neither updates nor an explanation
+                  for their absence. Now it covers every live status, and it says
+                  plainly that the artisan has not posted rather than implying
+                  the feature is still loading. */}
               {(!order.dailyUpdates || order.dailyUpdates.length === 0) &&
-                order.artisanOrderStatus === "ACCEPTED" && (
+                order.artisanOrderStatus &&
+                !["COMPLETED", "CANCELLED"].includes(order.artisanOrderStatus) && (
                   <div className="mt-5 border-t border-gray-100 pt-5">
                     <p className="py-4 text-center text-sm italic text-gray-500">
                       {t("production_updates_empty")}
@@ -537,10 +612,18 @@ export function BuyerOrders({
               )}
 
               {/* -------------------- WI2: Deliver + Verify -------------------- */}
+              {/* The V9 statuses are what actually gate this now: an order the
+                  artisan has dispatched is one the buyer can confirm, and
+                  before V9 the only signal available was the blunt COMPLETED.
+                  `dispatchedAt` is checked alongside the status because it is
+                  the timestamp the endpoint actually wrote. */}
               {order.demandId &&
                 (order.productionStage === "DISPATCHED" ||
                   order.productionStage === "DELIVERED" ||
-                  order.artisanOrderStatus === "COMPLETED") && (
+                  Boolean(order.dispatchedAt) ||
+                  ["DISPATCHED", "DELIVERED", "COMPLETED"].includes(
+                    order.artisanOrderStatus ?? ""
+                  )) && (
                   <div className="mt-5 border-t border-gray-100 pt-5">
                     {!order.deliveredAt ? (
                       <button
@@ -626,6 +709,109 @@ export function BuyerOrders({
 // Small pieces below live in this file because they only render inside a
 // buyer-order card and share its per-demand state via props.
 // ---------------------------------------------------------------------------
+
+/**
+ * "Last update — N days ago", or nothing when there is nothing to say.
+ *
+ * Deliberately not styled as a warning: this is information the buyer is
+ * entitled to, not an accusation against the artisan. The amber only appears
+ * once the gap passes the same three-day threshold the artisan's own nudge
+ * uses, so the two sides of the app agree about what "quiet" means.
+ */
+function LastUpdateLine({ iso, t }: { iso: string | null | undefined; t: (key: string) => string }) {
+  const days = daysSince(iso);
+  if (days === null) return null;
+
+  const label =
+    days === 0
+      ? t("update_today")
+      : days === 1
+        ? t("update_yesterday")
+        : t("update_days_ago").replace("{days}", String(days));
+
+  return (
+    <span
+      className={[
+        "text-[11px] font-medium",
+        // amber-800, not amber-700: globals.css does not define a 700 and
+        // Tailwind would fall back to its own bright amber.
+        days > 3 ? "text-amber-800" : "text-gray-500",
+      ].join(" ")}
+    >
+      {t("last_update_label")} — {label}
+    </span>
+  );
+}
+
+/**
+ * The ready → packed → dispatched chain, as it actually happened.
+ *
+ * Only steps that have a timestamp render. This is the whole point: a buyer used
+ * to see an order jump from "accepted" to "delivered" with nothing in between,
+ * because nothing in between was recorded. Every line here is a real column
+ * written by a real endpoint, and a step that has not happened shows nothing
+ * rather than a greyed-out promise.
+ */
+function OrderChain({ order, t }: { order: BuyerOrder; t: (key: string) => string }) {
+  const rows: { icon: React.ReactNode; label: string; detail: string }[] = [];
+
+  if (order.readyVerifiedAt) {
+    rows.push({
+      icon: <ScanLine size={13} />,
+      label: t("chain_ready"),
+      detail:
+        // The score is shown only when there is one. A ready-check that ran on
+        // the fallback path stores no comparison the buyer should read as a
+        // judgement, so the line simply omits it.
+        order.readySimilarityScore !== null && order.readySimilarityScore !== undefined
+          ? `${shortDate(order.readyVerifiedAt)} · ${Math.round(order.readySimilarityScore)}%`
+          : shortDate(order.readyVerifiedAt),
+    });
+  }
+  if (order.packedAt) {
+    rows.push({
+      icon: <Box size={13} />,
+      label: t("chain_packed"),
+      detail: shortDate(order.packedAt),
+    });
+  }
+  if (order.dispatchedAt) {
+    rows.push({
+      icon: <Truck size={13} />,
+      label: t("chain_dispatched"),
+      detail: [
+        shortDate(order.dispatchedAt),
+        order.courierName,
+        order.trackingRef,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    });
+  }
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="mt-5 border-t border-gray-100 pt-5">
+      <h4 className="mb-3 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+        <Package size={13} /> {t("chain_heading")}
+      </h4>
+      <ul className="space-y-2">
+        {rows.map((row) => (
+          <li key={row.label} className="flex items-center gap-2 text-sm">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-mint)] text-primary">
+              {row.icon}
+            </span>
+            <span className="font-bold text-gray-900">{row.label}</span>
+            <span className="ml-auto text-right text-[11px] font-medium text-gray-500">
+              {row.detail}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 /**
  * What the buyer sees after they report a piece, driven purely by ticket state.

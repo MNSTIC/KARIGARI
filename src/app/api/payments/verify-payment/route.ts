@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { getListingPrice } from '@/lib/pricing';
+import { buyerNotificationCopy, createBuyerNotification } from '@/lib/buyerNotify';
+import { advanceDemandStatus, advanceOrderStatus } from '@/lib/orderStage';
 import {
   DEMO_CHARGE_PAISE,
   RAZORPAY_CONFIGURED,
@@ -21,7 +23,7 @@ import {
  *
  * Two further checks, both cheap and both load-bearing:
  *
- *   - the order id must be the one THIS item was checked out with, so a ₹1
+ *   - the order id must be the one THIS item was checked out with, so a ₹10
  *     payment for a cheap piece cannot be replayed against an expensive one;
  *   - re-verifying a payment already recorded is a no-op success, so a double
  *     submit from the modal handler cannot double-write the sale.
@@ -77,6 +79,11 @@ export async function POST(req: Request) {
         fairWageFloor: true,
         buyerName: true,
         relatedDemandId: true,
+        // For the artisan's purchase alert, which before V9 was never written
+        // at all — the maker had no way of learning a piece had sold.
+        artisanId: true,
+        craftType: true,
+        artisan: { select: { name: true } },
       },
     });
 
@@ -109,9 +116,9 @@ export async function POST(req: Request) {
     const buyerContact = text(body?.buyerContact, 60);
     const relatedDemandId = text(body?.relatedDemandId, 64);
 
-    // The DISPLAYED price, not the ₹1 that was actually charged. Every earnings
+    // The DISPLAYED price, not the ₹10 that was actually charged. Every earnings
     // and escrow figure downstream reads `salePrice`, so this is what keeps the
-    // artisan's numbers real while the demo charge stays at one rupee.
+    // artisan's numbers real while the demo charge stays at the flat demo amount.
     const displayPrice = item.salePrice ?? getListingPrice(item);
 
     await prisma.$transaction(async (tx) => {
@@ -148,10 +155,32 @@ export async function POST(req: Request) {
             where: { relatedDemandId: demand.id, paidAt: { not: null } },
           });
 
-          const next = paidForDemand >= demand.quantity ? 'FULFILLED' : 'MATCHED';
+          const next = advanceDemandStatus(
+            demand.status,
+            paidForDemand >= demand.quantity ? 'FULFILLED' : 'MATCHED'
+          );
           // Never walk a demand backwards — a FULFILLED request stays fulfilled.
-          if (demand.status !== 'FULFILLED' && demand.status !== next) {
+          if (next !== demand.status) {
             await tx.demand.update({ where: { id: demand.id }, data: { status: next } });
+          }
+
+          // Bind the purchase to the artisan's commitment. Without this the
+          // order and the piece stay strangers, and the buyer's later scan can
+          // only ask "did this artisan take this demand" rather than "is this
+          // the piece". Only an unbound order is touched: a piece already bound
+          // by the ready-check is the authoritative answer and is left alone.
+          const commitment = await tx.artisanOrder.findFirst({
+            where: { demandId: demand.id, artisanId: item.artisanId },
+            select: { id: true, status: true, craftItemId: true },
+          });
+          if (commitment) {
+            await tx.artisanOrder.update({
+              where: { id: commitment.id },
+              data: {
+                ...(commitment.craftItemId ? {} : { craftItemId: item.id }),
+                status: advanceOrderStatus(commitment.status, 'IN_PROGRESS'),
+              },
+            });
           }
         }
       }
@@ -173,10 +202,58 @@ export async function POST(req: Request) {
           relatedDemandId,
         },
         comments: RAZORPAY_LIVE
-          ? "Razorpay LIVE payment verified against the HMAC signature and recorded. A real ₹1 was debited and settles into the platform merchant account; the sale is booked at the displayed price so the artisan's escrow tranches and earnings are unchanged. The artisan payout itself remains a programmatic settlement record, not a bank credit. No admin approved or touched this."
-          : "Razorpay TEST payment verified against the HMAC signature and recorded. The charge is the ₹1 flat amount; the sale is booked at the displayed price so the artisan's escrow tranches and earnings are unchanged. No admin approved or touched this.",
+          ? "Razorpay LIVE payment verified against the HMAC signature and recorded. A real ₹10 was debited and settles into the platform merchant account; the sale is booked at the displayed price so the artisan's escrow tranches and earnings are unchanged. The artisan payout itself remains a programmatic settlement record, not a bank credit. No admin approved or touched this."
+          : "Razorpay TEST payment verified against the HMAC signature and recorded. The charge is the ₹10 flat amount; the sale is booked at the displayed price so the artisan's escrow tranches and earnings are unchanged. No admin approved or touched this.",
       });
     });
+
+    // ---- Tell both sides. -------------------------------------------------
+    //
+    // Before V9 a verified payment wrote the item, the demand and an AuditLog,
+    // and told NOBODY: the artisan had no signal that a piece had sold and
+    // needed packing, and the buyer had nothing but the confirmation screen.
+    //
+    // Deliberately outside the transaction and individually guarded. The
+    // payment is real and recorded the moment the block above commits; a
+    // notification that fails to write must never turn that into an error page
+    // for a buyer whose money has already moved. Same rule as the demand
+    // fan-out in POST /api/demand.
+    try {
+      await prisma.notification.create({
+        data: {
+          userId: item.artisanId,
+          type: 'PURCHASE',
+          title: `Sold: ${item.craftType}`,
+          // The DISPLAYED price. `paidAmountPaise` is the ₹10 demo charge and
+          // must never be presented as what the piece went for.
+          message:
+            `${buyerName || 'A buyer'} has paid for your ${item.craftType}` +
+            (displayPrice ? ` at ₹${Math.round(displayPrice).toLocaleString('en-IN')}` : '') +
+            '. Pack it and mark it dispatched from your Orders page.',
+          relatedDemandId,
+          channel: 'IN_APP',
+        },
+      });
+    } catch (notifyError) {
+      console.error('Purchase notification failed:', notifyError);
+    }
+
+    // The buyer alert needs a demand to hang from — see the note on
+    // BuyerNotification.demandId. A plain storefront purchase has none, and
+    // gets the confirmation screen it already had rather than a synthetic
+    // demand invented to carry a row.
+    if (relatedDemandId) {
+      await createBuyerNotification({
+        buyerName,
+        demandId: relatedDemandId,
+        type: 'PURCHASE_CONFIRMED',
+        ...buyerNotificationCopy.purchaseConfirmed(
+          item.craftType,
+          item.artisan.name,
+          displayPrice
+        ),
+      });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

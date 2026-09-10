@@ -37,13 +37,13 @@ import type { RazorpayFailureResponse, RazorpaySuccessResponse } from "@/types/r
  * is locked in as the destination before anything moves, and neither tranche
  * passes through an admin.
  *
- * The buyer is charged ₹1 whatever the piece costs; the constant that decides
+ * The buyer is charged ₹10 whatever the piece costs; the constant that decides
  * it lives in src/lib/razorpay.ts. Everything shown on this page is the real
  * listing price, and so is everything the escrow ladder and the artisan's
  * earnings are computed from.
  *
  * The note under the button keys off `RAZORPAY_LIVE_MODE`, because in live
- * mode that ₹1 is a real debit and telling a paying buyer "no live charge is
+ * mode that ₹10 is a real debit and telling a paying buyer "no live charge is
  * made" would be false.
  */
 export function ProductClient({ id }: { id: string }) {
@@ -179,7 +179,7 @@ export function ProductClient({ id }: { id: string }) {
       const rzp = new Checkout({
         key: data.keyId,
         order_id: data.orderId,
-        // ₹1 by design — see src/lib/razorpay.ts. The price above is real.
+        // ₹10 by design — see src/lib/razorpay.ts. The price above is real.
         amount: data.amount,
         currency: data.currency,
         name: "KARIGARI",

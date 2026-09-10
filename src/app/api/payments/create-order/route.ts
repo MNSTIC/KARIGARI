@@ -20,7 +20,7 @@ import {
  * payout destination before a single rupee moves.
  *
  * MODE. With an `rzp_test_` key nothing is charged. With an `rzp_live_` key the
- * ₹1 below is a REAL debit, and it settles into this deployment's own Razorpay
+ * ₹10 below is a REAL debit, and it settles into this deployment's own Razorpay
  * merchant account — it does not reach the artisan's VPA, which is a settlement
  * record rather than a payout rail. Which mode ran is written into the audit
  * trail, so one kind of row can never be mistaken for the other afterwards.
@@ -33,7 +33,7 @@ import {
  * two tranches are released later by `/api/payments/settle-escrow`, which is
  * triggered by dispatch and delivery events.
  *
- * ₹1 FLAT CHARGE. The Razorpay order is for `DEMO_CHARGE_PAISE`, not the
+ * ₹10 FLAT CHARGE. The Razorpay order is for `DEMO_CHARGE_PAISE`, not the
  * listing price — see src/lib/razorpay.ts for why and how to revert it. Every
  * number written to the row below (advance, settlement, commission) is still
  * computed from the real displayed price, so the escrow ladder and the
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
     let order;
     try {
       order = await getRazorpay().orders.create({
-        // ₹1, deliberately. The displayed price rides along in `notes` so the
+        // ₹10, deliberately. The displayed price rides along in `notes` so the
         // dashboard shows what the piece is really listed at.
         amount: DEMO_CHARGE_PAISE,
         currency: 'INR',
@@ -181,8 +181,8 @@ export async function POST(req: Request) {
         ...(affiliate ? { affiliateHandle: affiliate.handle, affiliateCommission } : {}),
       },
       comments: RAZORPAY_LIVE
-        ? 'Buyer opened a Razorpay LIVE payment — a real ₹1 debit, settling into the platform merchant account rather than the artisan VPA. Funds are held in escrow; the artisan VPA on file is locked in as the settlement destination. No admin can release or redirect this. Every escrow figure is computed from the displayed price.'
-        : 'Buyer opened a Razorpay TEST payment. Funds are held in escrow; the artisan VPA on file is locked in as the payout destination. No admin can release or redirect this. The charge is ₹1 — every escrow figure is computed from the displayed price.',
+        ? 'Buyer opened a Razorpay LIVE payment — a real ₹10 debit, settling into the platform merchant account rather than the artisan VPA. Funds are held in escrow; the artisan VPA on file is locked in as the settlement destination. No admin can release or redirect this. Every escrow figure is computed from the displayed price.'
+        : 'Buyer opened a Razorpay TEST payment. Funds are held in escrow; the artisan VPA on file is locked in as the payout destination. No admin can release or redirect this. The charge is ₹10 — every escrow figure is computed from the displayed price.',
     });
 
     return NextResponse.json({

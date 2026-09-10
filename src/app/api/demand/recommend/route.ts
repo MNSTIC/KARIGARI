@@ -66,6 +66,11 @@ interface RecommendRequest {
   material?: unknown;
   color?: unknown;
   description?: unknown;
+  // V9 structured capture. Optional: the panel must keep answering for a
+  // half-filled form, which is the only state it is ever rendered in.
+  category?: unknown;
+  sizeSpec?: unknown;
+  purchaseType?: unknown;
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -88,6 +93,9 @@ export async function POST(req: Request) {
     const material = stringOrEmpty(body.material, 60);
     const color = stringOrEmpty(body.color, 60);
     const description = stringOrEmpty(body.description, 400);
+    const category = stringOrEmpty(body.category, 80);
+    const sizeSpec = stringOrEmpty(body.sizeSpec, 200);
+    const purchaseType = stringOrEmpty(body.purchaseType, 20).toUpperCase();
 
     // The client only fires when these are filled, but validate anyway so a
     // curious caller cannot crash the route.
@@ -101,8 +109,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const laborDays = estimatedLaborDaysFor(craftType, material);
-    const rawCost = estimatedRawCostFor(craftType, material);
+    // The two estimators below match on fibre and craft words, so the category
+    // the buyer picked from the fixed list ("Pottery & Ceramics") is a stronger
+    // signal than their free-text craft name on its own. It widens what the
+    // regexes can see; `estimateCraftValuation` still receives the real
+    // craftType, because its seasonal and technique factors key off that.
+    const craftDescriptor = [craftType, category].filter(Boolean).join(' ');
+    const laborDays = estimatedLaborDaysFor(craftDescriptor, material);
+    const rawCost = estimatedRawCostFor(craftDescriptor, material);
     const valuation = estimateCraftValuation(craftType, laborDays, rawCost, material || null);
     const fairFloor = Math.round(valuation.fairWageFloor);
 
@@ -131,6 +145,9 @@ export async function POST(req: Request) {
         const prompt = [
           'You are advising a bulk buyer of Indian handicrafts.',
           `Craft: ${craftType}. Quantity: ${quantity}. Material: ${material || 'unspecified'}. Colour: ${color || 'unspecified'}.`,
+          category ? `Category: ${category}.` : '',
+          sizeSpec ? `Size: ${sizeSpec}.` : '',
+          purchaseType ? `Purchase type: ${purchaseType.toLowerCase()}.` : '',
           description ? `Buyer note: ${description}` : '',
           `Buyer's price ceiling: ₹${Math.round(testPrice)} per piece.`,
           `AI fair-wage floor for this piece: ₹${fairFloor}.`,

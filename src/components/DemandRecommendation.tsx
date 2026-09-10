@@ -25,6 +25,14 @@ interface Props {
   material: string;
   color: string;
   description: string;
+  /**
+   * V9 structured capture. Optional so the panel keeps rendering for any caller
+   * that has not been rebuilt, and so a half-filled form still gets an answer —
+   * which is the only state this panel is ever rendered in.
+   */
+  category?: string;
+  sizeSpec?: string;
+  purchaseType?: string;
 }
 
 type Verdict = {
@@ -42,6 +50,9 @@ export function DemandRecommendation({
   material,
   color,
   description,
+  category = "",
+  sizeSpec = "",
+  purchaseType = "",
 }: Props) {
   const { t } = useLanguage();
   const [verdict, setVerdict] = useState<Verdict | null>(null);
@@ -85,6 +96,9 @@ export function DemandRecommendation({
             material,
             color,
             description,
+            category,
+            sizeSpec,
+            purchaseType,
           }),
           signal: controller.signal,
         });
@@ -113,7 +127,19 @@ export function DemandRecommendation({
       clearTimeout(timer);
       abortRef.current?.abort();
     };
-  }, [ready, craftType, quantity, targetPriceMin, targetPriceMax, material, color, description]);
+  }, [
+    ready,
+    craftType,
+    quantity,
+    targetPriceMin,
+    targetPriceMax,
+    material,
+    color,
+    description,
+    category,
+    sizeSpec,
+    purchaseType,
+  ]);
 
   // Panel disappears when the form is no longer valid — no effect-side reset
   // needed; the next `ready` fetch will overwrite whatever verdict was last.

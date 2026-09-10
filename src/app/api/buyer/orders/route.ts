@@ -147,7 +147,7 @@ export async function GET(req: Request) {
       stageAt: (row.stageUpdatedAt ?? row.qrVerifiedAt ?? row.paidAt ?? row.createdAt).toISOString(),
       createdAt: row.createdAt.toISOString(),
       estimatedDeliveryAt: row.estimatedDeliveryAt?.toISOString() ?? null,
-      // The DISPLAYED price. The ₹1 actually charged is `paidAmountPaise` and
+      // The DISPLAYED price. The ₹10 actually charged is `paidAmountPaise` and
       // is deliberately not what the buyer's order history is denominated in.
       price: row.salePrice ?? getListingPrice(row),
     });
@@ -204,7 +204,7 @@ export async function GET(req: Request) {
         escrowStatus: items[0].escrowStatus,
         productionStage: items[0].productionStage,
         paidAt: paidAt?.toISOString() ?? null,
-        /** Sum of the DISPLAYED prices — never the ₹1 demo charge. */
+        /** Sum of the DISPLAYED prices — never the ₹10 demo charge. */
         amountPaid,
         /** What Razorpay actually took, in paise, so the demo stays honest. */
         chargedPaise: items.reduce((sum, row) => sum + (row.paidAmountPaise ?? 0), 0),
@@ -223,6 +223,30 @@ export async function GET(req: Request) {
         artisanDeadline: artisanOrder?.deadline?.toISOString() ?? null,
         artisanOrderStatus: artisanOrder?.status ?? null,
         completedImageUrl: artisanOrder?.completedImageUrl ?? null,
+
+        // ---- V9: the ready → packed → dispatched chain, so the card can show
+        // the whole journey rather than jumping from "accepted" to "delivered".
+        /** The specific piece bound to this commitment at ready-check time. */
+        artisanCraftItemId: artisanOrder?.craftItemId ?? null,
+        readyVerified: artisanOrder?.readyVerified ?? false,
+        readyImageUrl: artisanOrder?.readyImageUrl ?? null,
+        readySimilarityScore: artisanOrder?.readySimilarityScore ?? null,
+        readyVerifiedAt: artisanOrder?.readyVerifiedAt?.toISOString() ?? null,
+        packedAt: artisanOrder?.packedAt?.toISOString() ?? null,
+        dispatchedAt: artisanOrder?.dispatchedAt?.toISOString() ?? null,
+        courierName: artisanOrder?.courierName ?? null,
+        trackingRef: artisanOrder?.trackingRef ?? null,
+        /** Drives the honest "Last update — N days ago" line. */
+        lastLogAt: artisanOrder?.lastLogAt?.toISOString() ?? null,
+
+        // ---- V10: the 40% advance, so the buyer can pay it from this card.
+        artisanOrderId: artisanOrder?.id ?? null,
+        advanceStatus: artisanOrder?.advanceStatus ?? null,
+        /** The REAL 40%. `advanceChargedPaise` is the demo charge, kept apart. */
+        advanceDueAmount: artisanOrder?.advanceDueAmount ?? null,
+        balanceDueAmount: artisanOrder?.balanceDueAmount ?? null,
+        advanceChargedPaise: artisanOrder?.advanceChargedPaise ?? null,
+        advancePaidAt: artisanOrder?.advancePaidAt?.toISOString() ?? null,
         /** On-screen agreed price credited to the artisan on delivery. */
         artisanSettledAmount: artisanOrder?.settledAmount ?? null,
         artisanSettledAt: artisanOrder?.settledAt?.toISOString() ?? null,

@@ -12,6 +12,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { downscaleImage } from "@/lib/imageEnhance";
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
+import { AltSignIn } from "@/components/AltSignIn";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -172,6 +173,15 @@ export default function RegisterPage() {
               );
             })}
           </div>
+
+          {/* Above the form, because it is the shorter path: Google fills in
+              the name, email and photo, and the completion screen asks only for
+              the six artisan fields Google cannot supply. The form below is
+              unchanged and remains the way an account with a password is made. */}
+          <AltSignIn role={role} showPasskey={false} />
+          <p className="mt-3 text-center text-[12px] text-gray-500">
+            {t("auth_google_signup_note")}
+          </p>
 
           <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
             {/* Optional profile photo. Skipping it is fine — the Avatar falls

@@ -7,6 +7,7 @@ import { useLanguage, Language } from "@/lib/translations";
 import { GENDERS, GENDER_LABELS } from "@/lib/gender";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
+import { SignInMethods } from "@/components/SignInMethods";
 
 interface ProfileEditorModalProps {
   isOpen: boolean;
@@ -32,6 +33,28 @@ export function ProfileEditorModal({ isOpen, onClose, artisanData, onSaved }: Pr
   const [isSaving, setIsSaving] = useState(false);
 
   const [listeningField, setListeningField] = useState<'name' | 'desc' | null>(null);
+  /**
+   * Which provider created this account.
+   *
+   * Decides whether the sign-in-methods section renders at all: a PASSWORD
+   * account is refused passkey enrolment by the API, so offering it a control
+   * that can only answer "no" would be a dead end.
+   */
+  const [authProvider, setAuthProvider] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Deferred a macrotask so the effect body performs no synchronous setState.
+    const kickoff = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const data = await res.json();
+        if (data?.success) setAuthProvider(data.authProvider ?? null);
+      } catch {
+        /* Not knowing the provider simply hides the section. */
+      }
+    }, 0);
+    return () => clearTimeout(kickoff);
+  }, []);
   const [recognitionInstance, setRecognitionInstance] = useState<any>(null);
 
   // Re-hydrate on every OPEN, not just when the object identity changes —
@@ -415,6 +438,10 @@ export function ProfileEditorModal({ isOpen, onClose, artisanData, onSaved }: Pr
             <User className="shrink-0 mt-0.5" size={14} />
             <p>Your Tags: <strong>{artisanData?.tags?.join(", ") || "None"}</strong>. Tags are added automatically when you capture new craft types.</p>
           </div>
+
+          {/* Passkeys. Renders nothing at all for a PASSWORD account — see the
+              note on `authProvider` above. */}
+          {authProvider && <SignInMethods authProvider={authProvider} />}
         </div>
 
         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 shrink-0">

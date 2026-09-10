@@ -38,28 +38,46 @@ export const RAZORPAY_CONFIGURED = Boolean(KEY_ID && KEY_SECRET);
 export const RAZORPAY_LIVE = isLiveKeyId(KEY_ID);
 
 /**
- * FLAT CHARGE — the only place the amount is decided.
+ * FLAT CHARGES — the only place either amount is decided.
  *
- * The point of this flow is to demonstrate the escrow ladder, not to collect
- * the listing price, so Razorpay is asked for ₹1 no matter what the piece
- * costs. 100 paise is also Razorpay's own minimum order amount, so it is the
- * smallest chargeable value.
+ * The point of these flows is to demonstrate the escrow ladder, not to collect
+ * the listing price, so Razorpay is asked for a fixed demo amount no matter
+ * what the piece costs.
  *
- * ⚠ IN LIVE MODE THIS IS A REAL RUPEE. It is debited from a real card or UPI
- * account and settles into the merchant account the keys belong to. It is
- * small, not simulated. Nothing here refunds it.
+ *   DEMO_CHARGE_PAISE   1000 = ₹10   a full storefront purchase
+ *   DEMO_ADVANCE_PAISE   400 = ₹4    the buyer's 40% advance on a demand order
  *
- * Everything the buyer SEES stays the real listing price: the product page,
- * the marketplace cards, `salePrice`, both escrow tranches and the artisan's
- * earnings are all still computed from `getListingPrice(item)`. Only
- * `order.amount` is this constant.
+ * ₹4 is exactly 40% of ₹10, so the two demo amounts stand in the same
+ * relationship to each other as the real advance does to the real price. That
+ * is the whole reason the full charge moved from ₹1: 40% of ₹1 is 40 paise,
+ * which is below Razorpay's 100-paise minimum order amount and cannot be
+ * charged at all. At ₹10 and ₹4 both are real, chargeable gateway orders.
  *
- * To bill the real price, delete this constant and pass
+ * ⚠ IN LIVE MODE THESE ARE REAL DEBITS. They come off a real card or UPI
+ * account and settle into the merchant account the keys belong to. They are
+ * small, not simulated. Nothing here refunds them.
+ *
+ * Everything the buyer SEES stays the real rupee value: the product page, the
+ * marketplace cards, `salePrice`, `getListingPrice()`, the fair-wage floor,
+ * both escrow tranches, the artisan's earnings, and the 40% advance figure
+ * shown on a demand order (`advanceFor(agreedPrice)`) are all real. Only
+ * `order.amount` is one of these constants, and the amount actually taken is
+ * recorded separately — `CraftItem.paidAmountPaise` and
+ * `ArtisanOrder.advanceChargedPaise` — so the demo charge can never be mistaken
+ * for the order value.
+ *
+ * To bill the real price, delete `DEMO_CHARGE_PAISE` and pass
  * `Math.round(price * 100)` as the order amount in
- * `/api/payments/create-order`. That is the entire revert — and in live mode
- * it means charging buyers thousands of rupees, so change it deliberately.
+ * `/api/payments/create-order`; likewise pass
+ * `Math.round(advanceDueAmount * 100)` in
+ * `/api/payments/demand-advance/create-order`. That is the entire revert — and
+ * in live mode it means charging buyers thousands of rupees, so change it
+ * deliberately.
  */
-export const DEMO_CHARGE_PAISE = 100;
+export const DEMO_CHARGE_PAISE = 1000;
+
+/** The demand advance. Exactly 40% of DEMO_CHARGE_PAISE — see the note above. */
+export const DEMO_ADVANCE_PAISE = 400;
 
 let client: Razorpay | null = null;
 

@@ -53,6 +53,7 @@ graph TD
         B5 -.- D3
         C4 -.- D3
     end
+```
     
 3. Technology Stack
 Layer	Technology	Purpose
@@ -216,3 +217,140 @@ interface IKarigariPassport {
      */
     function getVerificationData(string calldata patchId) external view returns (CraftProof memory);
 }
+
+---
+
+## V9 — Demand & Order Synchronisation
+
+Everything below is in the running code. Where a capability is recorded rather
+than executed, it says so.
+
+### The one lifecycle
+
+Two ordered vocabularies, both monotonic. Every writer goes through
+`advanceDemandStatus()` / `advanceOrderStatus()` in `src/lib/orderStage.ts`;
+nothing assigns a status literal.
+
+```
+Demand.status        OPEN → MATCHED → IN_PRODUCTION → FULFILLED
+ArtisanOrder.status  ACCEPTED → IN_PROGRESS → READY → PACKED → DISPATCHED → DELIVERED → COMPLETED
+Buyer ladder         PLACED · ACCEPTED · IN_PRODUCTION · QUALITY_CHECK · DISPATCHED · DELIVERED
+```
+
+`CANCELLED` exists in both vocabularies because `POST /api/artisan/orders`
+refuses to accept against a cancelled demand — but **nothing writes it**.
+
+`READY` and `PACKED` both render as `QUALITY_CHECK`. The buyer ladder is shared
+with every storefront `CraftItem`, which has no pack step, so a seventh rung
+would sit permanently unreachable on those timelines.
+
+| # | Transition | `Demand.status` | `ArtisanOrder.status` | Endpoint | Actor |
+|---|---|---|---|---|---|
+| 1 | Buyer posts | `OPEN` | — | `POST /api/demand` | buyer (public) |
+| 2 | Artisan accepts / negotiates | `→ MATCHED` | *create* `ACCEPTED` | `POST /api/artisan/orders` | artisan (JWT) |
+| 3 | Daily update | `→ IN_PRODUCTION` | `→ IN_PROGRESS`, `lastLogAt` | `POST /api/artisan/orders/log` | artisan |
+| 4 | Ready check passes | — | `→ READY`, binds `craftItemId` | `POST /api/artisan/orders/verify-ready` | artisan |
+| 4b | Ready check fails | — | **nothing written** | same | artisan |
+| 5 | Packs | — | `→ PACKED`, `packedAt` | `PATCH /api/artisan/orders` `action:"pack"` | artisan |
+| 6 | Dispatches | — | `→ DISPATCHED`, `dispatchedAt`, courier, tracking | `PATCH …` `action:"dispatch"` | artisan |
+| 7 | Closes the job | — | `→ COMPLETED` — **requires `readyVerified`** | `PATCH …` `action:"complete"` | artisan |
+| 8 | Buyer pays | `→ MATCHED` / `FULFILLED` | binds `craftItemId`, `→ IN_PROGRESS` | `POST /api/payments/verify-payment` | buyer, post-HMAC |
+| 9 | Buyer marks delivered | `→ FULFILLED`, `deliveredAt` | `→ DELIVERED`, `settledAmount`, `settledAt` | `POST /api/buyer/orders/delivered` | buyer |
+| 10 | Buyer scan-verifies | delivery fields | — | `POST /api/buyer/orders/verify` · `/api/buyer/verify-item` | buyer |
+
+### New and changed endpoints
+
+| Endpoint | Auth | What it does |
+|---|---|---|
+| `POST /api/artisan/orders/verify-ready` | `requireArtisan()` | Order must be the caller's and `ACCEPTED\|IN_PROGRESS`; the patch must resolve to a `CraftItem` **owned by this artisan** (else 403); a scanned QR must equal the typed code (else 400); then `compareProductPhotos()` against that item's original capture. **On pass only**, one transaction writes `craftItemId`, `readyVerified`, `readyImageUrl`, `readyScanPatchId`, `readySimilarityScore`, `readyVerifiedAt`, `status:'READY'` plus an `ORDER_READY` buyer alert. On fail: 200, nothing written, no health penalty, retry unlimited. A repeat on a verified order returns the stored result and does **not** re-call Gemini. |
+| `PATCH /api/artisan/orders` `action:"pack"` | `requireArtisan()` | Requires `readyVerified`; `packedAt` null-guarded. |
+| `PATCH /api/artisan/orders` `action:"dispatch"` | `requireArtisan()` | Requires `packedAt`; optional `courierName`, `trackingRef`. |
+| `PATCH /api/artisan/orders` `action:"complete"` | `requireArtisan()` | **Now gated on `readyVerified === true`** and `DISPATCHED\|DELIVERED`. The pre-V9 path — any 2 MB photo straight to COMPLETED — is closed. |
+| `GET \| POST /api/buyer/notifications` | public, `buyerName` | Feed + unread count; POST marks one or all read. Scoped inside the update predicate, exact-equals-insensitive only. |
+| `GET /api/demand/track` | public | **Rewritten.** Reads `ArtisanOrder` first; the notification-derived view survives only as the documented fallback, flagged as `source: 'notifications'`. |
+| `POST /api/demand` | public | Accepts the structured capture; enum-guarded with safe defaults; ≤4 × 2 MB reference images; past `requiredBy` rejected; a bad image never fails the whole post. |
+| `GET /api/artisan/orders` | `requireArtisan()` | Now returns the ready/packed/dispatched chain, `lastLogAt`, `updateOverdue` and `completedImageUrl`. |
+| `POST /api/payments/verify-payment` | public, post-HMAC | Now also writes a `PURCHASE` artisan notification and a `PURCHASE_CONFIRMED` buyer alert, and binds the matching `ArtisanOrder`. Best-effort, after the transaction: a notification failure must never fail a verified payment. |
+
+### `BuyerNotification`
+
+Buyers have no `User` row — `Role` is `ADMIN | ARTISAN`. Alerts therefore live in
+their own model keyed by free-text `buyerName`, **not** in a nullable-user
+`Notification`: that would put a free-text name in a column whose type promises a
+user id, and one missing `userId: { not: null }` guard would leak a buyer's
+alerts into an artisan's bell.
+
+Types: `DEMAND_MATCHED`, `ORDER_ACCEPTED`, `DAILY_UPDATE` (throttled to one per
+order per IST calendar day — the `OrderLog` rows are never suppressed, only the
+ping), `ORDER_READY`, `ORDER_PACKED`, `ORDER_DISPATCHED`, `ORDER_DELIVERED`,
+`PURCHASE_CONFIRMED`.
+
+### Matching
+
+`scoreArtisanForDemand()` weights craft 50, material 15, category 10, colour 10,
+location 10, capacity 5, renormalised over the signals the buyer actually filled
+in — an absent signal leaves both numerator and denominator rather than scoring
+zero. A signal that is present but does not match contributes 0 **and produces no
+reason phrase**. Craft is mandatory: score 0 there and the artisan is dropped
+before anything else is computed. The reason rides on `Notification.message` as a
+`Why you:` line; there is no separate column.
+
+### Invariants
+
+- **Money.** Displayed value is `salePrice ?? getListingPrice(item)` for a piece
+  and `negotiatedPrice ?? targetPriceMax ?? targetPriceMin` for a demand order.
+  `paidAmountPaise` is the ₹10 demo charge and is never presented as the order value.
+- **Payouts.** RazorpayX is off. Every tranche is recorded `SIMULATED`. Never
+  describe one as a bank credit.
+- **AI.** `compareProductPhotos()` returns `scoredBy: 'gemini' | 'fallback'`, and
+  both callers surface it — a 98 produced by an exhausted quota is labelled as
+  such rather than presented as a judgement the model made.
+- **Idempotency.** accept, verify-ready, pack, dispatch, complete, mark-delivered
+  and verify-payment are each guarded by a null-predicate `updateMany` or a
+  short-circuit. Adding a log is deliberately not idempotent — two updates in a
+  day are two real updates.
+
+---
+
+## V10 — Google sign-in, passkeys and the demand advance
+
+### Endpoints and their guards
+
+| Endpoint | Guard | Notes |
+|---|---|---|
+| `GET /api/auth/google/start` | public | 503 when `GOOGLE_CLIENT_ID`/`SECRET`/`REDIRECT_URI` are unset. Generates PKCE verifier, `state` and `nonce` into one signed httpOnly cookie, 302s to Google. |
+| `GET /api/auth/google/callback` | public, **`state` cookie** | The CSRF defence. Cookie is read-and-burned before validation, so a replay fails whether or not the first attempt did. Verifies the `id_token` **signature** against Google's JWKS, then `iss`/`aud`/`exp`/`nonce`/`email_verified`. Every refusal redirects to `/login?notice=<code>` — never a stack trace. |
+| `POST /api/auth/google/complete` | `pending-signup` cookie | Creates the account with `passwordHash: null`. Re-checks email and `googleId` **inside the transaction**: the cookie is up to 10 minutes old. |
+| `GET /api/auth/google/pending` | `pending-signup` cookie | Peeked, not consumed — the completion screen renders the name and avatar. Never returns `sub`. |
+| `POST /api/auth/passkey/register/options` | session | **403 when `authProvider === 'PASSWORD'`.** `userId` from the session, never the body. |
+| `POST /api/auth/passkey/register/verify` | session + challenge cookie | Re-asserts the challenge's `userId` equals the session's. Duplicate `credentialId` → 409. |
+| `POST /api/auth/passkey/login/options` | public | Usernameless. Touches no database and reveals nothing. |
+| `POST /api/auth/passkey/login/verify` | public + challenge cookie | Credential decides the identity. **Counter regression rejected**, with the both-zero exemption for synced platform passkeys. Failures return the same generic `Invalid credentials` the password route does. |
+| `GET /api/auth/passkey` | session | Own credentials only. Never returns `publicKey` or `credentialId`. |
+| `DELETE /api/auth/passkey` | session | Scoped in the predicate. **Refuses the last credential on a `PASSKEY` account** — that would lock it out permanently. |
+| `POST /api/payments/demand-advance/create-order` | public, `buyerName` | Case-insensitive match against `Demand.buyerName`. 503 when Razorpay is unconfigured. Opens a `DEMO_ADVANCE_PAISE` order; the real 40% rides in the notes. |
+| `POST /api/payments/demand-advance/verify` | public, `buyerName` + **HMAC** | `razorpay_order_id` must equal the stored `advanceRazorpayOrderId`, so a signature valid for a different order cannot settle this one. Idempotent on `advancePaidAt IS NULL`. |
+| `POST /api/auth/login` | public | **Changed in V10:** a null `passwordHash` returns the same generic 401, never revealing the provider. `bcrypt.compare` is never called with null — it throws. |
+| `GET /api/auth/me` | session | **Changed in V10:** now also returns `authProvider`, so the profile editor knows whether to offer passkeys. |
+
+### Cookies
+
+| Name | TTL | Flags | Single-use |
+|---|---|---|---|
+| `auth-token` | 7 days | `httpOnly`, `sameSite=lax`, `secure` in prod, `path=/` | no — it is the session |
+| `google-oauth` | 5 min | same, `path=/api/auth/google` | yes — burned on read |
+| `pending-signup` | 10 min | same, `path=/` | yes on POST; peeked by the GET |
+| `webauthn-challenge` | 5 min | same, `path=/api/auth/passkey` | yes — burned on read |
+
+`sameSite: 'lax'` and not `'strict'`: Google's callback is a cross-site
+top-level GET, and `strict` would withhold the cookie on exactly the request
+that needs it.
+
+### Money
+
+`DEMO_CHARGE_PAISE = 1000` (₹10, a full purchase) and
+`DEMO_ADVANCE_PAISE = 400` (₹4, the 40% advance). ₹4 is exactly 40% of ₹10, and
+both clear Razorpay's 100-paise minimum — which ₹1 did not, since 40% of it is
+40 paise. Every **displayed** figure is the real rupee value; only
+`order.amount` is a constant, and what was charged is recorded separately in
+`paidAmountPaise` / `advanceChargedPaise`.

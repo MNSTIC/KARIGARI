@@ -17,6 +17,8 @@
     "@imgly/background-removal": "^1.7.0",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.10.0",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.0.1",
     "@zxing/browser": "^0.2.1",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",

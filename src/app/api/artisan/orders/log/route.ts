@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireArtisan } from '@/lib/artisanAuth';
+import { buyerNotificationCopy, createBuyerNotification } from '@/lib/buyerNotify';
+import { advanceDemandStatus, advanceOrderStatus } from '@/lib/orderStage';
+import { ADVANCE_PENDING_MESSAGE, advancePaidOrWaived } from '@/lib/advanceGate';
 
 /**
  * Add one dated update to one ArtisanOrder.
@@ -58,7 +61,15 @@ export async function POST(req: Request) {
 
     const order = await prisma.artisanOrder.findUnique({
       where: { id: artisanOrderId },
-      select: { id: true, artisanId: true, status: true },
+      select: {
+        id: true,
+        artisanId: true,
+        status: true,
+        advanceStatus: true,
+        demandId: true,
+        demand: { select: { status: true, buyerName: true } },
+        artisan: { select: { name: true } },
+      },
     });
     if (!order) {
       return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
@@ -68,6 +79,12 @@ export async function POST(req: Request) {
         { error: 'This order is not yours.' },
         { status: 403 }
       );
+    }
+
+    // Logging progress is work reported against an order the buyer has not paid
+    // the advance on. See src/lib/advanceGate.ts.
+    if (!advancePaidOrWaived(order.advanceStatus)) {
+      return NextResponse.json({ error: ADVANCE_PENDING_MESSAGE }, { status: 409 });
     }
 
     const log = await prisma.$transaction(async (tx) => {
@@ -80,18 +97,44 @@ export async function POST(req: Request) {
       });
 
       // A logged update against an ACCEPTED order is the artisan starting work.
-      // Move forward only — a COMPLETED order stays complete.
-      if (order.status === 'ACCEPTED') {
-        await tx.artisanOrder.update({
-          where: { id: artisanOrderId },
-          data: { status: 'IN_PROGRESS' },
+      // `lastLogAt` is written on EVERY log, not just the first, because it is
+      // what the staleness check reads — deriving it from the newest OrderLog
+      // would mean a subquery per order on every page load.
+      await tx.artisanOrder.update({
+        where: { id: artisanOrderId },
+        data: {
+          lastLogAt: created.createdAt,
+          status: advanceOrderStatus(order.status, 'IN_PROGRESS'),
+        },
+      });
+
+      // Work has visibly started, so the request itself is in production. Moved
+      // forward only — a FULFILLED demand stays fulfilled.
+      const nextDemandStatus = advanceDemandStatus(order.demand.status, 'IN_PRODUCTION');
+      if (nextDemandStatus !== order.demand.status) {
+        await tx.demand.update({
+          where: { id: order.demandId },
+          data: { status: nextDemandStatus },
         });
       }
 
       return created;
     });
 
+    // Throttled to one per order per IST calendar day inside
+    // createBuyerNotification. A talkative artisan posting four updates in an
+    // afternoon still gets four OrderLog rows — their own record of their work
+    // is never suppressed — but the buyer is pinged once.
+    const notified = await createBuyerNotification({
+      buyerName: order.demand.buyerName,
+      demandId: order.demandId,
+      artisanOrderId: order.id,
+      type: 'DAILY_UPDATE',
+      ...buyerNotificationCopy.dailyUpdate(order.artisan.name, note || null),
+    });
+
     return NextResponse.json({
+      buyerNotified: notified,
       success: true,
       log: {
         id: log.id,

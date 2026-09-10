@@ -2,7 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { Loader2, Palette, Layers, MapPin, Package } from "lucide-react";
+import {
+  CalendarClock,
+  Layers,
+  Loader2,
+  MapPin,
+  Package,
+  Palette,
+  Ruler,
+  Truck,
+  Wand2,
+} from "lucide-react";
 import { useLanguage } from "@/lib/translations";
 import { formatRupees } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
@@ -36,6 +46,23 @@ export interface DemandDetail {
   color: string | null;
   description: string | null;
   matchScore: number | null;
+  // ---- V9 structured capture. All optional: a demand posted before V9 has
+  // none of it, and the card must render those rows exactly as it always did.
+  referenceImageUrls?: string[] | null;
+  category?: string | null;
+  productType?: string | null;
+  sizeSpec?: string | null;
+  customizationRequired?: boolean | null;
+  customizationDetails?: string | null;
+  requiredBy?: string | null;
+  deliveryMode?: string | null;
+  purchaseType?: string | null;
+  additionalRequirements?: string | null;
+  flexBudget?: string | null;
+  flexColor?: string | null;
+  flexMaterial?: string | null;
+  flexDelivery?: string | null;
+  flexDesign?: string | null;
 }
 
 const cache = new Map<string, DemandDetail>();
@@ -121,6 +148,52 @@ export function DemandRequestCard({
   if (demand.location) {
     facts.push({ icon: <MapPin size={12} />, label: t("demand_location"), value: demand.location });
   }
+  if (demand.sizeSpec) {
+    facts.push({ icon: <Ruler size={12} />, label: t("demand_size"), value: demand.sizeSpec });
+  }
+  if (demand.requiredBy) {
+    facts.push({
+      icon: <CalendarClock size={12} />,
+      label: t("demand_when_needed"),
+      value: new Date(demand.requiredBy).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        timeZone: "Asia/Kolkata",
+      }),
+    });
+  }
+  if (demand.deliveryMode === "PICKUP") {
+    facts.push({
+      icon: <Truck size={12} />,
+      label: t("demand_delivery_mode"),
+      value: t("demand_delivery_pickup"),
+    });
+  }
+
+  // Only the rows the buyer actually loosened. A matrix of five "Strict" chips
+  // is the default and says nothing; the point of showing this at all is to
+  // tell the artisan what they are ALLOWED to propose instead.
+  const flexible: string[] = [];
+  if (demand.flexBudget === "FLEXIBLE") flexible.push(t("demand_flex_budget"));
+  if (demand.flexColor === "FLEXIBLE") flexible.push(t("demand_flex_color"));
+  if (demand.flexMaterial === "FLEXIBLE") flexible.push(t("demand_flex_material"));
+  if (demand.flexDelivery === "FLEXIBLE") flexible.push(t("demand_flex_delivery"));
+  if (demand.flexDesign === "SIMILAR") flexible.push(t("demand_flex_design"));
+
+  // The gallery, with the legacy single field as the fallback so a demand
+  // posted before V9 still shows its one photo.
+  const gallery =
+    demand.referenceImageUrls && demand.referenceImageUrls.length > 0
+      ? demand.referenceImageUrls
+      : [demand.referenceImageUrl].filter((url): url is string => Boolean(url));
+  const cover = gallery[0] ?? null;
+
+  const purchaseLabel =
+    demand.purchaseType === "BULK"
+      ? t("demand_purchase_bulk")
+      : demand.purchaseType === "WHOLESALE"
+        ? t("demand_purchase_wholesale")
+        : null;
 
   return (
     <div
@@ -137,7 +210,7 @@ export function DemandRequestCard({
       <div className={cn("mt-2.5 flex gap-3", compact && "gap-2.5")}>
         {/* Guarded: a demand posted without a photo must render no <Image> at
             all, not one with an empty src. */}
-        {demand.referenceImageUrl ? (
+        {cover ? (
           <div
             className={cn(
               "relative shrink-0 overflow-hidden rounded-lg bg-gray-200",
@@ -145,13 +218,21 @@ export function DemandRequestCard({
             )}
           >
             <Image
-              src={demand.referenceImageUrl}
+              src={cover}
               alt={t("demand_reference_image")}
               fill
               sizes={compact ? "56px" : "80px"}
-              unoptimized={demand.referenceImageUrl.startsWith("data:") || demand.referenceImageUrl.startsWith("/api/")}
+              unoptimized={cover.startsWith("data:") || cover.startsWith("/api/")}
               className="object-cover"
             />
+            {/* How many more the buyer attached. A count, not a carousel: this
+                card renders in a 320px notification column as well as on the
+                orders page, and a gallery there would bury the list. */}
+            {gallery.length > 1 && (
+              <span className="absolute bottom-0 right-0 rounded-tl-lg bg-black/60 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                +{gallery.length - 1}
+              </span>
+            )}
           </div>
         ) : (
           <span
@@ -166,8 +247,13 @@ export function DemandRequestCard({
 
         <div className="min-w-0 flex-1">
           <p className={cn("font-bold text-gray-900", compact ? "text-[13px]" : "text-sm")}>
-            {demand.quantity} × {demand.craftType}
+            {demand.quantity} × {demand.productType || demand.craftType}
           </p>
+          {(demand.category || purchaseLabel) && (
+            <p className="mt-0.5 text-[11px] font-medium text-gray-500">
+              {[demand.category, purchaseLabel].filter(Boolean).join(" · ")}
+            </p>
+          )}
           {band && <p className="mt-0.5 text-xs font-medium text-gray-600">{band}</p>}
 
           {facts.length > 0 && (
@@ -194,6 +280,53 @@ export function DemandRequestCard({
           )}
         >
           {demand.description}
+        </p>
+      )}
+
+      {/* Customisation is called out on its own rather than folded into the
+          chips: it changes what the artisan is agreeing to make, not just what
+          it looks like. */}
+      {demand.customizationRequired && (
+        <div className="mt-3 rounded-lg border border-[var(--color-sage)] bg-[var(--color-mint)] p-2.5">
+          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-primary">
+            <Wand2 size={12} /> {t("demand_customization_required")}
+          </p>
+          {demand.customizationDetails && (
+            <p className="mt-1 whitespace-pre-line text-[12px] leading-relaxed text-primary/85">
+              {demand.customizationDetails}
+            </p>
+          )}
+        </div>
+      )}
+
+      {flexible.length > 0 && (
+        <div className="mt-3">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+            {t("demand_flex_heading")}
+          </p>
+          <ul className="mt-1.5 flex flex-wrap gap-1.5">
+            {flexible.map((name) => (
+              <li
+                key={name}
+                className="rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700"
+              >
+                {name}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* `additionalRequirements` is the V9 field; `notes` is what rows written
+          before it carry. Same place on the card either way. */}
+      {(demand.additionalRequirements || demand.notes) && (
+        <p
+          className={cn(
+            "mt-3 whitespace-pre-line leading-relaxed text-gray-600",
+            compact ? "text-[12px]" : "text-[13px]"
+          )}
+        >
+          {demand.additionalRequirements || demand.notes}
         </p>
       )}
 

@@ -112,11 +112,24 @@ export function buildDemandSms(opts: {
   craftType: string;
   location?: string | null;
   priceLabel: string;
+  /** V9 size spec. Included only when the whole line still fits — see below. */
+  sizeSpec?: string | null;
 }): string {
-  const { buyerName, quantity, craftType, location, priceLabel } = opts;
+  const { buyerName, quantity, craftType, location, priceLabel, sizeSpec } = opts;
   const buyer = (buyerName || 'A buyer').slice(0, 24);
   const where = location ? ` in ${location}` : '';
 
   const body = `KARIGARI: ${buyer} wants ${quantity} ${craftType}${where} at ${priceLabel}. Reply 1 to accept, 2 to skip.`;
+
+  // The size is genuinely useful — "6.3 m" tells a weaver whether this is their
+  // loom — but only if adding it does not push the price or the reply
+  // instruction off the end. An SMS that truncates mid-price is worse than one
+  // that never mentioned the size, so this is added whole or not at all.
+  const size = (sizeSpec ?? '').trim().slice(0, 40);
+  if (size) {
+    const withSize = `KARIGARI: ${buyer} wants ${quantity} ${craftType} (${size})${where} at ${priceLabel}. Reply 1 to accept, 2 to skip.`;
+    if (withSize.length <= 160) return withSize;
+  }
+
   return body.length <= 160 ? body : `${body.slice(0, 157)}...`;
 }

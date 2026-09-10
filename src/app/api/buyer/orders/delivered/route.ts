@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { buyerNotificationCopy, createBuyerNotification } from '@/lib/buyerNotify';
+import { advanceDemandStatus, advanceOrderStatus } from '@/lib/orderStage';
 
 /**
  * Buyer confirms a demand's goods reached them.
@@ -46,6 +48,8 @@ export async function POST(req: Request) {
       select: {
         id: true,
         buyerName: true,
+        craftType: true,
+        status: true,
         deliveredAt: true,
         targetPriceMin: true,
         targetPriceMax: true,
@@ -77,13 +81,38 @@ export async function POST(req: Request) {
     // Pull the accepted orders BEFORE the transaction so we know per-artisan
     // fallbacks (a demand may have several accepters at different negotiated
     // prices). Only rows without a prior credit are eligible.
+    //
+    // The status list must cover the WHOLE vocabulary. V9 added READY, PACKED,
+    // DISPATCHED and DELIVERED between ACCEPTED and COMPLETED, and an order
+    // sitting in any of them is exactly the order most likely to be the one the
+    // buyer is confirming — leaving them out of this predicate would have meant
+    // the artisans furthest along were the ones who never got paid.
     const pendingCredits = await prisma.artisanOrder.findMany({
       where: {
         demandId,
         settledAt: null,
-        status: { in: ['ACCEPTED', 'IN_PROGRESS', 'COMPLETED'] },
+        status: {
+          in: [
+            'ACCEPTED',
+            'IN_PROGRESS',
+            'READY',
+            'PACKED',
+            'DISPATCHED',
+            'DELIVERED',
+            'COMPLETED',
+          ],
+        },
       },
-      select: { id: true, artisanId: true, negotiatedPrice: true },
+      select: {
+        id: true,
+        artisanId: true,
+        negotiatedPrice: true,
+        status: true,
+        advanceStatus: true,
+        advanceDueAmount: true,
+        balanceDueAmount: true,
+        artisan: { select: { name: true } },
+      },
     });
 
     const priceFor = (negotiated: number | null): number => {
@@ -94,16 +123,50 @@ export async function POST(req: Request) {
       return candidate > 0 ? Math.round(candidate) : 0;
     };
 
+    /**
+     * What lands on delivery.
+     *
+     * When the buyer already paid the 40% advance, only the balance is left —
+     * crediting the full agreed price here would pay the artisan 140% of it.
+     * When the advance was waived (no price resolved at acceptance) or simply
+     * never paid, the whole agreed price settles now, which is the pre-V10
+     * behaviour and stays correct.
+     */
+    const creditFor = (order: (typeof pendingCredits)[number]): number => {
+      const agreed = priceFor(order.negotiatedPrice);
+      if (order.advanceStatus !== 'ADVANCE_PAID') return agreed;
+
+      const advance = order.advanceDueAmount ?? 0;
+      const balance = order.balanceDueAmount ?? Math.round(agreed - advance);
+
+      // The two halves must reconstruct the agreed price exactly. They are
+      // computed once at acceptance from the price agreed THEN, so a
+      // renegotiation afterwards would make them disagree with `agreed` here.
+      // Warned rather than corrected: the recorded halves are what both sides
+      // were shown, and silently paying a different number would be worse.
+      if (Math.round(advance + balance) !== agreed) {
+        console.warn(
+          `[buyer/orders/delivered] advance + balance does not equal the agreed price on ArtisanOrder ${order.id}: ${advance} + ${balance} != ${agreed}. Crediting the recorded balance.`
+        );
+      }
+      return balance;
+    };
+
     const results = await prisma.$transaction(async (tx) => {
       await tx.demand.update({
         where: { id: demandId },
-        data: { deliveredAt: now, status: 'FULFILLED' },
+        data: { deliveredAt: now, status: advanceDemandStatus(demand.status, 'FULFILLED') },
       });
 
       let credited = 0;
-      const perOrder: { orderId: string; artisanId: string; amount: number }[] = [];
+      const perOrder: {
+        orderId: string;
+        artisanId: string;
+        artisanName: string;
+        amount: number;
+      }[] = [];
       for (const order of pendingCredits) {
-        const amount = priceFor(order.negotiatedPrice);
+        const amount = creditFor(order);
         // updateMany with the same settledAt-null predicate is the concurrency
         // guard: two overlapping requests cannot both apply the credit.
         const outcome = await tx.artisanOrder.updateMany({
@@ -111,12 +174,22 @@ export async function POST(req: Request) {
           data: {
             settledAmount: amount,
             settledAt: now,
-            status: 'COMPLETED',
+            // DELIVERED, not COMPLETED: this is the BUYER acknowledging
+            // receipt. COMPLETED is the artisan's own closing acknowledgement
+            // and has exactly one writer, the `complete` action on
+            // /api/artisan/orders. An order already closed by the artisan stays
+            // closed — advanceOrderStatus refuses to walk it back.
+            status: advanceOrderStatus(order.status, 'DELIVERED'),
           },
         });
         if (outcome.count > 0) {
           credited += amount;
-          perOrder.push({ orderId: order.id, artisanId: order.artisanId, amount });
+          perOrder.push({
+            orderId: order.id,
+            artisanId: order.artisanId,
+            artisanName: order.artisan.name,
+            amount,
+          });
         }
       }
       return { credited, perOrder };
@@ -129,6 +202,37 @@ export async function POST(req: Request) {
           .join(', ')}`
       );
     }
+
+    // Tell each credited artisan, and the buyer. Best-effort and after the
+    // transaction: a credit that landed must not be reported as a failure
+    // because an alert could not be written. Only orders that were ACTUALLY
+    // credited on this call are notified, so a second click tells nobody.
+    for (const credit of results.perOrder) {
+      try {
+        await prisma.notification.create({
+          data: {
+            userId: credit.artisanId,
+            type: 'ORDER_DELIVERED',
+            title: `Delivered: ${demand.craftType}`,
+            // The agreed price, and named as a credit rather than a bank
+            // transfer — the payout rail is not wired on this deployment and
+            // this copy must not imply it is. See src/lib/escrow.ts.
+            message: `${buyerName} has confirmed delivery. ₹${credit.amount.toLocaleString('en-IN')} has been credited to your earnings at the agreed price.`,
+            relatedDemandId: demandId,
+            channel: 'IN_APP',
+          },
+        });
+      } catch (notifyError) {
+        console.error('Delivery notification failed:', notifyError);
+      }
+    }
+
+    await createBuyerNotification({
+      buyerName: demand.buyerName,
+      demandId,
+      type: 'ORDER_DELIVERED',
+      ...buyerNotificationCopy.orderDelivered(demand.craftType, results.credited),
+    });
 
     return NextResponse.json({
       success: true,

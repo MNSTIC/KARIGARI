@@ -17,15 +17,15 @@ import {
   BellRing,
   LogOut,
   ShoppingBag,
-  IndianRupee,
 } from "lucide-react";
 import { KarigariLogo } from "@/components/ui/KarigariLogo";
 import Image from "next/image";
 import Link from "next/link";
-import { ADVANCE_RATE } from "@/lib/escrow";
 import { PostDemandModal, type PostedDemand } from "@/components/PostDemandModal";
 import { OrderTimeline, type TrackPayload } from "@/components/ui/OrderTimeline";
 import { BuyerOrders } from "@/components/BuyerOrders";
+import { BuyerNotificationsBell } from "@/components/BuyerNotificationsBell";
+import { DEMAND_STATUS_KEYS } from "@/lib/orderStage";
 import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
 import { BUYER_NAME_KEY, DEFAULT_BUYER, readBuyerName } from "@/lib/buyerIdentity";
 import { useRouter } from "next/navigation";
@@ -75,6 +75,8 @@ export default function BuyerDashboard() {
 
   const [buyerName, setBuyerName] = useState(DEFAULT_BUYER);
   const [tab, setTab] = useState<BuyerTab>("board");
+  /** Card to scroll to and open, set by the notification bell's deep link. */
+  const [focusDemandId, setFocusDemandId] = useState<string | null>(null);
   /** Reported up by <BuyerOrders>, purely so the heading can count them. */
   const [orderCount, setOrderCount] = useState(0);
   const [demands, setDemands] = useState<PostedDemand[]>([]);
@@ -83,10 +85,14 @@ export default function BuyerDashboard() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // The artisan-match panel is an explicit simulation, kept per demand.
-  const [quoteState, setQuoteState] = useState<
-    Record<string, "pending" | "quoted" | "accepted" | "paid">
-  >({});
+  /**
+   * Whether the match panel for a demand has been run yet.
+   *
+   * Two states, not four: the old "accepted" and "paid" values drove a quote
+   * flow that moved no money and wrote no rows, and they went with it. Buying
+   * a listed piece through the link on a match card is the real path.
+   */
+  const [quoteState, setQuoteState] = useState<Record<string, "pending" | "quoted">>({});
 
   /**
    * Real listed stock per demand, from /api/demand/match. Replaces the old
@@ -255,6 +261,32 @@ export default function BuyerDashboard() {
     if (nowOpen && !tracking[id]) void loadTracking(id);
   };
 
+  /**
+   * Open the card a notification points at.
+   *
+   * The bell lives in the header, above both tabs, so it has to put the board
+   * back in front before selecting anything — clicking "your order was
+   * dispatched" while My Orders is showing would otherwise select a card the
+   * buyer cannot see.
+   */
+  const openDemandFromNotification = useCallback((demandId: string) => {
+    setTab("board");
+    setSelectedId(demandId);
+    setFocusDemandId(demandId);
+  }, []);
+
+  // Scroll the deep-linked card into view once it has actually rendered.
+  useEffect(() => {
+    if (!focusDemandId) return;
+    const kickoff = setTimeout(() => {
+      document
+        .getElementById(`demand-${focusDemandId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setFocusDemandId(null);
+    }, 80);
+    return () => clearTimeout(kickoff);
+  }, [focusDemandId, demands]);
+
   // Shipping is quoted off the real order size rather than a fixed sticker price.
   const shipping = selected
     ? {
@@ -274,6 +306,14 @@ export default function BuyerDashboard() {
           </span>
         </div>
         <div className="flex items-center gap-2 min-w-0">
+          {/* Before V9 the buyer learned nothing until they reloaded the board
+              and expanded a card. This is where acceptance, daily updates,
+              ready, packed, dispatched and delivered actually reach them. */}
+          <BuyerNotificationsBell
+            buyerName={buyerName}
+            onOpenDemand={openDemandFromNotification}
+            triggerClassName="mr-1"
+          />
           <Avatar name={buyerName} size={32} />
           <div className="hidden sm:block min-w-0">
             <div className="text-sm font-bold text-gray-900 truncate">{buyerName}</div>
@@ -360,11 +400,23 @@ export default function BuyerDashboard() {
               const demandState = quoteState[demand.id] || "pending";
               const mine = (demand.buyerName || "").toLowerCase() === buyerName.toLowerCase();
 
+              // Only the rows the buyer actually loosened. Five "Strict" chips
+              // is the default and says nothing; what an artisan needs to see
+              // is what they are ALLOWED to propose instead.
+              const flexible = [
+                demand.flexBudget === "FLEXIBLE" ? t("demand_flex_budget") : null,
+                demand.flexColor === "FLEXIBLE" ? t("demand_flex_color") : null,
+                demand.flexMaterial === "FLEXIBLE" ? t("demand_flex_material") : null,
+                demand.flexDelivery === "FLEXIBLE" ? t("demand_flex_delivery") : null,
+                demand.flexDesign === "SIMILAR" ? t("demand_flex_design") : null,
+              ].filter((v): v is string => Boolean(v));
+
               return (
                 <div
                   key={demand.id}
+                  id={`demand-${demand.id}`}
                   className={cn(
-                    "bg-white rounded-2xl border shadow-card overflow-hidden transition-colors",
+                    "bg-white rounded-2xl border shadow-card overflow-hidden transition-colors scroll-mt-24",
                     isSelected ? "border-primary" : "border-gray-200"
                   )}
                 >
@@ -374,17 +426,24 @@ export default function BuyerDashboard() {
                   >
                     <div className="min-w-0">
                       <div className="flex items-center flex-wrap gap-2 mb-2">
+                        {/* Driven by the unified lifecycle: OPEN → MATCHED →
+                            IN_PRODUCTION → FULFILLED. IN_PRODUCTION is new in
+                            V9 and is written the moment an artisan posts their
+                            first update, so the pill moves when real work
+                            starts rather than only when someone accepts. */}
                         <span
                           className={cn(
                             "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider",
                             demand.status === "OPEN"
                               ? "bg-green-50 text-green-700"
-                              : demand.status === "MATCHED"
+                              : demand.status === "MATCHED" || demand.status === "IN_PRODUCTION"
                                 ? "bg-blue-50 text-blue-700"
                                 : "bg-gray-100 text-gray-600"
                           )}
                         >
-                          {demand.status === "OPEN" ? t("active_search") : demand.status}
+                          {demand.status === "OPEN"
+                            ? t("active_search")
+                            : t(DEMAND_STATUS_KEYS[demand.status] ?? "") || demand.status}
                         </span>
                         <span className="text-xs text-gray-500 font-bold font-mono">
                           REQ-{demand.id.slice(0, 6).toUpperCase()}
@@ -396,8 +455,16 @@ export default function BuyerDashboard() {
                         )}
                       </div>
                       <h3 className="text-xl font-bold text-gray-900">
-                        {demand.quantity} × {demand.craftType}
+                        {demand.quantity} × {demand.productType || demand.craftType}
                       </h3>
+                      {demand.category && (
+                        <p className="text-xs font-medium text-gray-500 mt-0.5">
+                          {demand.category}
+                          {demand.purchaseType && demand.purchaseType !== "INDIVIDUAL"
+                            ? ` · ${demand.purchaseType}`
+                            : ""}
+                        </p>
+                      )}
                       <div className="text-sm text-gray-500 mt-1 flex flex-wrap gap-4">
                         {demand.location && (
                           <span className="flex items-center gap-1">
@@ -412,28 +479,70 @@ export default function BuyerDashboard() {
                             <CalendarDays size={14} /> {demand.festival}
                           </span>
                         )}
+                        {demand.requiredBy && (
+                          <span className="flex items-center gap-1">
+                            <CalendarDays size={14} /> {t("demand_when_needed")}:{" "}
+                            {new Date(demand.requiredBy).toLocaleDateString("en-IN", {
+                              day: "numeric",
+                              month: "short",
+                              timeZone: "Asia/Kolkata",
+                            })}
+                          </span>
+                        )}
                       </div>
-                      {(demand.material || demand.color) && (
+
+                      {/* The structured capture, as chips. Only what the buyer
+                          actually filled in — an empty field renders nothing
+                          rather than a placeholder dash. */}
+                      {(demand.material ||
+                        demand.color ||
+                        demand.sizeSpec ||
+                        demand.deliveryMode === "PICKUP") && (
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          {demand.material && (
-                            <span className="rounded-full bg-[var(--color-mint)] px-2.5 py-1 text-[11px] font-bold text-primary">
-                              {demand.material}
-                            </span>
-                          )}
-                          {demand.color && (
-                            <span className="rounded-full bg-[var(--color-mint)] px-2.5 py-1 text-[11px] font-bold text-primary">
-                              {demand.color}
-                            </span>
-                          )}
+                          {[
+                            demand.material,
+                            demand.color,
+                            demand.sizeSpec,
+                            demand.deliveryMode === "PICKUP" ? t("demand_delivery_pickup") : null,
+                          ]
+                            .filter((v): v is string => Boolean(v))
+                            .map((chip) => (
+                              <span
+                                key={chip}
+                                className="rounded-full bg-[var(--color-mint)] px-2.5 py-1 text-[11px] font-bold text-primary"
+                              >
+                                {chip}
+                              </span>
+                            ))}
                         </div>
+                      )}
+
+                      {demand.customizationRequired && (
+                        <p className="mt-2 text-[12px] font-bold text-primary">
+                          {t("demand_customization_required")}
+                          {demand.customizationDetails ? ` — ${demand.customizationDetails}` : ""}
+                        </p>
+                      )}
+
+                      {flexible.length > 0 && (
+                        <p className="mt-2 text-[11px] text-gray-500">
+                          <span className="font-bold uppercase tracking-wider">
+                            {t("demand_flex_heading")}:
+                          </span>{" "}
+                          {flexible.join(" · ")}
+                        </p>
                       )}
                       {demand.description && (
                         <p className="text-sm text-gray-600 mt-2 leading-relaxed">
                           {demand.description}
                         </p>
                       )}
-                      {demand.notes && (
-                        <p className="text-sm text-gray-600 mt-2 leading-relaxed">{demand.notes}</p>
+                      {/* `additionalRequirements` is the V9 field; `notes` is
+                          what rows written before it carry. */}
+                      {(demand.additionalRequirements || demand.notes) && (
+                        <p className="text-sm text-gray-600 mt-2 leading-relaxed whitespace-pre-line">
+                          {demand.additionalRequirements || demand.notes}
+                        </p>
                       )}
                     </div>
 
@@ -499,9 +608,7 @@ export default function BuyerDashboard() {
 
                   {isSelected && (
                     <div className="p-6 bg-gray-50">
-                      {demandState !== "quoted" &&
-                      demandState !== "accepted" &&
-                      demandState !== "paid" ? (
+                      {demandState !== "quoted" ? (
                         <div className="text-center py-8">
                           <Search className="mx-auto text-gray-300 mb-3" size={32} />
                           <p className="text-gray-500 font-medium text-sm mb-4">
@@ -612,100 +719,26 @@ export default function BuyerDashboard() {
                               </p>
                             </div>
 
-                            {demandState === "accepted" || demandState === "paid" ? (
-                              <div className="mt-4 animate-fade-in-up space-y-4">
-                                {/* WI5 — Advance payment summary. Replaces the
-                                    old LogisticsMap iframe. Numbers come from
-                                    src/lib/escrow so the 40 % shown here is the
-                                    exact figure the settlement engine will
-                                    release on dispatch. */}
-                                <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-card">
-                                  <h4 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                    <IndianRupee size={16} className="text-primary" />
-                                    {t("payment_summary")}
-                                  </h4>
+                            {/* What used to sit here was an "Accept quote" →
+                                "Pay advance ₹X" flow that moved nothing but
+                                React state: no request, no charge, no row, and
+                                then a green "Advance paid" confirmation. This
+                                codebase forbids describing a SIMULATED payout as
+                                paid; describing a payment that never existed at
+                                all is worse.
 
-                                  <div className="space-y-3">
-                                    <div className="flex justify-between text-sm">
-                                      <span className="text-gray-600">
-                                        {t("total_order_value")}
-                                      </span>
-                                      <span className="font-bold text-gray-900 font-sans">
-                                        {rupees(demand.targetPriceMax ?? demand.targetPriceMin ?? 0)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between text-sm border-t border-gray-100 pt-3">
-                                      <span className="text-primary font-bold">
-                                        {t("advance_payment")} ({Math.round(ADVANCE_RATE * 100)}%)
-                                      </span>
-                                      <span className="font-black text-primary text-lg font-sans">
-                                        {rupees(
-                                          Math.round(
-                                            (demand.targetPriceMax ?? demand.targetPriceMin ?? 0) *
-                                              ADVANCE_RATE
-                                          )
-                                        )}
-                                      </span>
-                                    </div>
-                                    <p className="text-[11px] text-gray-500 leading-relaxed">
-                                      {t("advance_payment_note")}
-                                    </p>
-                                  </div>
-
-                                  {demandState !== "paid" ? (
-                                    <button
-                                      onClick={() =>
-                                        setQuoteState((prev) => ({ ...prev, [demand.id]: "paid" }))
-                                      }
-                                      className="mt-4 w-full bg-primary text-white py-3 rounded-xl font-bold hover:bg-primary-dark transition-colors shadow-sm flex items-center justify-center gap-2"
-                                    >
-                                      <IndianRupee size={16} />
-                                      {t("pay_advance_cta")}{" "}
-                                      {rupees(
-                                        Math.round(
-                                          (demand.targetPriceMax ?? demand.targetPriceMin ?? 0) *
-                                            ADVANCE_RATE
-                                        )
-                                      )}
-                                    </button>
-                                  ) : (
-                                    <div className="mt-4 bg-[var(--color-mint)] border border-[var(--color-sage)] rounded-xl p-4 flex items-start gap-3">
-                                      <CheckCircle2
-                                        size={20}
-                                        className="text-primary shrink-0 mt-0.5"
-                                      />
-                                      <div>
-                                        <p className="font-bold text-primary text-sm">
-                                          {t("advance_paid_confirmation")}
-                                        </p>
-                                        <p className="text-xs text-primary/70 mt-1">
-                                          {t("production_started_note")}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex flex-wrap gap-3">
-                                <button
-                                  onClick={() =>
-                                    setQuoteState((prev) => ({ ...prev, [demand.id]: "accepted" }))
-                                  }
-                                  className="flex-1 min-w-[180px] bg-primary text-white py-3 rounded-xl font-bold hover:bg-primary-dark transition-colors shadow-sm"
-                                >
-                                  {t("accept_quote")}
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    setQuoteState((prev) => ({ ...prev, [demand.id]: "pending" }))
-                                  }
-                                  className="flex-1 min-w-[180px] bg-white border border-gray-200 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-50 transition-colors shadow-sm"
-                                >
-                                  {t("negotiate")}
-                                </button>
-                              </div>
-                            )}
+                                The 40% advance is also a CraftItem escrow
+                                concept — it is released against
+                                `escrowStatus` — and a demand order has no
+                                escrow row, so there was nothing truthful for
+                                that panel to show even in principle. Buying
+                                through a listing above is the real path: it
+                                opens Razorpay, and `?demand=` carries the
+                                request id through checkout so the purchase
+                                lands under this demand in My Orders. */}
+                            <p className="text-[13px] leading-relaxed text-gray-600">
+                              {t("demand_purchase_route_note")}
+                            </p>
                           </div>
                         </div>
                       )}
