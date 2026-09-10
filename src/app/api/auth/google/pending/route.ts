@@ -12,9 +12,14 @@ export const dynamic = 'force-dynamic';
  * `/api/auth/google/complete` is what actually spends it.
  *
  * The cookie is httpOnly, so the page cannot read it itself; this is the only
- * way that screen learns whose sign-up it is finishing. `sub` is deliberately
- * NOT returned: the browser has no use for the Google identifier, and it is the
- * key the account is created against.
+ * way that screen learns whose sign-up it is finishing.
+ *
+ * TWO FIELDS ARE WITHHELD ON PURPOSE. `sub` is the Google identifier the account
+ * is created against and the browser has no use for it. `role` is withheld
+ * because nothing in the browser may participate in choosing a privilege level —
+ * `/api/auth/google/complete` reads it straight from this same cookie. Returning
+ * it here would invite a future edit to echo it back in the POST body, which is
+ * exactly the hole the cookie was introduced to close. Do not add either.
  */
 export async function GET() {
   const pending = await peekCookie<PendingSignup>(COOKIE.pendingSignup);

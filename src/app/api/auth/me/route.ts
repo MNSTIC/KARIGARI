@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getSession } from '@/lib/authSession';
+import { getSession, renewSession } from '@/lib/authSession';
 
 /** Reads the auth cookie, so it must never be statically optimised. */
 export const dynamic = 'force-dynamic';
@@ -22,6 +22,11 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
   }
+
+  // Slide the session window. Every artisan and admin layout calls this route
+  // on mount, so a person who opens their dashboard even once a day never
+  // reaches the expiry — which is the whole point of a rolling session.
+  await renewSession(session);
 
   try {
     const user = await prisma.user.findUnique({

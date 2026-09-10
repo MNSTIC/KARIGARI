@@ -8,6 +8,7 @@ import { Loader2 } from "lucide-react";
 import { useLanguage, type Language } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 import { AltSignIn } from "@/components/AltSignIn";
+import { AlreadySignedInBanner } from "@/components/AlreadySignedInBanner";
 
 type Role = "ARTISAN" | "ADMIN";
 
@@ -154,6 +155,8 @@ export default function LoginPage() {
           <p className="mt-2 text-[15px] leading-relaxed text-gray-600">
             Sign in to manage your craft portfolio and network.
           </p>
+
+          <AlreadySignedInBanner />
 
           {/* Segmented role toggle. Real radios, because it is one choice out of
               a set and a screen reader has to be told that. */}

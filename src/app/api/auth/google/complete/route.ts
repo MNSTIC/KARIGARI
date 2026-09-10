@@ -1,22 +1,24 @@
 import { NextResponse } from 'next/server';
-import { Prisma } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
 import { COOKIE, takeCookie, type PendingSignup } from '@/lib/authCookies';
 import { issueSession } from '@/lib/authSession';
+import { createGoogleUser } from '@/lib/googleSignup';
+import { dashboardFor } from '@/lib/dashboardRoutes';
 import { validateSignup } from '@/lib/registrationRules';
 
 /** Reads cookies and creates a session, so it must never be statically optimised. */
 export const dynamic = 'force-dynamic';
 
 /**
- * Step 3 of Google sign-in: create the account.
+ * Step 3 of Google sign-in: create the artisan account.
  *
  * The identity in the `pending-signup` cookie was verified against Google's own
- * signature in the callback, so the email and `sub` here are trustworthy. What
- * arrives in the body is not — it is the artisan fields the person typed on the
- * completion screen, and it goes through `validateSignup()`, the SAME rules
- * `/api/auth/register` uses. Two screens creating accounts with two copies of
- * the rules would drift the first time one gained a field.
+ * signature in the callback, so the email, `sub` and role here are trustworthy.
+ * What arrives in the body is not — it is whatever the browser posted — and it
+ * goes through `validateSignup()`, the SAME rules `/api/auth/register` uses.
+ *
+ * Only an ARTISAN ever reaches this route. An admin sign-up is completed in the
+ * callback, because `validateSignup` returns no profile for an admin and there
+ * would be nothing to collect.
  */
 export async function POST(req: Request) {
   try {
@@ -25,77 +27,63 @@ export async function POST(req: Request) {
     const pending = await takeCookie<PendingSignup>(COOKIE.pendingSignup);
     if (!pending?.sub || !pending?.email) {
       return NextResponse.json(
-        { error: 'Your Google sign-in has expired. Please start again.' },
+        { error: 'Your Google sign-in has expired. Please start again.', expired: true },
         { status: 401 }
       );
     }
 
     const body = await req.json().catch(() => ({}));
 
-    // The name defaults to what Google gave us, so someone who leaves it alone
-    // still gets a real name rather than an empty string.
-    const validation = validateSignup({ ...body, name: body?.name || pending.name });
+    // THE ORDER OF THESE KEYS IS A SECURITY CONTROL, NOT A STYLE CHOICE.
+    //
+    // `...body` is spread FIRST and `role` is written AFTER it, so a `role` in
+    // the request body is overwritten by the one from the signed cookie and can
+    // never reach `validateSignup`. Swap the two lines and the browser decides
+    // the privilege level of the account being created. `pending.role` is
+    // server-authored and JWT-signed; `body.role` is whatever was POSTed.
+    //
+    // `name` is likewise pinned after the spread, but only so a blank
+    // submission falls back to what Google gave us. That one is a convenience.
+    // This one is not.
+    const validation = validateSignup({
+      ...body,
+      name: body?.name || pending.name,
+      role: pending.role,
+    });
     if (!validation.ok) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
-    const { name, role, artisanProfile } = validation.value;
 
-    // Re-checked INSIDE the transaction. The cookie is up to ten minutes old,
-    // and the fork decision made in the callback is stale by now — somebody may
-    // have registered this email by password in the meantime. The unique
-    // constraints are the real guarantee; this turns a Prisma exception into a
-    // message a person can act on.
-    const user = await prisma.$transaction(async (tx) => {
-      const clash = await tx.user.findFirst({
-        where: { OR: [{ email: pending.email }, { googleId: pending.sub }] },
-        select: { id: true },
-      });
-      if (clash) return null;
+    const outcome = await createGoogleUser(
+      { sub: pending.sub, email: pending.email, picture: pending.picture },
+      validation.value
+    );
 
-      return tx.user.create({
-        data: {
-          name,
-          email: pending.email,
-          // No password exists for this identity, and none is invented. The
-          // login route refuses a null hash before it ever reaches bcrypt.
-          passwordHash: null,
-          authProvider: 'GOOGLE',
-          googleId: pending.sub,
-          // Google asserted it. We record what we were told, not what we checked.
-          emailVerified: true,
-          avatarUrl: pending.picture,
-          role,
-          ...(artisanProfile ? { artisanProfile: { create: artisanProfile } } : {}),
-        },
-        select: { id: true, name: true, role: true },
-      });
-    });
-
-    if (!user) {
+    if (!outcome.ok) {
+      if (outcome.reason === 'clash') {
+        return NextResponse.json(
+          {
+            error:
+              'An account already exists for this email. Please sign in with your password for now.',
+          },
+          { status: 409 }
+        );
+      }
       return NextResponse.json(
-        {
-          error:
-            'An account already exists for this email. Please sign in with your password for now.',
-        },
-        { status: 409 }
+        { error: 'Could not finish creating your account.' },
+        { status: 500 }
       );
     }
 
-    await issueSession(user);
+    await issueSession(outcome.user);
 
     return NextResponse.json({
       success: true,
-      user: { id: user.id, name: user.name, role: user.role },
+      user: { id: outcome.user.id, name: outcome.user.name, role: outcome.user.role },
+      /** Where the client should land. Never `/admin/dashboard`, which does not exist. */
+      redirectTo: dashboardFor(outcome.user.role),
     });
   } catch (error) {
-    // A unique-constraint violation here means the race above was lost between
-    // the check and the insert. It is a 409, not a 500 — the person can act on it.
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return NextResponse.json(
-        { error: 'An account already exists for this email.' },
-        { status: 409 }
-      );
-    }
     console.error('[auth/google/complete] failed:', error);
     return NextResponse.json({ error: 'Could not finish creating your account.' }, { status: 500 });
   }

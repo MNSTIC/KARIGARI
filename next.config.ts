@@ -128,6 +128,17 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'api.qrserver.com',
       },
+      {
+        // Google profile photos, for an artisan who signed up with Google.
+        // Without this entry `next/image` throws "hostname is not configured"
+        // and the very first screen of a brand-new account renders a crash
+        // overlay in dev and a broken avatar in production. The path is
+        // narrowed to `/a/` because that is where Google serves account
+        // pictures; nothing else on that CDN should be proxied by us.
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com',
+        pathname: '/a/**',
+      },
     ],
   },
 };

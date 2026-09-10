@@ -26,15 +26,19 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(req: Request) {
   if (!GOOGLE_CONFIGURED) {
-    // Plainly, rather than redirecting to a Google page that will reject us.
-    // The rest of the app — including password sign-in — is unaffected.
-    return NextResponse.json(
-      {
-        error:
-          'Google sign-in is not configured on this deployment. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI to enable it.',
-      },
-      { status: 503 }
+    // A person pressed a button, so they get a sentence rather than a JSON
+    // blob. The button is normally hidden when the feature is off
+    // (NEXT_PUBLIC_GOOGLE_AUTH_ENABLED), but the flag and the credentials are
+    // two separate switches: the flag can be on while the keys are still
+    // missing, and this is that window.
+    //
+    // The notice code resolves to a real translated message on the login page.
+    // Never a redirect to Google, which would only bounce with an opaque
+    // OAuth error the person cannot act on.
+    console.warn(
+      '[auth/google/start] the button is enabled but GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI are not all set.'
     );
+    return NextResponse.redirect(new URL('/login?notice=google_unavailable', req.url));
   }
 
   try {

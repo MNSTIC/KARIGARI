@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Fingerprint, Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
+import { dashboardFor } from "@/lib/dashboardRoutes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -112,7 +113,7 @@ export function AltSignIn({
         return;
       }
 
-      router.push(result.role === "ADMIN" ? "/admin/dashboard" : "/artisan/dashboard");
+      router.push(dashboardFor(result.role));
       router.refresh();
     } catch (e) {
       // A cancelled prompt throws. That is not an error worth shouting about —

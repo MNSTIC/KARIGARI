@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
@@ -62,14 +63,39 @@ export interface AvatarProps {
   src?: string | null;
   /** Rendered size in px. */
   size?: number;
+  /**
+   * Load immediately instead of lazily.
+   *
+   * Off by default, because most avatars in this app appear in long lists where
+   * lazy loading is the whole point. Turn it on for the handful that are the
+   * subject of the screen rather than decoration on a row — the Google identity
+   * panel on `/register/complete` is one: it is the confirmation of who is
+   * signing up, sits above the fold, and a lazy load there also delays the
+   * initials fallback when the photo URL is dead.
+   */
+  priority?: boolean;
   className?: string;
 }
 
-export function Avatar({ name, src, size = 40, className }: AvatarProps) {
+export function Avatar({ name, src, size = 40, priority = false, className }: AvatarProps) {
   const label = (name || "").trim();
   const photo = (src || "").trim();
 
-  if (photo) {
+  /**
+   * A URL that exists is not a URL that loads.
+   *
+   * Google profile photos are the case that forced this: the URL in a Google
+   * `id_token` outlives the picture it points at, so a returning artisan could
+   * be shown a permanently broken image where their face used to be. Falling
+   * back to the initials block is strictly better than a torn-image glyph, and
+   * it costs one boolean.
+   *
+   * Keyed on `photo` so switching to a different picture re-arms the attempt
+   * rather than inheriting the previous one's failure.
+   */
+  const [failed, setFailed] = useState("");
+
+  if (photo && failed !== photo) {
     return (
       <div
         className={cn("relative rounded-full overflow-hidden shrink-0 bg-gray-100", className)}
@@ -83,6 +109,8 @@ export function Avatar({ name, src, size = 40, className }: AvatarProps) {
           /* Uploaded avatars are base64 data URLs, which the image optimizer
              cannot fetch. Seeded `/seed/...` paths go through it normally. */
           unoptimized={photo.startsWith("data:") || photo.startsWith("/api/")}
+          priority={priority}
+          onError={() => setFailed(photo)}
           className="object-cover"
         />
       </div>

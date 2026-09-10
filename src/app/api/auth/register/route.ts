@@ -16,6 +16,19 @@ export const dynamic = 'force-dynamic';
  * too and two copies of these rules would drift the first time one gained a
  * field. Every error string, every default and every cookie flag is what this
  * route already returned.
+ *
+ * KNOWN AND DELIBERATELY UNCHANGED: `role` comes from the request body of an
+ * UNAUTHENTICATED request, so anyone can POST `{"role":"ADMIN"}` here and get
+ * an admin account — the unmasked artisan CRM, patch minting, the compliance
+ * export. `/register` even ships a visible ADMIN toggle, so this is the app's
+ * current design rather than an oversight in one route, and it is why the
+ * Google path is allowed to honour an ADMIN choice too.
+ *
+ * Whoever closes this: the fix is not a check in this route. It is deciding how
+ * an admin is created at all — an invite code, a seeded account, or promotion
+ * by an existing admin — and then removing the toggle, the `?role=ADMIN` entry
+ * at `/api/auth/google/start`, and this line together. Half of that shipped
+ * alone just moves the door.
  */
 export async function POST(req: Request) {
   try {

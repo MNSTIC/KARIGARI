@@ -3,6 +3,9 @@ import { prisma } from '@/lib/prisma';
 import { COOKIE, clearCookie, setSignedCookie, takeCookie, type GoogleOauthState } from '@/lib/authCookies';
 import { GOOGLE_CONFIGURED, exchangeCode, verifyIdToken } from '@/lib/googleAuth';
 import { issueSession } from '@/lib/authSession';
+import { createGoogleUser } from '@/lib/googleSignup';
+import { dashboardFor } from '@/lib/dashboardRoutes';
+import { isSignupRole, validateSignup } from '@/lib/registrationRules';
 
 /** Reads cookies and query state, so it must never be statically optimised. */
 export const dynamic = 'force-dynamic';
@@ -73,9 +76,7 @@ export async function GET(req: Request) {
     });
     if (byGoogleId) {
       await issueSession(byGoogleId);
-      return NextResponse.redirect(
-        new URL(byGoogleId.role === 'ADMIN' ? '/admin/dashboard' : '/artisan/dashboard', req.url)
-      );
+      return NextResponse.redirect(new URL(dashboardFor(byGoogleId.role), req.url));
     }
 
     // 2. The email already belongs to a password account. REFUSE.
@@ -95,10 +96,39 @@ export async function GET(req: Request) {
       return notice(req, 'existing_password_account');
     }
 
-    // 3. Nobody at all. Google cannot supply craftType, location,
-    //    experienceYears, aadhaarLast4, annualIncome or gender, so an artisan
-    //    cannot be created in one hop. Park the verified identity in a
-    //    short-lived signed cookie and collect the rest on the next screen.
+    // 3. Nobody at all — a new account.
+    //
+    //    An ADMIN is finished right here. `validateSignup` returns
+    //    `artisanProfile: null` for an admin, so there is literally nothing
+    //    left to collect: sending them to the completion screen would be a form
+    //    with no fields, and — worse — it would mean a pending cookie existed
+    //    with ADMIN in it at all. Only ARTISAN ever gets one.
+    const role = isSignupRole(stashed.role) ? stashed.role : 'ARTISAN';
+
+    if (role === 'ADMIN') {
+      const validated = validateSignup({ name: identity.name, role: 'ADMIN' });
+      if (!validated.ok) {
+        console.error('[auth/google/callback] admin validation failed:', validated.error);
+        return notice(req, 'google_failed');
+      }
+
+      const outcome = await createGoogleUser(identity, validated.value);
+      if (!outcome.ok) {
+        return notice(req, outcome.reason === 'clash' ? 'existing_password_account' : 'google_failed');
+      }
+
+      await issueSession(outcome.user);
+      return NextResponse.redirect(new URL(dashboardFor(outcome.user.role), req.url));
+    }
+
+    //    An ARTISAN needs six fields Google cannot supply — craftType,
+    //    location, experienceYears, aadhaarLast4, annualIncome, gender — so
+    //    park the verified identity in a short-lived signed cookie and collect
+    //    the rest on the next screen.
+    //
+    //    The role travels IN THE COOKIE, never in the URL. It used to ride on
+    //    `?role=`, which is attacker-controlled: opening
+    //    `/register/complete?role=ADMIN` was enough to mint an admin account.
     await setSignedCookie(
       COOKIE.pendingSignup,
       {
@@ -106,13 +136,12 @@ export async function GET(req: Request) {
         email: identity.email,
         name: identity.name,
         picture: identity.picture,
+        role,
       },
       'pending'
     );
 
-    const complete = new URL('/register/complete', req.url);
-    complete.searchParams.set('role', stashed.role);
-    return NextResponse.redirect(complete);
+    return NextResponse.redirect(new URL('/register/complete', req.url));
   } catch (error) {
     console.error('[auth/google/callback] unexpected failure:', error);
     return notice(req, 'google_failed');

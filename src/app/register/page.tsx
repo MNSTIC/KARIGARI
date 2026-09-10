@@ -13,6 +13,8 @@ import { downscaleImage } from "@/lib/imageEnhance";
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 import { AltSignIn } from "@/components/AltSignIn";
+import { AlreadySignedInBanner } from "@/components/AlreadySignedInBanner";
+import { FIELD_INPUT as INPUT, Field } from "@/components/ui/FormField";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -143,6 +145,8 @@ export default function RegisterPage() {
               Sign in
             </Link>
           </p>
+
+          <AlreadySignedInBanner />
 
           {/* Role toggle. Real radios: it is one choice out of a set. */}
           <div
@@ -351,37 +355,6 @@ export default function RegisterPage() {
           </form>
         </div>
       </div>
-    </div>
-  );
-}
-
-const INPUT =
-  "block h-[52px] w-full rounded-xl border border-gray-300 bg-white px-4 text-[15px] text-gray-900 placeholder:text-gray-400 transition-colors focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900";
-
-function Field({
-  label,
-  htmlFor,
-  icon,
-  hint,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  icon?: React.ReactNode;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label
-        htmlFor={htmlFor}
-        className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-gray-800"
-      >
-        {icon}
-        {label}
-      </label>
-      {children}
-      {hint && <p className="mt-1.5 text-xs leading-relaxed text-gray-500">{hint}</p>}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { ARTISAN_TOTAL_RATE } from "@/lib/escrow";
 import { locateCity } from "@/lib/indiaGeo";
 import { marketPrice, type MarketItem } from "@/lib/marketplace";
 import { useLanguage } from "@/lib/translations";
+import { useSession } from "@/lib/useSession";
 
 /**
  * The public front door.
@@ -32,6 +33,18 @@ const DemandMap = dynamic(() => import("@/components/DemandMap"), {
 
 export default function LandingPage() {
   const { t } = useLanguage();
+  /**
+   * Someone who signed in last week should not be asked to sign in again.
+   *
+   * The session cookie lives a year and slides forward on every visit, so the
+   * common case for a returning artisan is that they already have one. The
+   * front door reads it and offers the door they actually want — their
+   * dashboard — instead of a form they have already filled in once.
+   */
+  const session = useSession();
+  const signedIn = session.status === "signedIn";
+  /** Null until the check returns, which is what keeps the CTA from flickering. */
+  const dashboard = session.dashboard;
   const [items, setItems] = useState<MarketItem[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -149,18 +162,37 @@ export default function LandingPage() {
 
           <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-4 md:ml-6">
             <LanguageSwitcher />
-            <Link
-              href="/login"
-              className="hidden text-[14px] font-medium text-gray-600 hover:text-gray-900 sm:block"
-            >
-              {t("login")}
-            </Link>
-            <Link
-              href="/register"
-              className="kg-press inline-flex min-h-[42px] items-center rounded-full bg-primary px-5 text-[13px] font-semibold text-white hover:bg-primary-dark"
-            >
-              Get Started
-            </Link>
+            {/* Signed in: one button, straight to their own dashboard. Signed
+                out: the pair this app has always shown. While the check is in
+                flight neither is rendered, because guessing wrong for a moment
+                is worse than a beat of nothing on a nav bar. */}
+            {signedIn ? (
+              <Link
+                href={dashboard ?? "/artisan/dashboard"}
+                className="kg-press inline-flex min-h-[42px] items-center gap-1.5 rounded-full bg-primary px-5 text-[13px] font-semibold text-white hover:bg-primary-dark"
+              >
+                {t("nav_go_to_dashboard")}
+                <ArrowRight size={14} />
+              </Link>
+            ) : session.status === "signedOut" ? (
+              <>
+                <Link
+                  href="/login"
+                  className="hidden text-[14px] font-medium text-gray-600 hover:text-gray-900 sm:block"
+                >
+                  {t("login")}
+                </Link>
+                <Link
+                  href="/register"
+                  className="kg-press inline-flex min-h-[42px] items-center rounded-full bg-primary px-5 text-[13px] font-semibold text-white hover:bg-primary-dark"
+                >
+                  Get Started
+                </Link>
+              </>
+            ) : (
+              /* Holds the row's height so the nav does not jump when it lands. */
+              <span aria-hidden className="inline-block min-h-[42px] w-[104px]" />
+            )}
           </div>
         </div>
       </nav>
@@ -204,11 +236,15 @@ export default function LandingPage() {
               >
                 Explore Marketplace
               </Link>
+              {/* THE ONE THE ARTISAN PRESSES. Already signed in, this is not a
+                  sign-up at all — it is the way back into their workshop, and
+                  sending them to a registration form they have already
+                  completed is the bug this replaces. */}
               <Link
-                href="/register"
+                href={signedIn ? (dashboard ?? "/artisan/dashboard") : "/register"}
                 className="kg-press kg-label inline-flex min-h-[54px] items-center justify-center rounded-xl border border-gray-900/25 bg-white/80 px-8 font-medium text-gray-900 backdrop-blur-sm hover:border-gray-900/50 hover:bg-white"
               >
-                Join as an Artisan
+                {signedIn ? t("nav_go_to_dashboard") : "Join as an Artisan"}
               </Link>
             </div>
           </div>
@@ -362,10 +398,10 @@ export default function LandingPage() {
                 Shop the collection
               </Link>
               <Link
-                href="/register"
+                href={signedIn ? (dashboard ?? "/artisan/dashboard") : "/register"}
                 className="kg-press kg-label inline-flex min-h-[52px] items-center justify-center rounded-xl border border-white/30 px-8 font-medium text-white hover:border-white/60"
               >
-                Register workshop
+                {signedIn ? t("nav_go_to_dashboard") : "Register workshop"}
               </Link>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
+import type { SignupRole } from '@/lib/registrationRules';
 
 /**
  * The short-lived, single-use cookies the OAuth and WebAuthn ceremonies need.
@@ -68,6 +69,24 @@ export interface PendingSignup {
   email: string;
   name: string;
   picture: string | null;
+  /**
+   * The role this sign-up is for — carried HERE, in a server-signed cookie, and
+   * never in the URL.
+   *
+   * It used to ride on `/register/complete?role=`, and the completion POST
+   * echoed it back in the body, so the browser chose the privilege level of the
+   * account being created. That is the wrong shape whatever the blast radius:
+   * the role is decided ONCE, at `/api/auth/google/start`, and everything after
+   * reads it from a JWT-signed cookie where tampering is detectable.
+   *
+   * HONEST SCOPE. This did not, on its own, grant anything `/register` does not
+   * already grant — that screen has an ADMIN toggle and `/api/auth/register`
+   * takes `role` from an unauthenticated body, so self-service admin signup is
+   * a standing property of this app, not something the Google path introduced.
+   * See the note in `/api/auth/register`. Closing that is a separate decision
+   * about who may become an admin; this is just about not letting a URL decide.
+   */
+  role: SignupRole;
 }
 
 export interface WebauthnChallenge {
