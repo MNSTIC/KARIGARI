@@ -28,7 +28,13 @@ export async function GET(req: Request) {
     const payouts = await prisma.craftItem.findMany({
       where: {
         status: 'SOLD_FINAL',
-        finalPayoutQueued: { gt: 0 }
+        finalPayoutQueued: { gt: 0 },
+        // Escrow sales settle themselves, and the POST below already refuses
+        // them ("Admins have zero financial authority over it"). Listing them
+        // here put rows in the admin payout queue that could never be
+        // processed — and now that settlement actually runs, every settled
+        // marketplace sale would have landed in it.
+        escrowStatus: null,
       },
       include: {
         artisan: {

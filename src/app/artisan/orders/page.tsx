@@ -27,6 +27,7 @@ import { StatTile } from "@/components/ui/StatTile";
 import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
 import { QrScanModal } from "@/components/QrScanModal";
 import { ReadyVerifyResult, type ReadyVerifyOutcome } from "@/components/ReadyVerifyResult";
+import { StorefrontSaleCard, type StorefrontSale } from "@/components/StorefrontSaleCard";
 import { prepareImage } from "@/lib/clientImagePrep";
 import { formatRupees } from "@/lib/pricing";
 import { ORDER_STATUS_KEYS } from "@/lib/orderStage";
@@ -164,6 +165,8 @@ function isoDateInputValue(daysFromNow: number): string {
 interface OrdersPayload {
   success: true;
   orders: ArtisanOrderRow[];
+  /** Pieces bought outright from the marketplace. See StorefrontSaleCard. */
+  sales: StorefrontSale[];
   stats: {
     totalAccepted: number;
     totalEarned: number;
@@ -283,6 +286,19 @@ export default function ArtisanOrdersPage() {
     const timer = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  /**
+   * Marketplace sales still in motion.
+   *
+   * Delivered ones leave the list for the same reason delivered demand orders
+   * do: this tab is "what needs me", and a sale the buyer has confirmed and
+   * settled needs nothing. The artisan hears about it through the delivery
+   * notification and sees the money on the earnings page.
+   */
+  const activeSales = useMemo(
+    () => (payload?.sales ?? []).filter((sale) => !sale.deliveredAt),
+    [payload]
+  );
 
   const currentOrders = useMemo(
     () =>
@@ -637,12 +653,47 @@ export default function ArtisanOrdersPage() {
 
       {/* --------------------------------------------- Current orders */}
       {tab === "current" ? (
-        currentOrders.length === 0 ? (
+        currentOrders.length === 0 && activeSales.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-500">
             {t("orders_no_current")}
           </p>
         ) : (
           <div className="space-y-4">
+            {/* Marketplace sales first. A paid piece waiting to be packed is the
+                most time-sensitive thing on this page — the buyer has already
+                paid — so it sits above commissions still being made. Before this
+                section existed these sales never appeared here at all, though the
+                purchase notification sent the artisan here to dispatch them. */}
+            {activeSales.length > 0 && (
+              <section aria-labelledby="orders-sales-heading" className="space-y-4">
+                <div>
+                  <h2
+                    id="orders-sales-heading"
+                    className="text-[13px] font-bold uppercase tracking-wider text-gray-900"
+                  >
+                    {t("sales_section_title")} ({activeSales.length})
+                  </h2>
+                  <p className="mt-1 text-[13px] leading-relaxed text-gray-600">
+                    {t("sales_section_body")}
+                  </p>
+                </div>
+                {activeSales.map((sale) => (
+                  <StorefrontSaleCard
+                    key={sale.id}
+                    sale={sale}
+                    onChanged={(message) => {
+                      setToast(message);
+                      void load();
+                    }}
+                  />
+                ))}
+              </section>
+            )}
+            {activeSales.length > 0 && currentOrders.length > 0 && (
+              <h2 className="pt-4 text-[13px] font-bold uppercase tracking-wider text-gray-900">
+                {t("demand_orders_section_title")} ({currentOrders.length})
+              </h2>
+            )}
             {currentOrders.map((order) => {
               const daysLeft = order.deadline
                 ? daysBetween(new Date(), new Date(order.deadline))

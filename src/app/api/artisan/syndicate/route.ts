@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { getListingPrice } from '@/lib/pricing';
+import { unpurchasableReason } from '@/lib/storefrontSale';
 import {
   buildPriceComparison,
   middlemanAdvantage,
@@ -94,10 +95,43 @@ export async function POST(req: Request) {
     // own is not theirs to broadcast, so this doubles as the auth check.
     const existing = await prisma.craftItem.findFirst({
       where: { id: craftItemId, artisanId: auth.userId },
-      select: { ...SYNDICATION_FIELDS },
+      select: { ...SYNDICATION_FIELDS, qrVerified: true, qrExemptAt: true, paidAt: true, escrowStatus: true },
     });
     if (!existing) {
       return NextResponse.json({ error: 'Item not found' }, { status: 404 });
+    }
+
+    /**
+     * Only a piece that could actually be bought may be published.
+     *
+     * This route used to check ownership and nothing else, then set
+     * `isListedOnMarketplace` and `isOndcLive`. That is how pieces reached the
+     * storefront and the ONDC catalogue while still PENDING_VERIFICATION with no
+     * patch at all, or approved but never QR-verified — and a buyer who pressed
+     * Buy on one was refused at checkout. It also re-listed pieces that had
+     * already sold and settled.
+     *
+     * QR verification is the documented gate: an admin approving a piece mints
+     * its patch, but the piece only becomes sellable once the artisan has stuck
+     * that patch on and the photo has been matched. Publishing is not a way
+     * around it.
+     */
+    const blocked = unpurchasableReason({ ...existing, isListedOnMarketplace: true });
+    if (blocked === 'sold') {
+      return NextResponse.json(
+        { error: 'This piece has already been sold, so it cannot be published again.' },
+        { status: 409 }
+      );
+    }
+    if (blocked === 'unavailable') {
+      return NextResponse.json(
+        {
+          error:
+            'Verify the QR patch on this piece before publishing it. Print the patch, attach it, and upload a photo so it can be matched.',
+          needsQrVerification: true,
+        },
+        { status: 409 }
+      );
     }
 
     const item = await prisma.craftItem.update({

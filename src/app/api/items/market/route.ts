@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
+import { PURCHASABLE_WHERE, unpurchasableReason } from '@/lib/storefrontSale';
 import { prisma } from '@/lib/prisma';
 import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
@@ -46,6 +47,11 @@ const PUBLIC_ITEM_SELECT = {
   isOndcLive: true,
   syndicatedChannels: true,
   escrowStatus: true,
+  qrVerified: true,
+  // Without this, a grandfathered piece reads as not QR-cleared and is hidden.
+  qrExemptAt: true,
+  // Read for the `sold` boolean below and then stripped — see format().
+  paidAt: true,
   createdAt: true,
   artisan: {
     select: {
@@ -76,10 +82,28 @@ function format(
   // The raw patch ID is private. Strip it from the public payload entirely and
   // ship only a boolean, so a browsing visitor cannot read another piece's ID
   // out of the network response.
-  const { patchId, ...rest } = item;
+  const { patchId, paidAt, ...rest } = item;
   return {
     ...rest,
     verified: Boolean(patchId),
+    /**
+     * Whether this one-of-a-kind piece has already been bought.
+     *
+     * A boolean, and `paidAt` itself is stripped, for the same reason as the
+     * patch ID: when someone bought a piece is the buyer's business, not every
+     * visitor's. The product page reads this to replace Buy Now with a sold
+     * notice. Before it existed, "sold" was local React state on the buyer's
+     * own tab only, so every other visitor — and the buyer on a reload — was
+     * shown a working checkout for a piece that no longer existed.
+     */
+    sold: unpurchasableReason({ ...item, paidAt }) === 'sold',
+    /**
+     * Whether Buy Now may be offered at all. False for a sold piece AND for one
+     * that is listed but not yet QR-verified — a state the syndicate route used
+     * to create. The product page reads this so it never shows a checkout the
+     * server will refuse, which is what a buyer hit before this existed.
+     */
+    buyable: unpurchasableReason({ ...item, paidAt }) === null,
     artisan: {
       id: item.artisan.id,
       name: item.artisan.name,
@@ -142,7 +166,11 @@ export async function GET(req: Request) {
     const listedOnly = url.searchParams.get('listed') === '1';
 
     const items = await prisma.craftItem.findMany({
-      where: listedOnly ? { isListedOnMarketplace: true } : {},
+      // Exactly what checkout will accept — see PURCHASABLE_WHERE. The grid used
+      // to filter on the listed flag alone, so it offered 59 pieces of which
+      // only 24 could actually be bought: 31 were already fully settled sales
+      // and 4 had been listed before their QR patch was verified.
+      where: listedOnly ? PURCHASABLE_WHERE : {},
       orderBy: { createdAt: 'desc' },
       select: PUBLIC_ITEM_SELECT,
     });

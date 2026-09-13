@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { getListingPrice } from '@/lib/pricing';
-import { ESCROW_HELD, advanceFor, creatorCommissionFor, finalSettlementFor } from '@/lib/escrow';
+import { advanceFor, creatorCommissionFor, finalSettlementFor } from '@/lib/escrow';
+import { PURCHASABLE_WHERE, unpurchasableReason } from '@/lib/storefrontSale';
 import { slugifyHandle } from '@/lib/creators';
 import {
   DEMO_CHARGE_PAISE,
@@ -75,6 +76,13 @@ export async function POST(req: Request) {
         salePrice: true,
         standardMarketPrice: true,
         fairWageFloor: true,
+        // For the availability guard below.
+        paidAt: true,
+        isListedOnMarketplace: true,
+        qrVerified: true,
+        qrExemptAt: true,
+        status: true,
+        escrowStatus: true,
         artisan: {
           select: {
             name: true,
@@ -86,6 +94,46 @@ export async function POST(req: Request) {
 
     if (!item) {
       return NextResponse.json({ error: 'Item not found' }, { status: 404 });
+    }
+
+    /**
+     * Is this piece actually for sale?
+     *
+     * None of this was checked. Two consequences, both reachable from the
+     * ordinary storefront, not just by crafting requests:
+     *
+     *   - A SOLD piece could be checked out again. That overwrote
+     *     `razorpayOrderId` on a completed sale, and if two buyers had the
+     *     modal open at once, the SECOND checkout's id replaced the first — so
+     *     when the first buyer paid, verify-payment compared their order id to
+     *     the stored one, found a mismatch, and refused a payment Razorpay had
+     *     already taken. Money gone, sale refused.
+     *   - An unlisted or unverified piece could be bought by anyone who had its
+     *     id, bypassing the QR-patch check that is the whole point of listing.
+     *
+     * Every storefront and demand-match route only ever shows pieces that are
+     * listed, so requiring it here refuses nothing a real buyer could reach.
+     */
+    // The same rule the storefront grid filters by (PURCHASABLE_WHERE), so the
+    // grid can never offer a piece this refuses. `paidAt` alone missed pieces
+    // sold and settled through the escrow engine without it.
+    const reason = unpurchasableReason(item);
+    if (reason === 'sold') {
+      return NextResponse.json(
+        { error: 'This piece has already been sold.', sold: true },
+        { status: 409 }
+      );
+    }
+    if (reason === 'unavailable') {
+      return NextResponse.json(
+        {
+          error: item.isListedOnMarketplace
+            ? 'This piece is waiting for its artisan to finish verifying its QR patch, so it cannot be bought yet.'
+            : 'This piece is not available for sale.',
+          unavailable: true,
+        },
+        { status: 409 }
+      );
     }
 
     const price = item.salePrice ?? getListingPrice(item);
@@ -150,11 +198,20 @@ export async function POST(req: Request) {
     const advanceAmount = advanceFor(price);
     const finalSettlementAmount = finalSettlementFor(price);
 
-    await prisma.craftItem.update({
-      where: { id: item.id },
+    // `paidAt: null` in the predicate: if another buyer's payment was verified
+    // in the moments since the guard above ran, this checkout must not overwrite
+    // the order id of a completed sale. Zero rows updated means exactly that.
+    const staged = await prisma.craftItem.updateMany({
+      where: { id: item.id, AND: [PURCHASABLE_WHERE] },
       data: {
         razorpayOrderId: order.id,
-        escrowStatus: ESCROW_HELD,
+        // NOT `escrowStatus: ESCROW_HELD`. This runs when the buyer merely
+        // OPENS the Razorpay modal — nothing has been paid. Writing ESCROW_HELD
+        // here meant every abandoned checkout left an unpaid piece reading as
+        // money held in escrow: the stage ladder showed it IN_PRODUCTION, and
+        // the settlement engine's only precondition for releasing a 40%
+        // advance was that very value. It is written by verify-payment, in the
+        // same transaction that records the verified payment.
         artisanUpiDestination: artisanUpi || null,
         advanceAmount,
         finalSettlementAmount,
@@ -166,13 +223,26 @@ export async function POST(req: Request) {
         affiliateCommission,
       },
     });
+    if (staged.count === 0) {
+      // The Razorpay order exists but points at a piece that just sold. It is
+      // never shown to the buyer, so it is never paid; Razorpay expires unpaid
+      // orders on its own.
+      return NextResponse.json(
+        { error: 'This piece has just been sold.', sold: true },
+        { status: 409 }
+      );
+    }
 
     await logCraftItemEvent({
       prisma,
       craftItemId: item.id,
       actorId: 'RAZORPAY_ORDER',
       actorRole: 'SYSTEM',
-      action: 'ESCROW_HELD',
+      // CHECKOUT_OPENED, not ESCROW_HELD: a modal opening moves no money, and
+      // an audit trail that says escrow was held when nobody paid is the one
+      // record in this app that must never overstate what happened. The
+      // ESCROW_HELD entry is written by verify-payment on a proven payment.
+      action: 'CHECKOUT_OPENED',
       newState: {
         orderId: order.id,
         price,
@@ -181,8 +251,8 @@ export async function POST(req: Request) {
         ...(affiliate ? { affiliateHandle: affiliate.handle, affiliateCommission } : {}),
       },
       comments: RAZORPAY_LIVE
-        ? 'Buyer opened a Razorpay LIVE payment — a real ₹10 debit, settling into the platform merchant account rather than the artisan VPA. Funds are held in escrow; the artisan VPA on file is locked in as the settlement destination. No admin can release or redirect this. Every escrow figure is computed from the displayed price.'
-        : 'Buyer opened a Razorpay TEST payment. Funds are held in escrow; the artisan VPA on file is locked in as the payout destination. No admin can release or redirect this. The charge is ₹10 — every escrow figure is computed from the displayed price.',
+        ? 'Buyer opened a Razorpay LIVE checkout. No money has moved yet — this is the modal opening, and the buyer may still close it. The artisan VPA on file is snapshotted as the settlement destination and the escrow tranches are quoted from the displayed price. Escrow is held only once the payment is verified.'
+        : 'Buyer opened a Razorpay TEST checkout. No money has moved yet — this is the modal opening, and the buyer may still close it. The artisan VPA on file is snapshotted as the payout destination and the escrow tranches are quoted from the displayed price. Escrow is held only once the payment is verified.',
     });
 
     return NextResponse.json({

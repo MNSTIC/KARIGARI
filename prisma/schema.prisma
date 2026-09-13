@@ -193,6 +193,18 @@ model CraftItem {
   qrVerified          Boolean   @default(false)
   qrVerifiedImageUrl  String?   // the artisan's photo of the product WITH the patch
   qrVerifiedAt        DateTime?
+  /// DEMO GRANDFATHERING. When set, this piece may be bought, packed and
+  /// published without `qrVerified`. Written ONCE, by a one-time script, onto
+  /// the pieces that were already on the marketplace when the QR rule started
+  /// being enforced at checkout (2026-09-13) — so the existing demo catalogue
+  /// stayed buyable. NOTHING in the application writes this column, so every
+  /// piece listed afterwards has to pass real QR verification.
+  ///
+  /// Kept separate from `qrVerified` on purpose: setting that flag instead would
+  /// make a waived check indistinguishable from a passed one, on the buyer's
+  /// verified badge and in the audit trail. To end the exemption, null this
+  /// column (each grant has a `QR_RULE_GRANDFATHERED` AuditLog row).
+  qrExemptAt          DateTime?
 
   // Zero-ID multi-platform syndication. The artisan owns the listing outright;
   // there is no external seller account to reconcile against.
@@ -250,6 +262,34 @@ model CraftItem {
   productionStage     String?   // ACCEPTED | IN_PRODUCTION | QUALITY_CHECK | DISPATCHED | DELIVERED
   stageUpdatedAt      DateTime?
   estimatedDeliveryAt DateTime?
+
+  // ---- Storefront order fulfilment. -----------------------------------------
+  //
+  // A storefront sale IS this row (there is no Order table), but until these
+  // existed it had no way to be packed, shipped or received: DISPATCHED and
+  // DELIVERED were reachable only through /api/payments/settle-escrow, which
+  // nothing called. So every paid piece stopped dead at quality check, the
+  // artisan was told to "mark it dispatched from your Orders page" where it did
+  // not appear, and the escrow was never released.
+  //
+  // Each timestamp has exactly one writer, and presence is the idempotency
+  // guard for the step it records — the same convention `ArtisanOrder.packedAt`
+  // / `dispatchedAt` / `settledAt` use for demand orders. All nullable and
+  // additive: rows sold before this landed simply read as not yet packed.
+
+  /// Set by POST /api/artisan/sales action:"pack". Requires `paidAt` and
+  /// `qrVerified` — the piece being boxed is the piece the patch proves.
+  packedAt            DateTime?
+  /// Set by POST /api/artisan/sales action:"dispatch", in the same request that
+  /// releases the 40% escrow advance. Requires `packedAt`.
+  dispatchedAt        DateTime?
+  courierName         String?
+  trackingRef         String?
+  /// Set by POST /api/buyer/sales/delivered when the buyer confirms receipt, in
+  /// the same request that releases the final settlement. Requires
+  /// `dispatchedAt`. The buyer, not the artisan, writes this: an artisan must
+  /// never be able to release their own final payment.
+  deliveredAt         DateTime?
 
   // Anti-exploitation pricing guardian (new_admin.md Tier 1.1)
   pricingFlag         Boolean  @default(false)

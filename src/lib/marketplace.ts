@@ -34,6 +34,18 @@ export interface MarketItem {
   isOndcLive: boolean;
   syndicatedChannels: string[];
   escrowStatus: string | null;
+  /**
+   * Whether this one-of-a-kind piece has already been bought. Derived on the
+   * server from `paidAt`, which is itself never shipped. Optional because the
+   * list endpoint's grid already excludes sold pieces.
+   */
+  sold?: boolean;
+  /**
+   * Whether Buy Now may be offered: not sold, listed, and QR-verified. False
+   * covers a piece published before its patch was verified. Optional so rows
+   * from any older payload default to the buy form rather than hiding it.
+   */
+  buyable?: boolean;
   createdAt: string;
   artisan: {
     id: string;

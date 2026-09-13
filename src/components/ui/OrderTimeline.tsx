@@ -44,6 +44,18 @@ export interface TrackedItem {
   createdAt: string;
   estimatedDeliveryAt: string | null;
   price: number | null;
+  /**
+   * Storefront fulfilment, from /api/buyer/orders. Optional: /api/demand/track
+   * returns this same shape without them, and must keep rendering unchanged.
+   */
+  dispatchedAt?: string | null;
+  deliveredAt?: string | null;
+  courierName?: string | null;
+  trackingRef?: string | null;
+  /** The artisan dispatched it, the buyer has not confirmed, no demand governs it. */
+  canConfirmDelivery?: boolean;
+  /** Checkout recorded a contact, so confirmation must supply it. */
+  contactOnFile?: boolean;
 }
 
 export interface TrackPayload {

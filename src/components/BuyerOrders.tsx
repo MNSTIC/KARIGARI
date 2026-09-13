@@ -28,6 +28,7 @@ import { ORDER_STAGE_KEYS, stageIndex, type OrderStage } from "@/lib/orderStage"
 import { formatRupees } from "@/lib/pricing";
 import { AdvancePanel } from "@/components/AdvancePanel";
 import { useLanguage } from "@/lib/translations";
+import { readBuyerContact } from "@/lib/buyerIdentity";
 
 /**
  * The buyer's own paid orders, with Flipkart/Amazon-style tracking.
@@ -88,6 +89,9 @@ export interface BuyerOrder extends TrackPayload {
   courierName?: string | null;
   trackingRef?: string | null;
   lastLogAt?: string | null;
+
+  /** True when no artisan commitment governs this order: a storefront purchase. */
+  storefront?: boolean;
 
   // ---- V10: the buyer's 40% advance. Optional — an order placed before V10,
   // or a plain storefront purchase, has no demand order behind it.
@@ -681,6 +685,25 @@ export function BuyerOrders({
                   </div>
                 )}
 
+              {/* -------------------- Storefront: confirm + verify ----------- */}
+              {/* The demand block above is gated on `order.demandId`, so a piece
+                  bought outright never had a way to be confirmed received — and
+                  confirming is what releases the artisan's final settlement.
+                  One control per piece, because a storefront group can hold
+                  more than one and each settles on its own. */}
+              {order.storefront &&
+                order.items.map((piece) =>
+                  piece.canConfirmDelivery || piece.deliveredAt ? (
+                    <StorefrontDeliveryConfirm
+                      key={piece.id}
+                      piece={piece}
+                      buyerName={buyerName}
+                      showName={order.items.length > 1}
+                      onConfirmed={() => void load()}
+                    />
+                  ) : null
+                )}
+
               {/* -------------------- Dispute outcomes -------------------- */}
               <OrderTicketStates tickets={order.tickets} t={t} />
             </div>
@@ -819,6 +842,126 @@ function OrderChain({ order, t }: { order: BuyerOrder; t: (key: string) => strin
  * Only the most advanced outcome is worth showing: a resolved verdict replaces
  * the "under review" pill rather than stacking beneath it.
  */
+/**
+ * "It arrived" for one storefront piece — which releases the artisan's final
+ * settlement, so it asks for proof the caller is the buyer.
+ *
+ * Buyers have no accounts. What they DO have is the contact they typed at
+ * checkout, remembered in this browser, which the artisan never sees. Asking
+ * for it here is what stops the seller — who does see the buyer's name — from
+ * confirming their own sale to get paid before shipping. It is prefilled, so
+ * for the real buyer on their own device this is still one tap.
+ */
+function StorefrontDeliveryConfirm({
+  piece,
+  buyerName,
+  showName,
+  onConfirmed,
+}: {
+  piece: TrackPayload["items"][number];
+  buyerName: string;
+  /** Name the piece on the control when the order holds more than one. */
+  showName: boolean;
+  onConfirmed: () => void;
+}) {
+  const { t } = useLanguage();
+  const [contact, setContact] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Deferred by a macrotask so the effect body performs no synchronous
+    // setState — the same kickoff pattern the rest of this file uses.
+    const kickoff = setTimeout(() => setContact(readBuyerContact()), 0);
+    return () => clearTimeout(kickoff);
+  }, []);
+
+  const confirm = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/buyer/sales/delivered", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ craftItemId: piece.id, buyerName, buyerContact: contact }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        setError(data?.error || t("sale_confirm_failed"));
+        return;
+      }
+      onConfirmed();
+    } catch {
+      setError(t("sale_confirm_failed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-5 border-t border-gray-100 pt-5">
+      {showName && <p className="mb-2 text-[13px] font-bold text-gray-900">{piece.craftType}</p>}
+
+      {piece.courierName || piece.trackingRef ? (
+        <p className="mb-3 flex items-center gap-1.5 text-[12px] text-gray-600">
+          <Truck size={13} className="shrink-0" />
+          {[piece.courierName, piece.trackingRef].filter(Boolean).join(" · ")}
+        </p>
+      ) : null}
+
+      {piece.deliveredAt ? (
+        <div className="space-y-3">
+          <p className="flex items-start gap-2 rounded-xl border border-[var(--color-sage)] bg-[var(--color-mint)] px-3 py-2 text-[12px] text-primary">
+            <CheckCircle2 size={14} className="mt-0.5 shrink-0" />
+            {t("sale_confirmed_note")}
+          </p>
+          {piece.patchId && (
+            <Link
+              href={`/buyer/verify?patchId=${encodeURIComponent(piece.patchId)}`}
+              className="kg-press inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 text-[13px] font-semibold text-gray-900 hover:bg-gray-50"
+            >
+              <ShieldCheck size={14} /> {t("sale_verify_authenticity")}
+            </Link>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-[13px] leading-relaxed text-gray-600">{t("sale_confirm_body")}</p>
+          {piece.contactOnFile && (
+            <label className="block max-w-xs">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                {t("sale_confirm_contact_label")}
+              </span>
+              <input
+                value={contact}
+                onChange={(e) => setContact(e.target.value)}
+                inputMode="tel"
+                autoComplete="tel"
+                disabled={busy}
+                className="min-h-[44px] w-full rounded-lg border border-gray-200 bg-white px-3 text-[13px] outline-none focus:border-primary"
+              />
+            </label>
+          )}
+          {error && (
+            <p role="alert" className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+              {error}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => void confirm()}
+            disabled={busy || (piece.contactOnFile && !contact.trim())}
+            className="kg-press inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-primary px-5 text-sm font-bold text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+            {t("sale_confirm_cta")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OrderTicketStates({
   tickets,
   t,

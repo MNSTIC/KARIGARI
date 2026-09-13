@@ -59,6 +59,12 @@ export function ProductClient({ id }: { id: string }) {
   const [checkoutReady, setCheckoutReady] = useState(false);
   /** Set after the server has verified the signature — never on the modal alone. */
   const [paid, setPaid] = useState(false);
+  /**
+   * A genuine payment that lost the race for this piece. Kept apart from
+   * `buyError` because it is not an error the buyer caused or can retry: their
+   * money moved and they need to be told it is coming back.
+   */
+  const [refund, setRefund] = useState<string | null>(null);
   /** Free-text buyer identity; the storefront has no accounts. */
   const [buyerName, setBuyerName] = useState("");
   const [buyerContact, setBuyerContact] = useState("");
@@ -166,6 +172,10 @@ export function ProductClient({ id }: { id: string }) {
       if (!res.ok || !data?.success || !data.orderId) {
         setBuyError(data?.error || t("checkout_failed"));
         setBuying(false);
+        // Someone else bought it while this page was open, or it stopped being
+        // buyable. Reload so the buy form is replaced by the right notice
+        // instead of inviting a retry that will be refused again.
+        if (data?.sold || data?.unavailable) void load();
         return;
       }
 
@@ -217,6 +227,11 @@ export function ProductClient({ id }: { id: string }) {
             });
             const result = await verify.json();
             if (!verify.ok || !result?.success) {
+              if (result?.refundRequired) {
+                setRefund(result.error || t("sale_refund_body"));
+                void load();
+                return;
+              }
               setBuyError(result?.error || t("payment_verify_failed"));
               return;
             }
@@ -463,6 +478,42 @@ export function ProductClient({ id }: { id: string }) {
                     {t('view_my_orders')}
                   </Link>
                 </div>
+              ) : refund ? (
+                /* A real payment for a piece someone else bought first. Not an
+                   error to retry — the buyer needs to know their money is
+                   coming back, and by which payment. */
+                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                  <p className="text-sm font-bold text-amber-900">{t('sale_refund_title')}</p>
+                  <p className="mt-2 text-[13px] leading-relaxed text-amber-800">{refund}</p>
+                </div>
+              ) : item.sold ? (
+                /* Server-side, so every visitor sees it — not just the tab that
+                   paid. Before this, a sold piece showed a working checkout to
+                   everyone else, and to its own buyer on a reload. */
+                <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-5">
+                  <p className="text-sm font-bold text-gray-900">{t('sale_sold_title')}</p>
+                  <p className="mt-2 text-[13px] leading-relaxed text-gray-600">{t('sale_sold_body')}</p>
+                  <Link
+                    href="/marketplace"
+                    className="kg-press mt-4 inline-flex min-h-[44px] items-center rounded-xl border border-gray-300 bg-white px-5 text-[13px] font-semibold text-gray-900 hover:bg-gray-100"
+                  >
+                    {t('sale_browse_more')}
+                  </Link>
+                </div>
+              ) : item.buyable === false ? (
+                /* Listed but not yet sellable — published before its QR patch
+                   was verified. Shown instead of a Buy button that checkout
+                   would refuse, which is exactly what a buyer hit before. */
+                <div className="mt-5 rounded-2xl border border-gray-200 bg-gray-50 p-5">
+                  <p className="text-sm font-bold text-gray-900">{t('sale_unavailable_title')}</p>
+                  <p className="mt-2 text-[13px] leading-relaxed text-gray-600">{t('sale_unavailable_body')}</p>
+                  <Link
+                    href="/marketplace"
+                    className="kg-press mt-4 inline-flex min-h-[44px] items-center rounded-xl border border-gray-300 bg-white px-5 text-[13px] font-semibold text-gray-900 hover:bg-gray-100"
+                  >
+                    {t('sale_browse_more')}
+                  </Link>
+                </div>
               ) : (
                 <>
                   {/* Buyers have no account here, so the name is asked for
@@ -502,6 +553,14 @@ export function ProductClient({ id }: { id: string }) {
                     <p className="mt-2 text-[11px] leading-relaxed text-gray-500">
                       {t('buyer_identity_note')}
                     </p>
+                    {/* Why the contact became required: it is what the buyer
+                        enters to confirm delivery, and confirming delivery
+                        releases the artisan's final payment. The artisan sees
+                        the buyer's name but never this, so it is what stops the
+                        seller from confirming their own sale. */}
+                    <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                      {t('buyer_contact_why')}
+                    </p>
                   </div>
 
                   {/* The escrow promise, restated where the decision is made
@@ -513,7 +572,7 @@ export function ProductClient({ id }: { id: string }) {
 
                   <button
                     onClick={buyNow}
-                    disabled={buying || price === null || !checkoutReady || !buyerName.trim()}
+                    disabled={buying || price === null || !checkoutReady || !buyerName.trim() || !buyerContact.trim()}
                     className="kg-press mt-4 flex min-h-[56px] w-full items-center justify-center gap-2 rounded-xl bg-primary px-6 text-[15px] font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {buying ? (

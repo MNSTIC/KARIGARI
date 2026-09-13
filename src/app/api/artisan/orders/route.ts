@@ -6,12 +6,18 @@ import { advanceDemandStatus, advanceOrderStatus, isUpdateOverdue } from '@/lib/
 import { advanceFor } from '@/lib/escrow';
 import { formatRupees } from '@/lib/pricing';
 import { ADVANCE_PENDING_MESSAGE, advancePaidOrWaived } from '@/lib/advanceGate';
+import { SALE_SELECT, storefrontSalesWhere, toArtisanSale } from '@/lib/storefrontSale';
 
 /**
  * The artisan Orders page endpoint.
  *
- *   GET  — three payloads at once:
+ *   GET  — four payloads at once:
  *          - the artisan's active `ArtisanOrder` records, with logs
+ *          - their STOREFRONT sales: pieces bought outright from the
+ *            marketplace. These have no `ArtisanOrder` (a demand is required
+ *            for one), so before `sales` existed a marketplace purchase never
+ *            appeared on this page at all — even though verify-payment told the
+ *            artisan to dispatch it from here. Actions: POST /api/artisan/sales.
  *          - a stats bar (demands accepted, earned, review average)
  *          - open demands on the board that MATCH this artisan's craft and
  *            they have not accepted yet
@@ -46,7 +52,7 @@ export async function GET() {
   try {
     const artisanId = auth.artisan.userId;
 
-    const [orders, profile, earnings, ratingStats, demandEarningsAgg] = await Promise.all([
+    const [orders, profile, earnings, ratingStats, demandEarningsAgg, sales] = await Promise.all([
       prisma.artisanOrder.findMany({
         where: { artisanId },
         orderBy: { createdAt: 'desc' },
@@ -117,6 +123,14 @@ export async function GET() {
       prisma.artisanOrder.aggregate({
         where: { artisanId, settledAt: { not: null } },
         _sum: { settledAmount: true },
+      }),
+      // Newest sale first — the one most likely to need packing today.
+      prisma.craftItem.findMany({
+        where: storefrontSalesWhere(artisanId),
+        orderBy: { paidAt: 'desc' },
+        // A workshop with more open sales than this has outgrown a demo page.
+        take: 100,
+        select: SALE_SELECT,
       }),
     ]);
 
@@ -240,6 +254,7 @@ export async function GET() {
         avgRating: ratingStats._avg.rating,
         totalReviews: ratingStats._count.id,
       },
+      sales: sales.map(toArtisanSale),
       matchingDemands: matchingDemands.map((demand) => ({
         ...demand,
         createdAt: demand.createdAt.toISOString(),

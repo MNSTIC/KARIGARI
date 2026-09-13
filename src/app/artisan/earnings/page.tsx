@@ -53,6 +53,8 @@ interface Capture {
   id: string;
   craftType: string;
   status: string;
+  /** Escrow tranche for a marketplace sale; null for every other kind of row. */
+  escrowStatus?: string | null;
   /** One short string, derived server-side from `images[0]`. Never a blob. */
   thumbnail?: string | null;
   advancePaid?: number | null;
@@ -104,6 +106,20 @@ interface TopProduct {
 
 /** How a settlement row reads in the activity list. */
 function activityChip(item: Capture): { label: string; variant: BadgeVariant; icon: React.ReactNode } {
+  // A marketplace sale's escrow says where its money actually is, and it must be
+  // read before `status`. Payment sets SOLD_FINAL the moment the buyer pays, so
+  // reading status first labelled a piece "Settled" before a single tranche had
+  // been released — telling the artisan they had been paid for a piece they had
+  // not yet packed.
+  if (item.escrowStatus === "STAGE2_SETTLED_89") {
+    return { label: "Settled", variant: "success", icon: <CheckCircle2 size={11} /> };
+  }
+  if (item.escrowStatus === "STAGE1_ADVANCE_PAID_40") {
+    return { label: "Advance paid", variant: "info", icon: <Banknote size={11} /> };
+  }
+  if (item.escrowStatus === "ESCROW_HELD") {
+    return { label: "Sold · to dispatch", variant: "warning", icon: <Clock size={11} /> };
+  }
   if (item.status === "SOLD_FINAL" || item.status === "PAYOUT_COMPLETED") {
     return { label: "Settled", variant: "success", icon: <CheckCircle2 size={11} /> };
   }

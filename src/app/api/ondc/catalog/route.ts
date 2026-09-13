@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { PURCHASABLE_WHERE } from '@/lib/storefrontSale';
 import { buildOndcCatalog, ONDC_ITEM_SELECT, type CatalogItem } from '@/lib/ondcCatalog';
 
 /**
@@ -28,11 +29,15 @@ export async function GET(req: Request) {
      */
     const artisanId = url.searchParams.get('artisanId') || url.searchParams.get('providerId');
 
-    // "Published" means exactly what the rest of the app calls live: an item an
-    // admin has verified and flipped onto the marketplace.
+    // "Published" means exactly what the storefront means: a piece a buyer can
+    // actually purchase (PURCHASABLE_WHERE). This used to be the listed flag
+    // alone, and the comment claimed that implied admin verification — it did
+    // not. Pieces still PENDING_VERIFICATION, never QR-verified, and already
+    // sold and settled were all going out to ONDC buyer apps, which would take
+    // orders for them that checkout then refuses.
     const rows = (await prisma.craftItem.findMany({
       where: {
-        isListedOnMarketplace: true,
+        AND: [PURCHASABLE_WHERE],
         ...(artisanId ? { artisanId } : {}),
       },
       orderBy: { createdAt: 'desc' },

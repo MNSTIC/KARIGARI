@@ -200,25 +200,48 @@ export interface StageInput {
   escrowStatus?: string | null;
   qrVerified?: boolean | null;
   productionStage?: string | null;
+  /**
+   * Storefront fulfilment timestamps. Optional so every existing caller that
+   * selects only the four fields above keeps compiling and keeps its old
+   * answer — an absent timestamp simply contributes nothing.
+   */
+  packedAt?: Date | string | null;
+  dispatchedAt?: Date | string | null;
+  deliveredAt?: Date | string | null;
 }
 
 export function stageIndex(stage: OrderStage): number {
   return ORDER_STAGES.indexOf(stage);
 }
 
-/** What the item's own escrow / verification fields prove on their own. */
+/**
+ * What the item's own escrow / verification / fulfilment fields prove on their
+ * own.
+ *
+ * ORDER MATTERS, and the order is "most specific evidence first". Timestamps
+ * are written by the endpoint that performed the act, so they outrank labels —
+ * the same rule `demandOrderStage()` applies to demand orders.
+ */
 function derivedStage(item: StageInput): OrderStage {
   const status = String(item.status ?? '');
 
-  if (item.escrowStatus === STAGE2_SETTLED_89) return 'DELIVERED';
-  // A sold status means delivered only when escrow is not still holding the
-  // money. A verified Razorpay payment marks the piece SOLD_FINAL the instant
-  // it is paid for, and that is the START of the buyer's ladder, not the end —
-  // reading it as DELIVERED would tell a buyer their piece had arrived before
-  // the artisan had even begun. Items sold through the admin's own sale flow
-  // carry no escrow row at all, so they are unaffected.
+  if (item.deliveredAt || item.escrowStatus === STAGE2_SETTLED_89) return 'DELIVERED';
+
+  // The escrow ladder BEFORE the sold check. A storefront sale keeps
+  // `status: SOLD_FINAL` from payment through delivery, so the sold check below
+  // would otherwise catch a piece that is merely in transit and call it
+  // DELIVERED. This used to be masked because settlement flipped the status to
+  // ADVANCE_PAID on dispatch; it no longer does (see src/lib/escrowSettle.ts),
+  // and dispatch is now actually reachable, so the ordering has to carry it.
+  if (item.dispatchedAt || item.escrowStatus === STAGE1_ADVANCE_PAID_40) return 'DISPATCHED';
+  if (item.packedAt) return 'QUALITY_CHECK';
+
+  // A sold status means delivered only when no escrow is holding the money.
+  // STAGE1 and STAGE2 are handled above, so the only escrow value that can
+  // reach this line is ESCROW_HELD — a verified Razorpay payment, which is the
+  // START of the buyer's ladder, not the end. Items sold through the admin's
+  // own sale flow carry no escrow row at all and still read as delivered.
   if (SOLD_STATUSES.has(status) && item.escrowStatus !== ESCROW_HELD) return 'DELIVERED';
-  if (item.escrowStatus === STAGE1_ADVANCE_PAID_40) return 'DISPATCHED';
   if (item.qrVerified === true) return 'QUALITY_CHECK';
   // Money is held but nothing has shipped: the piece is committed and being
   // prepared, which is exactly what IN_PRODUCTION means to a buyer.

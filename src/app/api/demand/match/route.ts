@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { PURCHASABLE_WHERE } from '@/lib/storefrontSale';
 import { getListingPrice } from '@/lib/pricing';
 import {
   GEMINI_CONFIGURED,
@@ -308,7 +309,11 @@ export async function GET(req: Request) {
 
     const rows = await prisma.craftItem.findMany({
       where: {
-        isListedOnMarketplace: true,
+        // AND, not a spread. PURCHASABLE_WHERE carries an `OR` for its escrow
+        // clause, and the search terms below build an `OR` of their own —
+        // spreading both into one object would let the second silently replace
+        // the first, and either offer settled sales or ignore the search.
+        AND: [PURCHASABLE_WHERE],
         ...(searchTerms.length
           ? {
               OR: searchTerms.flatMap((term) => [

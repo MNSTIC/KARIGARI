@@ -56,6 +56,17 @@ export async function GET(req: Request) {
         productionStage: true,
         stageUpdatedAt: true,
         estimatedDeliveryAt: true,
+        // Storefront fulfilment. Without these the buyer's card read pack and
+        // dispatch only from an ArtisanOrder, which a storefront sale never
+        // has — so a shipped piece still showed as not dispatched.
+        packedAt: true,
+        dispatchedAt: true,
+        deliveredAt: true,
+        courierName: true,
+        trackingRef: true,
+        // Read ONLY to report whether one is on file (see contactOnFile). The
+        // value itself is never put in the response.
+        buyerContact: true,
         createdAt: true,
         paidAt: true,
         paidAmountPaise: true,
@@ -147,6 +158,22 @@ export async function GET(req: Request) {
       stageAt: (row.stageUpdatedAt ?? row.qrVerifiedAt ?? row.paidAt ?? row.createdAt).toISOString(),
       createdAt: row.createdAt.toISOString(),
       estimatedDeliveryAt: row.estimatedDeliveryAt?.toISOString() ?? null,
+      packedAt: row.packedAt?.toISOString() ?? null,
+      dispatchedAt: row.dispatchedAt?.toISOString() ?? null,
+      deliveredAt: row.deliveredAt?.toISOString() ?? null,
+      courierName: row.courierName,
+      trackingRef: row.trackingRef,
+      /**
+       * Whether this buyer can confirm this piece arrived, from this card.
+       *
+       * Only for a piece the artisan has actually dispatched and the buyer has
+       * not already confirmed, and only when no demand commitment governs it
+       * (those confirm through the demand's own button). Confirming releases
+       * the artisan's final settlement — POST /api/buyer/sales/delivered.
+       */
+      canConfirmDelivery: !artisanOrderByDemand.get(row.relatedDemandId ?? '') && Boolean(row.dispatchedAt) && !row.deliveredAt,
+      /** True when checkout recorded a contact, so confirmation will ask for it. Never the contact. */
+      contactOnFile: Boolean(row.buyerContact),
       // The DISPLAYED price. The ₹10 actually charged is `paidAmountPaise` and
       // is deliberately not what the buyer's order history is denominated in.
       price: row.salePrice ?? getListingPrice(row),
@@ -169,6 +196,14 @@ export async function GET(req: Request) {
       const artisanOrder = items[0].relatedDemandId
         ? artisanOrderByDemand.get(items[0].relatedDemandId) ?? null
         : null;
+      /**
+       * A storefront order: bought outright, with no artisan commitment behind
+       * it. Its pack / dispatch / delivery live on the piece itself, so the
+       * group-level fields below fall back to the piece when there is no
+       * ArtisanOrder to read them from.
+       */
+      const storefront = !artisanOrder;
+      const piece = items[0];
 
       const delivered = items.filter(isDelivered);
       const deliveredDates = delivered.map(
@@ -232,10 +267,12 @@ export async function GET(req: Request) {
         readyImageUrl: artisanOrder?.readyImageUrl ?? null,
         readySimilarityScore: artisanOrder?.readySimilarityScore ?? null,
         readyVerifiedAt: artisanOrder?.readyVerifiedAt?.toISOString() ?? null,
-        packedAt: artisanOrder?.packedAt?.toISOString() ?? null,
-        dispatchedAt: artisanOrder?.dispatchedAt?.toISOString() ?? null,
-        courierName: artisanOrder?.courierName ?? null,
-        trackingRef: artisanOrder?.trackingRef ?? null,
+        packedAt: (artisanOrder?.packedAt ?? (storefront ? piece.packedAt : null))?.toISOString() ?? null,
+        dispatchedAt: (artisanOrder?.dispatchedAt ?? (storefront ? piece.dispatchedAt : null))?.toISOString() ?? null,
+        courierName: artisanOrder?.courierName ?? (storefront ? piece.courierName : null),
+        trackingRef: artisanOrder?.trackingRef ?? (storefront ? piece.trackingRef : null),
+        /** Drives the storefront Confirm Delivery control on the card. */
+        storefront,
         /** Drives the honest "Last update — N days ago" line. */
         lastLogAt: artisanOrder?.lastLogAt?.toISOString() ?? null,
 
@@ -259,7 +296,7 @@ export async function GET(req: Request) {
 
         // ---- Buyer-side delivery / verification (WI2 flow) — nulls until the
         // buyer clicks Mark Delivered and completes the scan.
-        deliveredAt: demand?.deliveredAt?.toISOString() ?? null,
+        deliveredAt: (demand?.deliveredAt ?? (storefront && items.length === 1 ? piece.deliveredAt : null))?.toISOString() ?? null,
         deliveryVerified: demand?.deliveryVerified ?? false,
         deliveryVerifiedAt: demand?.deliveryVerifiedAt?.toISOString() ?? null,
         deliveryScanPatchId: demand?.deliveryScanPatchId ?? null,
