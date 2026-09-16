@@ -61,6 +61,10 @@ model User {
   /// V11. The artisan's shop inside the ONE platform Shopify store — a custom
   /// collection, since Shopify's Admin API cannot create a store per artisan.
   shopifyShop              ShopifyShop?
+  /// V12. Sales the artisan made away from the platform and logged themselves.
+  /// A separate stream from escrow income and demand credits — never summed
+  /// into either.
+  offlineSales             OfflineSale[]
 
   // Admin fields
   patchBankBalance Int @default(5000)
@@ -412,6 +416,10 @@ model CraftItem {
   /// rather than a single row because the same piece could, in principle, be
   /// the one presented against more than one demand over its life.
   artisanOrders       ArtisanOrder[]
+  /// V12. Set when the artisan logged this piece as sold at a haat, to a
+  /// walk-in, at an exhibition or through a middleman. Its presence is why the
+  /// piece reads `SOLD_OFFLINE`; nothing about it touches the escrow columns.
+  offlineSale         OfflineSale?
 
   @@index([artisanId])
   @@index([patchId])
@@ -936,4 +944,55 @@ model ShopifyShop {
   productCount     Int       @default(0)
   createdAt        DateTime  @default(now())
   lastSyncedAt     DateTime?
+}
+
+/// One sale the artisan made away from the platform — a haat stall, a walk-in
+/// customer, an exhibition, or a middleman pickup.
+///
+/// Deliberately NOT a `CraftItem`. A CraftItem is a piece Karigari catalogued,
+/// photographed, QR-verified and can vouch for; an OfflineSale is the artisan's
+/// own bookkeeping, unverified by anyone, and it must never be presented as
+/// platform-settled income. When it names a catalogued piece, `craftItemId`
+/// links them and that piece leaves the marketplace (status SOLD_OFFLINE) —
+/// one physical object cannot be sold twice.
+///
+/// Written by POST /api/artisan/offline-sales and by the offline queue replay,
+/// which posts to that same route. Nothing else writes this table; the only
+/// delete is that route's DELETE, inside 24 hours of `createdAt`.
+model OfflineSale {
+  id             String     @id @default(uuid())
+  artisanId      String
+  artisan        User       @relation(fields: [artisanId], references: [id])
+  /// The catalogued piece, when the artisan picked one. Null for a sale of
+  /// something that was never listed — which is the common case at a haat.
+  /// @unique is the concurrency guard: one piece, at most one offline sale row,
+  /// so two devices logging the same piece cannot both succeed.
+  craftItemId    String?    @unique
+  craftItem      CraftItem? @relation(fields: [craftItemId], references: [id])
+  /// What was sold, in the artisan's own words. Always set, even when
+  /// `craftItemId` is too, so a later delete of the piece cannot orphan the
+  /// ledger line.
+  craftTypeLabel String
+  /// Rupees actually received, for the whole line. Whole rupees: this is cash
+  /// in a hand, and a paisa figure here would never reconcile.
+  amount         Int
+  quantity       Int        @default(1)
+  /// HAAT | WALK_IN | EXHIBITION | MIDDLEMAN | OTHER. Guarded against an
+  /// allow-list in the route; an unknown value falls back to OTHER rather than
+  /// failing the log — an artisan must never lose a sale to a validation error.
+  channel        String     @default("HAAT")
+  buyerName      String?
+  /// When the sale happened, which is not when it was logged: signal at a haat
+  /// is poor and most rows arrive that evening. Never in the future.
+  soldAt         DateTime
+  notes          String?
+  /// MANUAL | VOICE — digital-inclusion telemetry, same convention as
+  /// `CraftItem.catalogMethod`.
+  captureMethod  String     @default("MANUAL")
+  /// The language the artisan spoke, when `captureMethod` is VOICE.
+  voiceLanguage  String?
+  createdAt      DateTime   @default(now())
+
+  @@index([artisanId, soldAt])
+  @@index([craftTypeLabel])
 }

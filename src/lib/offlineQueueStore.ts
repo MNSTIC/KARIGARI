@@ -11,10 +11,11 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { countQueued } from '@/lib/offlineQueue';
+import { countQueued, countQueuedOfflineSales } from '@/lib/offlineQueue';
 
 export interface OfflineQueueState {
   online: boolean;
+  /** Everything waiting on this phone: queued captures plus queued sales. */
   queued: number;
   /** Set while a flush is running, so the UI can say "Syncing N…". */
   syncing: boolean;
@@ -57,7 +58,8 @@ export function setQueueState(patch: Partial<OfflineQueueState>) {
 
 /** Re-read the count from IndexedDB and publish it. */
 export async function refreshQueueCount(): Promise<number> {
-  const queued = await countQueued();
+  const [captures, sales] = await Promise.all([countQueued(), countQueuedOfflineSales()]);
+  const queued = captures + sales;
   setQueueState({ queued });
   return queued;
 }

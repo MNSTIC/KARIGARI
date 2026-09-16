@@ -250,7 +250,18 @@ export async function GET(req: Request) {
 
     // The same three streams for the week before, so the change is like for
     // like. A separate batch rather than more positions in the destructure above.
-    const [prevWeekAdvancedItems, prevWeekQueued, prevWeekDemandAgg] = await Promise.all([
+    // The offline ledger rides in the same batch. It is the artisan's own
+    // bookkeeping — Karigari moved none of this money — so it is reported as a
+    // third, separately labelled stream and is NOT added to `totalEarnings`,
+    // `pastWeekEarnings` or `earningsChangePct`.
+    const [
+      prevWeekAdvancedItems,
+      prevWeekQueued,
+      prevWeekDemandAgg,
+      offlineAgg,
+      pastWeekOfflineAgg,
+      offlineSeries,
+    ] = await Promise.all([
       prisma.craftItem.findMany({
         where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] }, createdAt: { gte: twoWeeksAgo, lt: oneWeekAgo } },
         select: { advancePaid: true },
@@ -262,6 +273,19 @@ export async function GET(req: Request) {
       prisma.artisanOrder.aggregate({
         _sum: { settledAmount: true },
         where: { artisanId, settledAt: { gte: twoWeeksAgo, lt: oneWeekAgo } },
+      }),
+      prisma.offlineSale.aggregate({
+        _sum: { amount: true },
+        _count: { _all: true },
+        where: { artisanId },
+      }),
+      prisma.offlineSale.aggregate({
+        _sum: { amount: true },
+        where: { artisanId, soldAt: { gte: oneWeekAgo } },
+      }),
+      prisma.offlineSale.findMany({
+        where: { artisanId, soldAt: { gte: seriesStart } },
+        select: { amount: true, soldAt: true },
       }),
     ]);
     const prevWeekEarnings =
@@ -278,12 +302,22 @@ export async function GET(req: Request) {
      * A chart that silently skips a month with no sales reads as though time
      * itself paused; an explicit zero is the truth.
      */
-    const buckets = new Map<string, { month: string; amount: number; units: number }>();
+    /**
+     * `amount` keeps its meaning — platform income, escrow plus demand credits —
+     * so the before/after comparison that reads it is unchanged. The two new
+     * keys let the chart stack the streams instead of merging them:
+     * `demandAmount` is the demand-credit part of `amount`, and `offlineAmount`
+     * is self-logged income that is never part of `amount` at all.
+     */
+    const buckets = new Map<
+      string,
+      { month: string; amount: number; units: number; demandAmount: number; offlineAmount: number; offlineUnits: number }
+    >();
     for (let i = 0; i < 12; i += 1) {
       const cursor = new Date(seriesStart);
       cursor.setMonth(seriesStart.getMonth() + i);
       const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`;
-      buckets.set(key, { month: key, amount: 0, units: 0 });
+      buckets.set(key, { month: key, amount: 0, units: 0, demandAmount: 0, offlineAmount: 0, offlineUnits: 0 });
     }
 
     for (const row of settledRows) {
@@ -310,10 +344,25 @@ export async function GET(req: Request) {
       const bucket = buckets.get(key);
       if (!bucket) continue;
       bucket.amount += amount;
+      bucket.demandAmount += amount;
       bucket.units += 1;
     }
 
+    // Offline sales land in the month they were SOLD, not the evening they
+    // were logged. `soldAt` is stored at noon IST, so the month is the same
+    // whether this server's clock is IST or UTC.
+    for (const row of offlineSeries) {
+      const when = row.soldAt;
+      const key = `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}`;
+      const bucket = buckets.get(key);
+      if (!bucket || row.amount <= 0) continue;
+      bucket.offlineAmount += row.amount;
+      bucket.offlineUnits += 1;
+    }
+
     const monthlyEarnings = [...buckets.values()];
+    const onlineEarnings = totalEarnings - demandEarnings;
+    const offlineEarnings = offlineAgg._sum.amount ?? 0;
 
     /**
      * Best sellers, aggregated by product title.
@@ -403,6 +452,15 @@ export async function GET(req: Request) {
         /** On-screen demand-order credits (separate stream). */
         demandEarnings,
         pastWeekDemandEarnings,
+        /** Escrow advances + final settlements: `totalEarnings` without the demand credits. */
+        onlineEarnings,
+        /**
+         * Self-logged offline sales (separate stream). Never part of
+         * `totalEarnings`: Karigari neither moved nor verified this money.
+         */
+        offlineEarnings,
+        offlineSalesCount: offlineAgg._count._all,
+        pastWeekOfflineEarnings: pastWeekOfflineAgg._sum.amount ?? 0,
         healthScore: user?.artisanProfile?.healthScore ?? 100,
         /** The bounds the Trust card reads, so it never hard-codes "/100". */
         healthMax: HEALTH_MAX,

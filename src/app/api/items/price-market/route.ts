@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireArtisan } from '@/lib/artisanAuth';
 import { GROQ_CHAT_MODELS, groqChatJSON, isGroqConfigured } from '@/lib/groq';
 import { estimateCraftValuation } from '@/lib/pricing';
+import { localMarketSignalFor } from '@/lib/localMarketSignal';
 
 /**
  * Step 5 — cross-validation lookup against typical Indian marketplaces.
@@ -56,6 +57,10 @@ export async function POST(req: Request) {
     );
   }
 
+  // Real local sales of this craft, beside the market lookup — never instead of
+  // it, and null (not shown) below the minimum sample size.
+  const localMarketSignal = await localMarketSignalFor(auth.artisan.userId, craftType || title);
+
   const anchor = estimateCraftValuation(craftType || title, laborDays, rawMaterialCost);
   const anchorLow = Math.round(anchor.marketPriceMin);
   const anchorAvg = Math.round(anchor.standardMarketPrice);
@@ -64,6 +69,7 @@ export async function POST(req: Request) {
   if (!isGroqConfigured()) {
     return NextResponse.json({
       success: true,
+      localMarketSignal,
       degraded: true,
       market: {
         market_low: anchorLow,
@@ -103,6 +109,7 @@ Return strict JSON:
 
     return NextResponse.json({
       success: true,
+      localMarketSignal,
       market: {
         market_low: safeLow,
         market_avg: avg,
@@ -114,6 +121,7 @@ Return strict JSON:
     console.warn('[price-market] Groq failed:', (error as Error)?.message);
     return NextResponse.json({
       success: true,
+      localMarketSignal,
       degraded: true,
       market: {
         market_low: anchorLow,

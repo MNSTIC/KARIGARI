@@ -32,7 +32,17 @@ export default function ArtisanLayout({ children }: { children: React.ReactNode 
           setAuthorized(true);
         }
       })
-      .catch(() => router.replace('/login'));
+      .catch(() => {
+        // No network is not a signed-out session. An artisan who reopens the
+        // app at a haat with no signal must reach their saved pages and the
+        // offline queues; every API call still checks the session cookie
+        // server-side the moment it can reach the server.
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          setAuthorized(true);
+          return;
+        }
+        router.replace('/login');
+      });
   }, [router]);
 
   if (!authorized) {

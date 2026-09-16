@@ -132,6 +132,9 @@ export function statusBadge(status: string): { variant: BadgeVariant; label: str
       return { variant: "neutral", label: "Sold" };
     case "SOLD_MIDDLEMAN":
       return { variant: "neutral", label: "Sold off-platform" };
+    // Logged by the artisan. Not an escrow success, so never the settled pill.
+    case "SOLD_OFFLINE":
+      return { variant: "neutral", label: "Sold offline" };
     case "FLAGGED":
     case "REPORTED":
       return { variant: "danger", label: "Flagged" };

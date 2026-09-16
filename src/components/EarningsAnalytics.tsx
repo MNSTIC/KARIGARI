@@ -46,11 +46,28 @@ const NEUTRAL = "#9E9384";
 const INK = "#1A1A1A";
 const GRID = "#E4DED5";
 const AXIS = "#6E675F";
+/** Self-logged offline income: its own token, never one of the platform colours. */
+const OFFLINE = "var(--color-stat-brown)";
 
 export interface MonthlyEarning {
   /** "2026-08" */
   month: string;
+  /** Platform income: escrow tranches plus demand credits. */
   amount: number;
+  units: number;
+  /** The demand-credit part of `amount`. Absent on payloads from before V12. */
+  demandAmount?: number;
+  /** Self-logged offline sales. Never part of `amount`. */
+  offlineAmount?: number;
+  offlineUnits?: number;
+}
+
+/** One month, split into the three streams the stacked bars draw. */
+interface StreamMonth {
+  month: string;
+  online: number;
+  demand: number;
+  offline: number;
   units: number;
 }
 
@@ -205,7 +222,25 @@ export function EarningsAnalytics({ data }: { data: AnalyticsInput }) {
     };
   }, [data.annualIncome, months]);
 
-  const hasSeries = months.some((m) => m.amount > 0);
+  /**
+   * The monthly bars stack the three streams rather than summing them, so the
+   * tooltip can name each one and offline income is never read as platform
+   * income.
+   */
+  const streams: StreamMonth[] = useMemo(
+    () =>
+      months.map((m) => ({
+        month: m.month,
+        online: Math.max(0, m.amount - (m.demandAmount ?? 0)),
+        demand: m.demandAmount ?? 0,
+        offline: m.offlineAmount ?? 0,
+        units: m.units + (m.offlineUnits ?? 0),
+      })),
+    [months]
+  );
+  const hasOffline = streams.some((m) => m.offline > 0);
+
+  const hasSeries = months.some((m) => m.amount > 0) || hasOffline;
 
   return (
     <section aria-labelledby="earnings-analytics" className="mt-12">
@@ -288,7 +323,7 @@ export function EarningsAnalytics({ data }: { data: AnalyticsInput }) {
               ) : (
                 <div className="h-[240px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={months} margin={{ top: 4, right: 4, bottom: 0, left: -12 }}>
+                    <BarChart data={streams} margin={{ top: 4, right: 4, bottom: 0, left: -12 }}>
                       {/* Recessive grid: horizontal only, no vertical rules. */}
                       <CartesianGrid stroke={GRID} strokeDasharray="3 3" vertical={false} />
                       <XAxis
@@ -309,12 +344,37 @@ export function EarningsAnalytics({ data }: { data: AnalyticsInput }) {
                         cursor={{ fill: "rgba(26,26,26,0.04)" }}
                         content={<MoneyTooltip />}
                       />
-                      {/* One series, so the section heading names it and no
-                          legend box is needed. */}
+                      {/* Three streams stacked, so a legend is always present and
+                          every segment is named in the tooltip. */}
+                      <Legend
+                        verticalAlign="top"
+                        align="left"
+                        height={28}
+                        iconType="square"
+                        iconSize={9}
+                        wrapperStyle={{ fontSize: 12, color: AXIS, paddingBottom: 8 }}
+                      />
                       <Bar
-                        dataKey="amount"
-                        name={t("analytics_after")}
+                        dataKey="online"
+                        stackId="income"
+                        name={t("earnings_stream_online")}
                         fill={INK}
+                        maxBarSize={28}
+                        isAnimationActive={false}
+                      />
+                      <Bar
+                        dataKey="demand"
+                        stackId="income"
+                        name={t("earnings_stream_demand")}
+                        fill={SLATE}
+                        maxBarSize={28}
+                        isAnimationActive={false}
+                      />
+                      <Bar
+                        dataKey="offline"
+                        stackId="income"
+                        name={t("earnings_stream_offline")}
+                        fill={OFFLINE}
                         radius={[4, 4, 0, 0]}
                         maxBarSize={28}
                         isAnimationActive={false}

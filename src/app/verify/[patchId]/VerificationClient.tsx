@@ -36,7 +36,7 @@ function formatStamp(value: string | Date): string {
 
 export function VerificationClient({ item, patchId }: { item: any, patchId: string }) {
   const { t } = useLanguage();
-  const [isPurchased, setIsPurchased] = useState(item.status === 'SOLD_FINAL' || item.status === 'SOLD_MIDDLEMAN');
+  const [isPurchased, setIsPurchased] = useState(item.status === 'SOLD_FINAL' || item.status === 'SOLD_MIDDLEMAN' || item.status === 'SOLD_OFFLINE');
 
   /**
    * The creator who sent this visitor, when the passport was reached through

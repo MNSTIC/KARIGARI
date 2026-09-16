@@ -8,8 +8,8 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 
 | Phase | Feature | Status | Commit | Date | Notes |
 |:--|:--|:--|:--|:--|:--|
-| 0 | Baseline & ledger | DONE | (this commit) | 2026-09-16 | No feature code. Baseline gate numbers below. |
-| 1 | Hybrid Income Tracker (offline sale ledger) | PENDING | — | — | — |
+| 0 | Baseline & ledger | DONE | e12da52 | 2026-09-16 | No feature code. Baseline gate numbers below. |
+| 1 | Hybrid Income Tracker (offline sale ledger) | PARTIAL | (this commit) | 2026-09-16 | Code complete; gates, unit tests and 51 live API checks pass. Browser page checks NOT run (no signed-in session in the Browser pane; owner chose to skip). See detail. |
 | 2 | Buyer Intelligence ("My Buyers" CRM) | PENDING | — | — | — |
 | 3 | Production Credit Score + bank share link | PENDING | — | — | — |
 | 4 | Buyer Discovery Page (QR passport + product page) | PENDING | — | — | — |
@@ -23,8 +23,67 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 | 12 | Scrap-to-Wealth (circular economy module) | PENDING | — | — | — |
 | 13 | Influencer commission model — artisan-funded 5% opt-in | PENDING | — | — | — |
 
-A commit cannot contain its own hash, so the newest DONE row reads `(this commit)`;
+A commit cannot contain its own hash, so the newest row reads `(this commit)`;
 each phase backfills the previous row's short sha when it updates this file.
+
+## Phase 1 detail
+- Status: **PARTIAL** — every piece of code in §1.2–§1.6 is written and committed, and everything that can be verified without a signed-in browser has been. The page-level checks in §1.8 (rendering in four languages, 360 px, console, the mic flow, the offline queue UI) were **not run**: the agent may not type a password into the login form, no session existed in the Browser pane, and the owner chose to skip them. Run them before marking this row DONE.
+- Schema: `OfflineSale` model (additive; pushed with `db push --url $DIRECT_URL`); `User.offlineSales`; `CraftItem.offlineSale`. Single writer: `POST /api/artisan/offline-sales` (also what the offline queue replays); only delete is that route's 24 h undo.
+- Files created:
+  `src/lib/offlineSales.ts` (pure domain: channels, thresholds, amount/date normalisation, median, `buildPriceSignal`, `buildComparison`, error codes) ·
+  `src/lib/offlineSaleParse.ts` (rule-based parser, four languages) ·
+  `src/lib/localMarketSignal.ts` (server helper for the pricing routes) ·
+  `src/lib/speechCapture.ts` (speech primitives moved out of `VoiceOnboarding.tsx`) ·
+  `src/lib/useSpeechCapture.ts` (hold-to-speak hook on those primitives) ·
+  `src/app/api/artisan/offline-sales/route.ts` (GET / POST / DELETE) ·
+  `src/app/api/artisan/offline-sales/parse/route.ts` ·
+  `src/app/artisan/log-sale/page.tsx`, `loading.tsx` ·
+  `src/lib/__tests__/offlineSaleParse.test.mjs`
+- Files modified: `prisma/schema.prisma`, `package.json` (`test:order-stage`, `test:offline-parse`, `test:all`), `src/lib/storefrontSale.ts`, `src/components/ui/Badge.tsx`, `src/lib/shopify.ts`, `src/lib/offlineQueue.ts` (DB_VERSION 2, additive `offlineSales` store), `src/lib/offlineSync.ts`, `src/lib/offlineQueueStore.ts`, `src/components/ui/Sidebar.tsx`, `src/app/api/artisan/dashboard/route.ts`, `src/app/artisan/earnings/page.tsx`, `src/components/EarningsAnalytics.tsx`, `src/app/artisan/dashboard/page.tsx`, `src/app/api/items/price-estimate/route.ts`, `src/app/api/items/price-market/route.ts`, `src/components/CaptureModal.tsx`, `src/components/VoiceOnboarding.tsx`, `src/app/artisan/layout.tsx`, `src/app/artisan/market/page.tsx`, `src/components/ShopifyShopCard.tsx`, `src/app/verify/[patchId]/VerificationClient.tsx`, `src/app/api/verify-authenticity/route.ts`, `src/lib/i18n/{en,hi,or,te}.ts`
+- i18n keys added: 104 × 4 dictionaries (all 38 keys listed in §1.6 plus 66 the UI needed). A script confirmed every key the new code reads exists in all four, with placeholders identical to English. English `ticker_offline` / `ticker_syncing` / `ticker_waiting` now say "items" rather than "captures", because the queue count includes sales; hi/or/te already said "items".
+- Gates:
+  - tsc PASS (0 errors)
+  - lint: 115 errors / 178 warnings, identical to baseline; per-file comparison shows **0 files worse than baseline**; every new file lints clean
+  - build PASS; the only warnings are the two baseline ones (lockfile root, Node ExperimentalWarning ×8)
+  - `npm run test:all` PASS (orderStage 672 combinations; offlineSaleParse 41 utterances across en/hi/or/te incl. adversarial + 20 domain checks)
+- Verification actually performed (against `next dev`, demo account lakshmi@karigari.com, session signed locally with `JWT_SECRET` — 48/48 checks):
+  - ✓ Empty ledger: count 0, `signal` null, `comparison` null, no median anywhere; dashboard offline stream 0
+  - ✓ Parse route: "pandrah sau rupaye ka dupatta becha" → 1500 / Dupatta (Groq + rules, no conflict); a phone number → amount null; empty transcript → 200 with `success:false`, never 500
+  - ✓ Validation, each with its own code: future date, >2 years back, amount 0, paise, >₹1,00,00,000, quantity 1000, blank label, 121-char label
+  - ✓ "₹ 1,500" and "१८००" normalised; unknown channel stored as OTHER, "walk_in" as WALK_IN
+  - ✓ 1 and 2 sales: no median, `progress` names the shortfall (1 of 3, 2 of 3); 3 sales: median ₹1,500 from 3
+  - ✓ A sale dated last month lands in last month (this month 2,700 / last month 1,800) in both the ledger totals and the dashboard monthly series
+  - ✓ `price-estimate` and `price-market` return `localMarketSignal` (median 1500, n 3); null for a craft below threshold
+  - ✓ ₹1,50,000 questioned with 422 AMOUNT_HIGH at 20× the artisan's median (₹30,000); saved after `confirmHighAmount`
+  - ✓ Catalogued piece: status → SOLD_OFFLINE, escrow/advance/paidAt untouched, AuditLog `SOLD_OFFLINE_LOGGED` with `previousState`, storefront item `sold:true / buyable:false`, absent from the `listed=1` grid
+  - ✓ Same piece again → 409; two simultaneous logs of one piece → one 201, one 409, exactly one row
+  - ✓ Piece already paid online → 409 PIECE_SOLD_ONLINE carrying the paid date; another artisan's piece → 403
+  - ✓ Dashboard: `offlineEarnings` 7,900 / 5 sales reported separately; `totalEarnings` unchanged (74,397 before and after); `onlineEarnings + demandEarnings = totalEarnings`; platform monthly `amount` series unchanged
+  - ✓ Undo restores the piece to its recorded previous status (VERIFIED), writes `SOLD_OFFLINE_REVERSED`, piece buyable again; unknown id 404; another artisan cannot undo
+  - ✓ With GROQ_API_KEY, GROK_KEY and GEMINI_API_KEY blank (production build on :3001): Hindi and Telugu voice still parse (engine `rules`, notice `ai_unconfigured`); price-estimate degrades and still carries the signal
+  - ✓ Every test row removed afterwards through the app's own undo route; the three touched pieces are back to VERIFIED / SELLABLE / SELLABLE. The AuditLog rows for those pieces remain, as audit history is append-only by design.
+- **Not verified — §1.8 items still open:**
+  - ✗ Voice logging through the page's mic button (browser recognizer / recorded clip → form fill)
+  - ✗ Earnings page rendering: three streams, total tooltip on hover/focus, stacked chart and its tooltip
+  - ✗ `/artisan/market` "sold" filter and badge for a SOLD_OFFLINE piece, visually
+  - ✗ CaptureModal Step 3 rendering "Real local sales: median ₹X from N sales"
+  - ✗ Offline queue end to end in a browser (save while offline → upload on reconnect), and the refused-row UI ("sold online on <date>", amount kept, "Save without this piece")
+  - ✗ All four languages on screen, 360 px, zero console warnings
+- Decisions and deviations, each deliberate:
+  1. **SmartDraftAssistant** renders no price band (it is the Step 1 follow-up questioner), so there was no "AI band" to place the signal above. The signal is rendered in CaptureModal Step 3, above the AI band, where the price is actually set.
+  2. **`MIN_ONLINE_SAMPLES = 2`.** §1.4 says one online sale suffices, but §1.4 also says "never compute a delta from one row on either side"; the stricter rule wins and is named in the UI.
+  3. **A piece Karigari already has money against** (escrow set, or `advancePaid > 0`) is refused with 409 PIECE_HAS_PLATFORM_MONEY, in addition to the paid/sold guards the spec lists.
+  4. **`src/app/artisan/layout.tsx`**: a failed `/api/auth/me` while `navigator.onLine === false` now shows the shell instead of redirecting to /login. Without it no artisan page, including this one, could survive an offline reload. Every API call still checks the session server-side.
+  5. **`src/app/api/verify-authenticity/route.ts`**: a genuine buyer scan no longer rewrites a SOLD_OFFLINE piece to SOLD_FINAL (which would have turned a haat sale into platform income in every earnings query).
+  6. **`withdrawSoldPiece(id, soldVia)`**: the optional second argument only changes the recorded wording, so an offline sale is not described as "sold on Karigari". Existing callers are unchanged.
+  7. **Speech**: the recognizer/recorder primitives moved verbatim from `VoiceOnboarding.tsx` into `src/lib/speechCapture.ts` (VoiceOnboarding now imports them); the page uses a small hook on top. CaptureModal's Whisper recorder is untouched.
+  8. The separate "Demand orders" card on the earnings page is gone, because demand is now one of the three headline streams. Its keys `demand_orders_label` / `demand_orders_note` are now unused.
+  9. `prisma format` was not run: it realigns the whole schema file.
+- Known follow-ups:
+  - Run the ✗ checks above in a signed-in browser, then flip this row to DONE.
+  - Replay idempotency: if a queued sale's POST commits but its response is lost, the next flush logs it again. The capture queue has the same property. A client-generated reference column would close it.
+  - No demo artisan has two online sales of the same craft, so the offline/online comparison shows its not-enough-data state on live data. Its arithmetic is covered by the unit test.
+  - Shopify withdrawal on an offline log was not exercised live, because no demo piece is LIVE on Shopify. An undo does not re-publish a withdrawn Shopify product (WITHDRAWN is terminal by design).
 
 ## Phase 0 detail
 - Schema: none

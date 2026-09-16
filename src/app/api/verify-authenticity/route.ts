@@ -90,14 +90,18 @@ export async function POST(req: Request) {
       // SUCCESS! Reset counters and restore status if it was previously FLAGGED
       
       const wasFlagged = item.status === 'FLAGGED';
-      
+      // A piece the artisan sold at a haat keeps that status when its buyer
+      // scans it. Rewriting it to SOLD_FINAL would turn a self-logged cash sale
+      // into a platform sale in every earnings and sold-count query.
+      const soldOffline = item.status === 'SOLD_OFFLINE';
+
       await prisma.$transaction(async (tx) => {
         await tx.craftItem.update({
           where: { id: item.id },
           data: {
             firstFailedScanAt: null,
             failedScanCount: 0,
-            status: 'SOLD_FINAL' // Automatically mark as sold when authenticated by buyer
+            status: soldOffline ? item.status : 'SOLD_FINAL' // Automatically mark as sold when authenticated by buyer
           }
         });
 
@@ -129,8 +133,8 @@ export async function POST(req: Request) {
           prisma: tx as any,
           craftItemId: item.id,
           actorRole: 'SYSTEM',
-          action: wasFlagged ? 'FLAG_OVERTURNED_AUTHENTIC' : 'SOLD_FINAL',
-          comments: `Gemini AI confirmed authenticity. Score: ${highestScore}. ${wasFlagged ? 'Previous flag overturned and artisan score restored.' : 'Item successfully purchased.'}`
+          action: soldOffline ? 'BUYER_SCAN_AUTHENTIC' : wasFlagged ? 'FLAG_OVERTURNED_AUTHENTIC' : 'SOLD_FINAL',
+          comments: `Gemini AI confirmed authenticity. Score: ${highestScore}. ${soldOffline ? 'Piece was sold offline by the artisan; status left unchanged.' : wasFlagged ? 'Previous flag overturned and artisan score restored.' : 'Item successfully purchased.'}`
         });
       });
 

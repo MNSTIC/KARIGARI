@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
-  ArrowRight, Camera, CheckCircle2, Globe2, Loader2,
+  ArrowRight, Banknote, Camera, CheckCircle2, Globe2, Loader2,
   QrCode, X, ShieldCheck, CloudUpload, Award, Leaf,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -16,6 +16,7 @@ import { SectionLabel } from "@/components/ui/SectionLabel";
 import { SectionEyebrow, SectionHeading } from "@/components/ui/SectionEyebrow";
 import { Badge, PatchIdChip, statusBadge } from "@/components/ui/Badge";
 import { MonthlyOverview } from "@/components/dashboard/MonthlyOverview";
+import { StatTile } from "@/components/ui/StatTile";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
 import { BandMarker, ProgressBar } from "@/components/ui/ProgressBar";
 import { Shell } from "@/components/ui/AppShell";
@@ -319,6 +320,28 @@ export default function ArtisanDashboard() {
         </div>
       </div>
 
+      {/* ===================================== Income across streams
+          The overview above is platform income. This tile adds the artisan's
+          self-logged offline sales, and its delta line names every part so the
+          sum is never mistaken for money Karigari handled. */}
+      {dashboardData && (
+        <Link href="/artisan/earnings" className="kg-press mt-8 block rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2">
+          <StatTile
+            label={t("earnings_total_income")}
+            icon={<Banknote size={16} className="text-gray-500" />}
+            value={formatRupees(
+              Number(dashboardData.onlineEarnings ?? 0) +
+                Number(dashboardData.demandEarnings ?? 0) +
+                Number(dashboardData.offlineEarnings ?? 0)
+            )}
+            delta={t("earnings_total_parts")
+              .replace("{online}", formatRupees(dashboardData.onlineEarnings ?? 0))
+              .replace("{demand}", formatRupees(dashboardData.demandEarnings ?? 0))
+              .replace("{offline}", formatRupees(dashboardData.offlineEarnings ?? 0))}
+          />
+        </Link>
+      )}
+
       {/* ===================================== Trust & buyer reports */}
       <TrustAndReportsCard data={dashboardData} t={t} />
 
@@ -589,7 +612,9 @@ function PortfolioRow({
   const awaitingPatch = item.status === 'VERIFIED' && !item.qrVerified && item.patchId;
   const badge = isIvrDraft
     ? ({ variant: 'warning', label: t('ivr_draft') } as const)
-    : statusBadge(item.status);
+    : item.status === 'SOLD_OFFLINE'
+      ? ({ variant: 'neutral', label: t('status_sold_offline') } as const)
+      : statusBadge(item.status);
   const price = getListingPrice(item);
 
   return (
@@ -756,6 +781,15 @@ function describeArtisanMoney(item: any, t: (key: string) => string) {
         label: t('advance_received'),
         value: formatRupees(advancePaid),
         helper: t('advance_helper_middleman'),
+        received: advancePaid > 0,
+      };
+    case 'SOLD_OFFLINE':
+      // The artisan's own cash sale. Karigari moved nothing on this piece, so
+      // there is no advance to show and nothing to claim.
+      return {
+        label: t('advance_received'),
+        value: formatRupees(advancePaid),
+        helper: t('advance_helper_sold_offline'),
         received: advancePaid > 0,
       };
     case 'LISTED_AUCTION':

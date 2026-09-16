@@ -860,8 +860,16 @@ export async function withdrawProduct(productId: string): Promise<ShopifyResult<
  * A withdrawn piece is recorded as WITHDRAWN. If Shopify refuses, the row stays
  * LIVE and says so in `shopifySyncError`, so the artisan's card shows the
  * problem instead of silently claiming the piece came down.
+ *
+ * `soldVia` only changes the wording recorded: an artisan who logged a haat
+ * sale (POST /api/artisan/offline-sales) must not be told the piece "sold on
+ * Karigari", because it did not.
  */
-export async function withdrawSoldPiece(craftItemId: string): Promise<void> {
+export async function withdrawSoldPiece(
+  craftItemId: string,
+  soldVia: 'KARIGARI' | 'OFFLINE' = 'KARIGARI'
+): Promise<void> {
+  const soldWhere = soldVia === 'OFFLINE' ? 'Sold offline' : 'Sold on Karigari';
   if (!SHOPIFY_CONFIGURED) return;
   try {
     const item = await prisma.craftItem.findUnique({
@@ -877,7 +885,9 @@ export async function withdrawSoldPiece(craftItemId: string): Promise<void> {
         ? { shopifyStatus: 'WITHDRAWN', shopifyStatusAt: new Date(), shopifySyncError: null }
         : {
             shopifySyncError:
-              'This piece sold on Karigari but is still on your Shopify shop. Ask the administrator to set it to draft.',
+              soldVia === 'OFFLINE'
+                ? 'You logged this piece as sold offline, but it is still on your Shopify shop. Ask the administrator to set it to draft.'
+                : 'This piece sold on Karigari but is still on your Shopify shop. Ask the administrator to set it to draft.',
           },
     });
     await logCraftItemEvent({
@@ -888,8 +898,8 @@ export async function withdrawSoldPiece(craftItemId: string): Promise<void> {
       action: result.ok ? 'SHOPIFY_WITHDRAWN_AFTER_SALE' : 'SHOPIFY_WITHDRAW_FAILED',
       newState: { shopifyProductId: item.shopifyProductId, ...(result.ok ? {} : { kind: result.kind }) },
       comments: result.ok
-        ? 'Sold on Karigari, so the Shopify product was set to draft and can no longer be bought there.'
-        : `Sold on Karigari, but Shopify refused to take the product down: ${result.message}`,
+        ? `${soldWhere}, so the Shopify product was set to draft and can no longer be bought there.`
+        : `${soldWhere}, but Shopify refused to take the product down: ${result.message}`,
     });
     if (result.ok) {
       await prisma.shopifyShop.updateMany({

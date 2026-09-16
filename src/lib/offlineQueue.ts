@@ -10,14 +10,21 @@
  *
  * Per device by design: this is a durable outbox, not a sync engine. Rows leave
  * the store only when the server has accepted them.
+ *
+ * Version 2 adds a second outbox, `offlineSales`, for sales logged at a haat
+ * with no signal (POST /api/artisan/offline-sales). The upgrade is additive: it
+ * creates the new store and never touches `captures`, so an artisan with
+ * captures already queued keeps every one of them.
  */
 
 import { openDB, type IDBPDatabase } from 'idb';
 import type { PhotoStudioFields } from '@/lib/photoStudioPayload';
+import type { OfflineSaleErrorCode, OfflineSalePayload } from '@/lib/offlineSales';
 
 const DB_NAME = 'karigari-offline';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'captures';
+const SALES_STORE = 'offlineSales';
 
 /**
  * The `/api/items/capture` POST body, verbatim.
@@ -75,16 +82,52 @@ function hasIndexedDB(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
+/** One sale logged on the phone while the network was gone. */
+export interface QueuedOfflineSale {
+  /** Local id. Never sent to the server; only used to update or delete the row. */
+  id: string;
+  createdAt: number;
+  attempts: number;
+  lastError?: string;
+  /**
+   * Why the server refused it, when it did. A code in
+   * TERMINAL_OFFLINE_SALE_CODES means retrying will not help — the artisan has
+   * to change something — so the flush leaves the row alone until they do.
+   */
+  lastErrorCode?: OfflineSaleErrorCode;
+  /** The piece's online sale date for PIECE_SOLD_ONLINE, so the page can say when. */
+  soldOnlineAt?: string;
+  /** What the artisan typed or said, as the POST body. The amount is never dropped. */
+  payload: OfflineSalePayload;
+  /** The piece's name at the time, for display only; not sent. */
+  pieceLabel?: string | null;
+}
+
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
 function db(): Promise<IDBPDatabase> {
   if (!dbPromise) {
     dbPromise = openDB(DB_NAME, DB_VERSION, {
+      // Each store is created only if it is missing, so this runs safely from
+      // an empty database (v0) and from a v1 one that already holds captures.
       upgrade(database) {
         if (!database.objectStoreNames.contains(STORE)) {
           const store = database.createObjectStore(STORE, { keyPath: 'id' });
           store.createIndex('createdAt', 'createdAt');
         }
+        if (!database.objectStoreNames.contains(SALES_STORE)) {
+          const sales = database.createObjectStore(SALES_STORE, { keyPath: 'id' });
+          sales.createIndex('createdAt', 'createdAt');
+        }
+      },
+      // Another tab is opening a newer version: step aside so its upgrade is
+      // not blocked, and reopen lazily on the next call.
+      blocking() {
+        void dbPromise?.then((database) => database.close());
+        dbPromise = null;
+      },
+      terminated() {
+        dbPromise = null;
       },
     });
   }
@@ -160,13 +203,110 @@ export async function countQueued(): Promise<number> {
  * counter and the message are kept and the payload stays queued.
  */
 export async function markAttempt(id: string, error: string): Promise<void> {
+  await markAttemptIn(STORE, id, { lastError: error });
+}
+
+/** The shared half of both stores' attempt bookkeeping. */
+async function markAttemptIn(store: string, id: string, patch: Record<string, unknown>): Promise<void> {
   if (!hasIndexedDB()) return;
   try {
     const database = await db();
-    const row: QueuedCapture | undefined = await database.get(STORE, id);
+    const row: { attempts: number } | undefined = await database.get(store, id);
     if (!row) return;
-    await database.put(STORE, { ...row, attempts: row.attempts + 1, lastError: error });
+    await database.put(store, { ...row, ...patch, attempts: row.attempts + 1 });
   } catch (err) {
     console.warn('[offlineQueue] attempt update failed:', (err as Error)?.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Offline sales — the same four operations as captures, on their own store
+// ---------------------------------------------------------------------------
+
+/** Park one sale on the phone. Throws only if IndexedDB itself is unusable. */
+export async function queueOfflineSale(
+  payload: OfflineSalePayload,
+  pieceLabel: string | null = null
+): Promise<QueuedOfflineSale> {
+  if (!hasIndexedDB()) {
+    throw new Error('This browser cannot save sales offline.');
+  }
+  const row: QueuedOfflineSale = {
+    id: localId(),
+    createdAt: Date.now(),
+    attempts: 0,
+    payload,
+    pieceLabel,
+  };
+  const database = await db();
+  await database.put(SALES_STORE, row);
+  return row;
+}
+
+/** Oldest first, so sales upload in the order the artisan logged them. */
+export async function listQueuedOfflineSales(): Promise<QueuedOfflineSale[]> {
+  if (!hasIndexedDB()) return [];
+  try {
+    const database = await db();
+    const rows: QueuedOfflineSale[] = await database.getAll(SALES_STORE);
+    return rows.sort((a, b) => a.createdAt - b.createdAt);
+  } catch (error) {
+    console.warn('[offlineQueue] sales read failed:', (error as Error)?.message);
+    return [];
+  }
+}
+
+export async function removeQueuedOfflineSale(id: string): Promise<void> {
+  if (!hasIndexedDB()) return;
+  try {
+    const database = await db();
+    await database.delete(SALES_STORE, id);
+  } catch (error) {
+    console.warn('[offlineQueue] sales delete failed:', (error as Error)?.message);
+  }
+}
+
+export async function countQueuedOfflineSales(): Promise<number> {
+  if (!hasIndexedDB()) return 0;
+  try {
+    const database = await db();
+    return await database.count(SALES_STORE);
+  } catch {
+    return 0;
+  }
+}
+
+/** Record a refused or failed replay, keeping the payload — and its amount — intact. */
+export async function markOfflineSaleAttempt(
+  id: string,
+  error: string,
+  code?: OfflineSaleErrorCode,
+  soldOnlineAt?: string
+): Promise<void> {
+  await markAttemptIn(SALES_STORE, id, { lastError: error, lastErrorCode: code, soldOnlineAt });
+}
+
+/**
+ * The artisan acted on a refused row — "save it without that piece", "the
+ * amount is right". The payload changes and the refusal is cleared, so the next
+ * flush tries again.
+ */
+export async function reviseQueuedOfflineSale(id: string, patch: Partial<OfflineSalePayload>): Promise<void> {
+  if (!hasIndexedDB()) return;
+  try {
+    const database = await db();
+    const row: QueuedOfflineSale | undefined = await database.get(SALES_STORE, id);
+    if (!row) return;
+    const next: QueuedOfflineSale = {
+      ...row,
+      payload: { ...row.payload, ...patch },
+      pieceLabel: patch.craftItemId === null ? null : row.pieceLabel,
+      lastError: undefined,
+      lastErrorCode: undefined,
+      soldOnlineAt: undefined,
+    };
+    await database.put(SALES_STORE, next);
+  } catch (error) {
+    console.warn('[offlineQueue] sales revise failed:', (error as Error)?.message);
   }
 }

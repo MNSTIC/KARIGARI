@@ -1,5 +1,5 @@
 /**
- * Draining the on-phone capture queue.
+ * Draining the on-phone queues: captures, and sales logged with no signal.
  *
  * Background Sync would be the tidy answer, but it exists only in Chromium — an
  * artisan on an iPhone or on Firefox would never see their queue upload. So the
@@ -9,19 +9,44 @@
  * started twice.
  */
 
-import { countQueued, listQueued, markAttempt, removeQueued } from '@/lib/offlineQueue';
+import {
+  countQueued,
+  countQueuedOfflineSales,
+  listQueued,
+  listQueuedOfflineSales,
+  markAttempt,
+  markOfflineSaleAttempt,
+  removeQueued,
+  removeQueuedOfflineSale,
+} from '@/lib/offlineQueue';
+import { TERMINAL_OFFLINE_SALE_CODES, type OfflineSaleErrorCode } from '@/lib/offlineSales';
 
 export const CAPTURE_SYNC_TAG = 'karigari-capture-sync';
 
-export interface FlushResult {
+export interface FlushCounts {
   uploaded: number;
   failed: number;
-  /** Rows still on the phone after this run. */
+  /** Rows of this kind still on the phone after this run. */
   remaining: number;
+}
+
+export interface FlushResult {
+  /** Across both queues. */
+  uploaded: number;
+  failed: number;
+  /** Rows still on the phone after this run, across both queues. */
+  remaining: number;
+  /** The same three numbers, per queue. */
+  captures: FlushCounts;
+  offlineSales: FlushCounts;
 }
 
 /** One flush at a time: `online` and mount can otherwise fire together. */
 let inFlight: Promise<FlushResult> | null = null;
+
+function isTerminal(code: string | undefined): boolean {
+  return Boolean(code) && (TERMINAL_OFFLINE_SALE_CODES as readonly string[]).includes(code as string);
+}
 
 /**
  * POST every queued capture to `/api/items/capture`.
@@ -31,45 +56,101 @@ let inFlight: Promise<FlushResult> | null = null;
  * 401 would be exactly the data loss this queue exists to prevent. Attempts are
  * counted so a genuinely poisoned row can be surfaced rather than retried
  * silently forever.
+ *
+ * Returns false when the network dropped mid-run, so the caller stops too.
  */
+async function flushCaptures(counts: FlushCounts): Promise<boolean> {
+  const rows = await listQueued();
+  for (const row of rows) {
+    try {
+      const res = await fetch('/api/items/capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(row.payload),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data?.item?.id) {
+        await removeQueued(row.id);
+        counts.uploaded += 1;
+      } else {
+        await markAttempt(row.id, data?.error || `Upload failed (${res.status})`);
+        counts.failed += 1;
+      }
+    } catch (error) {
+      await markAttempt(row.id, (error as Error)?.message || 'Network error');
+      counts.failed += 1;
+      // The connection dropped again mid-flush. Stop rather than burn the
+      // remaining rows' attempt counters on the same dead network.
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * POST every queued sale to `/api/artisan/offline-sales`.
+ *
+ * A refusal the artisan has to act on — the piece sold online while this sat
+ * on the phone, an amount that needs confirming — is recorded with its code and
+ * then left alone: replaying it would get the same answer. The row, and the
+ * amount in it, stay until the artisan decides what to do.
+ */
+async function flushOfflineSales(counts: FlushCounts): Promise<void> {
+  const rows = await listQueuedOfflineSales();
+  for (const row of rows) {
+    if (isTerminal(row.lastErrorCode)) continue;
+    try {
+      const res = await fetch('/api/artisan/offline-sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(row.payload),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data?.sale?.id) {
+        await removeQueuedOfflineSale(row.id);
+        counts.uploaded += 1;
+      } else {
+        await markOfflineSaleAttempt(
+          row.id,
+          data?.error || `Upload failed (${res.status})`,
+          typeof data?.code === 'string' ? (data.code as OfflineSaleErrorCode) : undefined,
+          typeof data?.soldOnlineAt === 'string' ? data.soldOnlineAt : undefined
+        );
+        counts.failed += 1;
+      }
+    } catch (error) {
+      await markOfflineSaleAttempt(row.id, (error as Error)?.message || 'Network error');
+      counts.failed += 1;
+      return;
+    }
+  }
+}
+
 export async function flushQueue(): Promise<FlushResult> {
   if (inFlight) return inFlight;
 
   inFlight = (async (): Promise<FlushResult> => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      return { uploaded: 0, failed: 0, remaining: await countQueued() };
+    const captures: FlushCounts = { uploaded: 0, failed: 0, remaining: 0 };
+    const offlineSales: FlushCounts = { uploaded: 0, failed: 0, remaining: 0 };
+
+    const online = typeof navigator === 'undefined' || navigator.onLine;
+    if (online) {
+      const stillOnline = await flushCaptures(captures);
+      if (stillOnline) await flushOfflineSales(offlineSales);
     }
 
-    const rows = await listQueued();
-    let uploaded = 0;
-    let failed = 0;
+    captures.remaining = await countQueued();
+    offlineSales.remaining = await countQueuedOfflineSales();
 
-    for (const row of rows) {
-      try {
-        const res = await fetch('/api/items/capture', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(row.payload),
-        });
-        const data = await res.json().catch(() => ({}));
-
-        if (res.ok && data?.item?.id) {
-          await removeQueued(row.id);
-          uploaded += 1;
-        } else {
-          await markAttempt(row.id, data?.error || `Upload failed (${res.status})`);
-          failed += 1;
-        }
-      } catch (error) {
-        await markAttempt(row.id, (error as Error)?.message || 'Network error');
-        failed += 1;
-        // The connection dropped again mid-flush. Stop rather than burn the
-        // remaining rows' attempt counters on the same dead network.
-        break;
-      }
-    }
-
-    return { uploaded, failed, remaining: await countQueued() };
+    return {
+      uploaded: captures.uploaded + offlineSales.uploaded,
+      failed: captures.failed + offlineSales.failed,
+      remaining: captures.remaining + offlineSales.remaining,
+      captures,
+      offlineSales,
+    };
   })().finally(() => {
     inFlight = null;
   });

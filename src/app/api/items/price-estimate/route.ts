@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireArtisan } from '@/lib/artisanAuth';
 import { GROQ_CHAT_MODEL, groqChatJSON, isGroqConfigured } from '@/lib/groq';
 import { estimateCraftValuation } from '@/lib/pricing';
+import { localMarketSignalFor } from '@/lib/localMarketSignal';
 
 /**
  * Step 4 — retail price band via Groq (large chat model).
@@ -43,6 +44,11 @@ export async function POST(req: Request) {
     );
   }
 
+  // The artisan's own haat prices for this craft, when there are enough of them
+  // to be a signal. Returned beside the AI band — it informs the band, it does
+  // not replace it — and null otherwise, in which case the UI shows nothing.
+  const localMarketSignal = await localMarketSignalFor(auth.artisan.userId, craftType || title);
+
   const anchor = estimateCraftValuation(craftType || title, laborDays, rawMaterialCost);
   const anchorFloor = Math.round(anchor.fairWageFloor);
   const anchorMid = Math.round(anchor.standardMarketPrice);
@@ -52,6 +58,7 @@ export async function POST(req: Request) {
   if (!isGroqConfigured()) {
     return NextResponse.json({
       success: true,
+      localMarketSignal,
       degraded: true,
       estimate: {
         floor: anchorFloor,
@@ -95,12 +102,14 @@ Where floor <= optimal <= ceiling, and floor >= ${anchorFloor}.`;
 
     return NextResponse.json({
       success: true,
+      localMarketSignal,
       estimate: { floor: safeFloor, optimal, ceiling } satisfies EstimateResult,
     });
   } catch (error) {
     console.warn('[price-estimate] Groq failed:', (error as Error)?.message);
     return NextResponse.json({
       success: true,
+      localMarketSignal,
       degraded: true,
       estimate: {
         floor: anchorFloor,

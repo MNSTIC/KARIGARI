@@ -32,8 +32,13 @@ import { resolveStage, type OrderStage } from '@/lib/orderStage';
  * it set — 31 of them, with ₹7 lakh of advances and final settlements already
  * released, were still listed and would have passed a `paidAt: null` check.
  * Buying one again would have rewritten a completed ledger back to "held".
+ *
+ * `SOLD_OFFLINE` is a piece the artisan logged as sold at a haat, to a walk-in
+ * or through a middleman (see src/lib/offlineSales.ts). It is here so that one
+ * physical object can never be sold twice; no money moved through Karigari for
+ * it, so no escrow column is ever written on such a row.
  */
-export const SOLD_STATUSES = ['SOLD_FINAL', 'SOLD_MIDDLEMAN', 'PAYOUT_COMPLETED'] as const;
+export const SOLD_STATUSES = ['SOLD_FINAL', 'SOLD_MIDDLEMAN', 'PAYOUT_COMPLETED', 'SOLD_OFFLINE'] as const;
 
 /** Escrow states that mean money for this piece has already been released. */
 export const SETTLED_ESCROW = ['STAGE1_ADVANCE_PAID_40', 'STAGE2_SETTLED_89'] as const;

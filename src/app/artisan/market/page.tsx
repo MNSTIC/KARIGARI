@@ -137,7 +137,7 @@ function matchesFilter(item: Listing, filter: StatusFilter): boolean {
     case "sellable":
       return item.status === "SELLABLE";
     case "sold":
-      return item.status === "SOLD_FINAL" || item.status === "SOLD_MIDDLEMAN";
+      return item.status === "SOLD_FINAL" || item.status === "SOLD_MIDDLEMAN" || item.status === "SOLD_OFFLINE";
     default:
       return true;
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { Mic, UploadCloud, FileText, ArrowRight, X, Sparkles, CheckCircle2, Camera, Trash2, ShieldCheck, Globe, AlertTriangle, Pencil, IndianRupee, TrendingUp, Loader2, RefreshCw, CloudOff } from "lucide-react";
+import { Mic, UploadCloud, FileText, ArrowRight, X, Sparkles, CheckCircle2, Camera, Trash2, ShieldCheck, Globe, AlertTriangle, Pencil, IndianRupee, TrendingUp, Loader2, RefreshCw, CloudOff, Store } from "lucide-react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/translations";
@@ -19,6 +19,7 @@ import { Avatar } from "@/components/ui/Avatar";
 // in the main chat via `runSmartDraft` below.
 import { queueCapture, type CapturePayload } from "@/lib/offlineQueue";
 import { refreshQueueCount } from "@/lib/offlineQueueStore";
+import type { OfflinePriceSignal } from "@/lib/offlineSales";
 
 interface CaptureModalProps {
   isOpen: boolean;
@@ -342,6 +343,12 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
     market_high: number;
     confidence: "high" | "medium" | "low";
   } | null>(null);
+  /**
+   * The artisan's own real haat prices for this craft, returned by the Step 4/5
+   * price routes. Null until enough offline sales exist — and then nothing is
+   * shown, rather than a median computed from one sale.
+   */
+  const [localMarketSignal, setLocalMarketSignal] = useState<OfflinePriceSignal | null>(null);
   /** Step-6 claims validation. */
   const [claims, setClaims] = useState<{
     labor_reasonable: boolean;
@@ -613,6 +620,12 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
       if (mktRes.status === 'fulfilled' && mktRes.value?.success && mktRes.value.market) {
         setPriceMarket(mktRes.value.market);
       }
+      // Both routes return the same signal; whichever answered carries it.
+      const signal =
+        (estRes.status === 'fulfilled' ? estRes.value?.localMarketSignal : null) ??
+        (mktRes.status === 'fulfilled' ? mktRes.value?.localMarketSignal : null) ??
+        null;
+      setLocalMarketSignal(signal);
       if (claimsRes.status === 'fulfilled' && claimsRes.value?.success && claimsRes.value.claims) {
         setClaims(claimsRes.value.claims);
       }
@@ -1880,6 +1893,23 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
           {step === 3 && (
             <div className="animate-fade-in-up">
               <h3 className="text-2xl font-bold mb-2">{t('set_your_price')}</h3>
+
+              {/* The artisan's own real sales come before any AI estimate:
+                  they are what this craft actually fetched at their haat. */}
+              {localMarketSignal && (
+                <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3 mb-3 flex gap-3 items-start">
+                  <Store className="shrink-0 mt-0.5 text-[var(--color-stat-brown)]" size={16} />
+                  <div className="text-sm text-gray-800 leading-relaxed">
+                    <p className="font-bold">
+                      {t('local_market_signal_label')}:{' '}
+                      {t('local_market_signal_body')
+                        .replace('{amount}', formatRupees(localMarketSignal.median))
+                        .replace('{n}', String(localMarketSignal.sampleSize))}
+                    </p>
+                    <p className="text-xs text-gray-500">{t('local_market_signal_note')}</p>
+                  </div>
+                </div>
+              )}
 
               {/* AI guidance first, so the artisan is never guessing blind. */}
               <div className="bg-[#ECE7E0] border border-primary/15 rounded-2xl px-4 py-3 mb-4 flex gap-3 items-start">

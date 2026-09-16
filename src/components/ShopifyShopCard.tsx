@@ -53,7 +53,7 @@ interface ShopState {
   items: Record<string, ItemState>;
 }
 
-const SOLD = ["SOLD_FINAL", "SOLD_MIDDLEMAN"];
+const SOLD = ["SOLD_FINAL", "SOLD_MIDDLEMAN", "SOLD_OFFLINE"];
 
 export function ShopifyShopCard({ items }: { items: ShopifyCardItem[] }) {
   const { t } = useLanguage();

@@ -10,6 +10,7 @@ import {
   Clock,
   HandCoins,
   Package,
+  ReceiptIndianRupee,
   Scale,
   ShieldCheck,
   TrendingUp,
@@ -83,6 +84,11 @@ interface DashboardPayload {
   bestSellers?: BestSeller[];
   /** Demand-order credits — separate stream from the CraftItem escrow ledger. */
   demandEarnings?: number;
+  /** Escrow advances + final settlements only. */
+  onlineEarnings?: number;
+  /** Self-logged offline sales — a third stream, never part of `totalEarnings`. */
+  offlineEarnings?: number;
+  offlineSalesCount?: number;
 }
 
 /** One title's lifetime sales. Revenue is money received, never a valuation. */
@@ -197,6 +203,22 @@ export default function EarningsPage() {
 
   const totalBalance = Number(data?.totalEarnings ?? 0);
 
+  /**
+   * The three income streams, kept apart. `totalEarnings` from the API is
+   * platform income (escrow + demand) and stays that for every figure below
+   * that reconciles against it; the offline stream is the artisan's own
+   * bookkeeping and is only ever added in the one figure that says so.
+   */
+  const demandIncome = Number(data?.demandEarnings ?? 0);
+  const onlineIncome = Number(data?.onlineEarnings ?? totalBalance - demandIncome);
+  const offlineIncome = Number(data?.offlineEarnings ?? 0);
+  const offlineCount = Number(data?.offlineSalesCount ?? 0);
+  const totalIncome = onlineIncome + demandIncome + offlineIncome;
+  const totalParts = t("earnings_total_parts")
+    .replace("{online}", formatRupees(onlineIncome))
+    .replace("{demand}", formatRupees(demandIncome))
+    .replace("{offline}", formatRupees(offlineIncome));
+
   return (
     <Shell>
       <div className="mb-9">
@@ -204,7 +226,7 @@ export default function EarningsPage() {
         <PageLede>Every rupee that has reached you, and the escrow tranches still on their way.</PageLede>
       </div>
 
-      {/* Total balance */}
+      {/* Total income, and the three streams it is made of */}
       <Card
         pad="lg"
         className="kg-enter mb-6 relative overflow-hidden text-white border-transparent"
@@ -212,19 +234,64 @@ export default function EarningsPage() {
       >
         <div aria-hidden className="absolute -top-12 -right-10 w-44 h-44 rounded-full bg-white/10 blur-2xl" />
         <div className="relative z-10">
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/60 mb-2">
-            Total received
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/60 mb-2">
+              {t("earnings_total_income")}
+            </p>
+            <Link
+              href="/artisan/log-sale"
+              className="kg-press inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-white/10 px-3 text-[12px] font-bold hover:bg-white/20"
+            >
+              <ReceiptIndianRupee size={14} /> {t("earnings_log_offline_cta")}
+            </Link>
+          </div>
           {loading ? (
             <div className="h-10 w-40 rounded kg-shimmer opacity-30" />
           ) : (
-            <p className="font-sans font-bold text-4xl tracking-tight">
-              {formatRupees(totalBalance)}
-            </p>
+            /* Focusable, so the parts are reachable by keyboard as well as by
+               hover; the same parts are also printed below for touch screens. */
+            <span
+              tabIndex={0}
+              aria-describedby="total-income-parts"
+              className="group relative inline-block rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            >
+              <span className="font-sans font-bold text-4xl tracking-tight">{formatRupees(totalIncome)}</span>
+              <span
+                id="total-income-parts"
+                role="tooltip"
+                className="pointer-events-none absolute left-0 top-full z-20 mt-2 w-max max-w-[280px] rounded-xl bg-white px-3 py-2 text-[12px] font-medium leading-relaxed text-gray-800 opacity-0 shadow-soft transition-opacity group-hover:opacity-100 group-focus:opacity-100"
+              >
+                {totalParts}
+              </span>
+            </span>
           )}
-          <p className="text-xs text-white/60 mt-2 leading-relaxed max-w-sm">
-            Advances plus final settlements, released straight to your own VPA by the escrow
-            engine. No admin approves or holds any of it.
+
+          <dl className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-xl bg-white/[0.07] px-4 py-3">
+              <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/55">
+                {t("earnings_stream_online")}
+              </dt>
+              <dd className="mt-1 font-sans text-xl font-bold">{loading ? "—" : formatRupees(onlineIncome)}</dd>
+            </div>
+            <div className="rounded-xl bg-white/[0.07] px-4 py-3">
+              <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/55">
+                {t("earnings_stream_demand")}
+              </dt>
+              <dd className="mt-1 font-sans text-xl font-bold">{loading ? "—" : formatRupees(demandIncome)}</dd>
+            </div>
+            <div className="rounded-xl bg-white/[0.07] px-4 py-3">
+              <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/55">
+                {t("earnings_stream_offline")}
+              </dt>
+              <dd className="mt-1 font-sans text-xl font-bold">{loading ? "—" : formatRupees(offlineIncome)}</dd>
+              {!loading && offlineCount === 0 && (
+                <dd className="mt-0.5 text-[11px] text-white/55">{t("earnings_offline_none")}</dd>
+              )}
+            </div>
+          </dl>
+
+          <p className="text-xs text-white/60 mt-4 leading-relaxed max-w-lg">
+            {t("earnings_streams_note")}
           </p>
 
           {data?.upiId ? (
@@ -269,28 +336,6 @@ export default function EarningsPage() {
           accent="orange"
         />
       </div>
-
-      {/* Demand-order credits — on-screen agreed price paid on "Mark delivered".
-          Rendered as its own line so the artisan can see the two revenue
-          streams distinctly, while `totalEarnings` above sums both. */}
-      {(data?.demandEarnings ?? 0) > 0 && (
-        <Card className="mb-8 flex items-start gap-3">
-          <span className="w-10 h-10 rounded-xl bg-[var(--color-mint)] text-primary flex items-center justify-center shrink-0">
-            <HandCoins size={18} />
-          </span>
-          <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">
-              {t("demand_orders_label")}
-            </p>
-            <p className="font-sans font-bold text-2xl text-gray-900">
-              {formatRupees(data?.demandEarnings ?? 0)}
-            </p>
-            <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-              {t("demand_orders_note")}
-            </p>
-          </div>
-        </Card>
-      )}
 
       {/* Fair wage index */}
       <SectionLabel>Fair wage index</SectionLabel>
