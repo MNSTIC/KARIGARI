@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { getListingPrice } from '@/lib/pricing';
@@ -6,6 +6,7 @@ import { buyerNotificationCopy, createBuyerNotification } from '@/lib/buyerNotif
 import { advanceDemandStatus, advanceOrderStatus } from '@/lib/orderStage';
 import { ESCROW_HELD, creatorCommissionFor } from '@/lib/escrow';
 import { SETTLED_ESCROW, SOLD_STATUSES, unpurchasableReason } from '@/lib/storefrontSale';
+import { SHOPIFY_CONFIGURED, withdrawSoldPiece } from '@/lib/shopify';
 import {
   DEMO_CHARGE_PAISE,
   RAZORPAY_CONFIGURED,
@@ -359,6 +360,12 @@ export async function POST(req: Request) {
       if (error instanceof SoldDuringVerify) return alreadySold();
       throw error;
     }
+
+    // V11: a one-of-a-kind piece that is also live on the artisan's Shopify shop
+    // must come off it now that it has sold here. `after()` runs once the buyer's
+    // response is sent, so their confirmation never waits on Shopify, and
+    // withdrawSoldPiece() never throws. A no-op for a piece never published.
+    if (SHOPIFY_CONFIGURED) after(() => withdrawSoldPiece(item.id));
 
     // ---- Tell both sides. -------------------------------------------------
     //

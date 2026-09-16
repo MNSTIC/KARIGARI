@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { productIdentityPrompt, provenanceReference } from '@/lib/buyerVerify';
 import { prisma } from '@/lib/prisma';
 import { generateContentWithFallback } from '@/lib/gemini';
 import { logCraftItemEvent } from '@/lib/auditLogger';
@@ -27,7 +28,8 @@ export async function POST(req: Request) {
     }
 
     // For MVP, if we don't have an original image stored, we can't compare.
-    const originalImage = item.images && item.images.length > 0 ? item.images[0] : null;
+    // The camera frame, never the chosen listing look — see provenanceReference().
+    const originalImage = provenanceReference(item);
 
     if (!originalImage) {
       return NextResponse.json({ error: 'Original item has no image to compare against.' }, { status: 400 });
@@ -44,10 +46,17 @@ export async function POST(req: Request) {
     for (const scanB64 of scannedImages) {
       const cleanScannedBase64 = scanB64.replace(/^data:image\/\w+;base64,/, '');
       
-      const prompt = `Compare these two images of a handcrafted artisan product. 
-Analyze the weave patterns, texture, and style. 
-Return a JSON object with: 
-{ "isAuthentic": boolean, "similarityScore": number (0 to 100), "reasoning": "string" }`;
+      // The shared, background-blind identity instruction — see
+      // productIdentityPrompt() in src/lib/buyerVerify.ts. The output contract,
+      // the 75 threshold and this route's fallback are unchanged.
+      const prompt = productIdentityPrompt({
+        craftType: item.craftType,
+        secondPhoto: "a photo a buyer has just taken of the piece they received, in their own surroundings",
+        output:
+          'similarityScore is your confidence, from 0 to 100, that the SECOND photo shows the same physical piece — judged on the product alone.\n' +
+          'Return a JSON object with:\n' +
+          '{ "isAuthentic": boolean, "similarityScore": number (0 to 100), "reasoning": "string" }',
+      });
 
       const response = await generateContentWithFallback(
         [

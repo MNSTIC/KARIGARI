@@ -354,3 +354,39 @@ both clear Razorpay's 100-paise minimum — which ₹1 did not, since 40% of it 
 40 paise. Every **displayed** figure is the real rupee value; only
 `order.amount` is a constant, and what was charged is recorded separately in
 `paidAmountPaise` / `advanceChargedPaise`.
+
+---
+
+## V11 — AI Photo Studio and Shopify artisan shops
+
+Design: `docs/PHOTO_STUDIO_SHOPIFY_V11_PLAN.md` (§8 lists what changed during
+implementation). Operations: `docs/PHOTO_STUDIO_RUNBOOK.md`.
+
+### Endpoints and their guards
+
+| Endpoint | Guard | Contract |
+|---|---|---|
+| `POST /api/items/vision-verify` | `requireArtisan()` — **new in V11**; it had no guard and spent the shared Gemini quota for anyone | One Gemini call on the camera frame. Adds `blur`, `exposure`, `retakeAdvice` (`PASS\|SOFT\|RETAKE`), `retakeReasonKey` (i18n key), `retakeReason` (English), `scoreSource` (`AI\|FALLBACK`). Body accepts `retakeCount`; at ≥ 1 it never returns RETAKE. An unreadable model reply → `scoreSource: FALLBACK`, accepted, legacy note "could not be checked automatically". All legacy fields unchanged. 5xx when Gemini is unavailable or unconfigured. |
+| `POST /api/items/background` | `requireArtisan()` | **503 `disabled`** unless `SERVER_CUTOUT_ENABLED=true`. Body `{ imageBase64 }` — a JPEG/PNG/WebP data URL ≤ 2 MB, downscaled to ≤ 1024 px. 20 s hard timeout; at most 2 in flight and 1 per artisan (`busy`). Returns `{ ok: true, mode: 'SERVER', cutout, ms }` or `{ ok: false, reason: disabled\|invalid\|too_large\|busy\|timeout\|failed }`. |
+| `POST /api/items/backdrop` | `requireArtisan()` | Always 200. Body `{ craftDetails, display }` — **text only; no image is ever accepted**. Returns `{ ok: true, backdrops[≤2] }` (empty surfaces) or `{ ok: false, reason: unconfigured\|no_quota\|busy\|timeout\|failed }`. `no_quota` tells the client to stop asking for the rest of the session. |
+| `POST /api/items/capture` | artisan JWT (unchanged) | **Changed.** `images` refused (400) above 4 or any data URL above 2 MB. Accepts the optional studio fields `originalImageUrl, enhancedImageUrl, selectedImageVariant, imageVariants, photoQualityScore, photoQualityNotes, photoQualitySource, photoRetakeCount, backgroundRemovalMode`, each validated and capped in `src/lib/photoStudioPayload.ts`; oversized optional data is dropped and noted, never refused. A score is stored only with `photoQualitySource: AI`. Then `enforceLookProvenance()`: a non-Original look that cannot be proven to be the camera frame's pixels is replaced by the frame, `selectedImageVariant → ORIGINAL`, and a note is added. A payload with no studio fields writes exactly what it did before V11. |
+| `POST /api/items/complete-draft` | artisan JWT (unchanged) | **Changed.** Same image caps (previously no byte cap) and the same studio fields and provenance rule as capture. |
+| `GET /api/artisan/listings` | artisan JWT (unchanged) | **Changed.** Listing rows now include `selectedImageVariant` and `paidAt`. `?looks=<itemId>` returns `{ selectedKey, options[{key,label,kind,thumb}], cutout, locked }` for one of the caller's items (404 otherwise) — only looks that can actually be switched to. |
+| `PATCH /api/artisan/listings` | artisan JWT, owner-scoped (unchanged) | **New branch** `{ itemId, selectedImageVariant, imageDataUrl? }`, handled alone. 409 once `paidAt` is set; 400 for a pre-V11 piece, an unknown key, a generated look (its backdrop was never stored), or a missing/oversized image. A preset requires `imageDataUrl` (the browser's re-render); the server proves frame → stored cutout → image and returns **422** if the chain fails. Writes only `images[0]` and `selectedImageVariant` — `originalImageUrl` is never touched. Audited as `LISTING_PHOTO_LOOK_CHANGED`. |
+| `POST /api/artisan/syndicate` | artisan JWT (unchanged) | **Changed.** `targetPlatforms` accepts `EXPORT` channels only; `SHOPIFY` is silently dropped, and a request naming only SHOPIFY is 400. The GET comparison adds a Shopify row only when Shopify is configured. |
+| `GET /api/artisan/shopify` | `requireArtisan()` | **503** `{ configured: false, error }` when Shopify is not configured. Otherwise `{ configured, shop: { status, shopUrl, lastSyncedAt } \| null, productCount, items[{ id, status, error, publishedAt, productUrl, lookChanged }] }`. Reads the database only, never Shopify. A `PUBLISHING` claim older than 3 minutes is reported as `FAILED` with "interrupted". |
+| `POST /api/artisan/shopify/publish` | `requireArtisan()` | Body `{ craftItemId }`. 503 unconfigured · 400 missing id, no price, no photo · 404 unknown item · **403 another artisan's item** · 409 sold (`unpurchasableReason`), not yet verified for sale, already publishing, or `WITHDRAWN`. Claims `PUBLISHING`, then `ensureArtisanShop()` → `publishProduct()`. 200 `{ status: 'LIVE', productUrl, shopUrl, productCount }`; on failure `{ success: false, status: FAILED\|LIVE, error, kind }` with 502 (auth, scope, network, http, graphql), 503 (throttled), 422 (refused listing, currency) or 409 (shop still being created). Audited `SHOPIFY_PUBLISHED`, `SHOPIFY_PRODUCT_UPDATED` or `SHOPIFY_PUBLISH_FAILED`. `maxDuration` 60 s. |
+| `POST /api/artisan/shopify/test` | session with **role `ADMIN`** (401/403 otherwise) | 503 when unconfigured. Otherwise `{ ok, report: { shopName, myshopifyDomain, primaryUrl, currencyCode, currencyOk, apiVersion, grantedScopes, missingScopes, onlineStoreChannel, locationConfigured }, problems[], warnings[] }`, or 502 `{ kind, error }`. Never returns the token. |
+| `POST /api/payments/verify-payment` | public, post-HMAC (unchanged) | **Changed.** After the sale commits, `after(() => withdrawSoldPiece(id))` sets the piece's Shopify product to DRAFT (`shopifyStatus → WITHDRAWN`). Never delays or fails the buyer's response. |
+| `POST /api/admin/simulate-sale` | `ADMIN` JWT (unchanged) | **Changed.** Same post-response Shopify withdraw. |
+
+### Invariants
+
+- **The camera frame is the provenance reference.** `provenanceReference()` in `src/lib/buyerVerify.ts` is used by every comparator; a fifth must use it too.
+- **Every product-identity comparison is background-blind and worded once.** `compareProductPhotos()` (buyer delivery + artisan ready check), `/api/items/attach-verify` and `/api/verify-authenticity` all build their Gemini instruction with `productIdentityPrompt()` in `src/lib/buyerVerify.ts`: judge only the piece (weave, texture, colour, material, silhouette, motifs, proportions), disregard setting, surface, lighting and staging in both directions, and require the same individual piece. Each caller adds only its output contract. `npx tsx --env-file=.env scripts/verify-background-blind.ts` checks it live (3 Gemini requests).
+- **No generative model ever receives a product image.** `src/lib/backdropGen.ts` sends text; the cutout is drawn over any backdrop, last.
+- **A look that is not provably the frame's pixels is not the listing photo** — capture and complete-draft downgrade it; the listings PATCH refuses it.
+- **Shopify writes happen only in `src/lib/shopify.ts`**, and Shopify columns are written only by the publish route and `withdrawSoldPiece()`.
+- **`SHOPIFY_ADMIN_ACCESS_TOKEN` is server-only**: read in one module, never logged, never returned, never aliased as `NEXT_PUBLIC_`. Checked against the production client bundle.
+- **Shopify prices are rupees from the listing** (`salePrice ?? getListingPrice`), never a gateway demo amount; a non-INR store is refused.
+- **`shopifyStatus` is monotonic** except `FAILED → PUBLISHING` on Retry; `WITHDRAWN` is terminal.

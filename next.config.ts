@@ -1,5 +1,28 @@
 import type { NextConfig } from "next";
 import withPWAInit from "@ducanh2912/next-pwa";
+import fs from "fs";
+import path from "path";
+
+/**
+ * The server cutout route loads the `medium` matting model (see
+ * src/app/api/items/background/route.ts). Its weights are split into chunks
+ * named by hash and listed in the package's resources.json; read that list so
+ * the trace carries exactly those files and not the unused `small` model.
+ * An empty list (package not installed) simply adds nothing.
+ */
+const MEDIUM_MODEL_CHUNKS: string[] = (() => {
+  try {
+    const dist = path.join(process.cwd(), "node_modules/@imgly/background-removal-node/dist");
+    const resources = JSON.parse(fs.readFileSync(path.join(dist, "resources.json"), "utf8")) as Record<
+      string,
+      { chunks: { hash: string }[] }
+    >;
+    const hashes = new Set((resources["/models/medium"]?.chunks ?? []).map((chunk) => chunk.hash));
+    return [...hashes].map((hash) => `./node_modules/@imgly/background-removal-node/dist/${hash}`);
+  } catch {
+    return [];
+  }
+})();
 
 /**
  * Offline-first service worker.
@@ -118,6 +141,45 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   turbopack: {},
+  /**
+   * The server background-removal route loads a native ONNX runtime and a
+   * matting model. Bundling either breaks them (they resolve binaries relative
+   * to their own package), so both are left to Node's own `require`.
+   */
+  serverExternalPackages: ['@imgly/background-removal-node', 'onnxruntime-node'],
+  /**
+   * What the server cutout route needs on a Linux x64 host, and nothing else.
+   *
+   * Measured from `.next/server/app/api/items/background/route.js.nft.json`:
+   *   - File tracing picks up `onnxruntime_binding.node` but NOT the
+   *     `libonnxruntime.so.1.17.3` it dynamically links, and NOT the model: the
+   *     matting weights are 22 hash-named chunks the package resolves at runtime
+   *     through `dist/resources.json`, invisible to static tracing. Without the
+   *     includes below the route deploys, then fails on every call.
+   *   - It also traces the macOS and Windows bindings (~100 MB) a Linux host
+   *     never loads.
+   * Result on Linux x64: ~124 MB (84 MB model, 19 MB ONNX runtime, 18 MB libvips,
+   * the rest code) against a 250 MB per-function limit.
+   *
+   * Excludes are only honoured on a POSIX build machine: Next 16.3 joins the
+   * exclude globs with the OS path separator, and on Windows the backslashes
+   * reach picomatch as escapes. A local Windows build therefore over-reports the
+   * size; the deploy build (Linux) does not. See docs/PHOTO_STUDIO_RUNBOOK.md.
+   */
+  outputFileTracingIncludes: {
+    '/api/items/background': [
+      './node_modules/onnxruntime-node/bin/napi-v3/linux/x64/*',
+      './node_modules/@imgly/background-removal-node/dist/resources.json',
+      ...MEDIUM_MODEL_CHUNKS,
+    ],
+  },
+  outputFileTracingExcludes: {
+    '/api/items/background': [
+      './node_modules/onnxruntime-node/bin/napi-v3/darwin/**/*',
+      './node_modules/onnxruntime-node/bin/napi-v3/win32/**/*',
+      './node_modules/onnxruntime-node/bin/napi-v3/linux/arm64/**/*',
+    ],
+  },
   // Phones on the LAN hit the dev server by IP, which is a different origin
   // from localhost. Without this, the hot-reload socket is refused and the
   // console fills with WebSocket handshake errors on every page.

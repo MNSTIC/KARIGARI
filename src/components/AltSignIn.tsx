@@ -130,17 +130,19 @@ export function AltSignIn({
 
   return (
     <div className="mt-8">
-      <div className="relative border-t border-gray-200">
-        <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 bg-white px-3 text-[12px] font-medium text-gray-500">
+      <div className="relative flex items-center py-2">
+        <div className="flex-grow border-t border-black/10"></div>
+        <span className="px-3 text-[12px] font-medium text-gray-500">
           {t("auth_or")}
         </span>
+        <div className="flex-grow border-t border-black/10"></div>
       </div>
 
       <div className="mt-6 space-y-3">
         {showGoogle && (
           <a
             href={`/api/auth/google/start?role=${role}`}
-            className="kg-press flex min-h-[52px] w-full items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white text-[15px] font-semibold text-gray-800 transition-colors hover:bg-gray-50"
+            className="kg-press flex min-h-[50px] w-full items-center justify-center gap-3 rounded-xl border border-white/80 bg-white shadow-sm text-[14px] font-semibold text-gray-800 transition-colors hover:bg-gray-50/90"
           >
             <GoogleMark />
             {t("auth_continue_google")}
@@ -153,7 +155,7 @@ export function AltSignIn({
             onClick={() => void signInWithPasskey()}
             disabled={busy}
             className={cn(
-              "kg-press flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-gray-100 text-[15px] font-semibold text-gray-800 transition-colors hover:bg-gray-200",
+              "kg-press flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl bg-black/[0.04] border border-black/[0.04] backdrop-blur-sm text-[14px] font-semibold text-gray-800 transition-colors hover:bg-black/[0.08]",
               busy && "cursor-not-allowed opacity-60"
             )}
           >

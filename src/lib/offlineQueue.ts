@@ -13,6 +13,7 @@
  */
 
 import { openDB, type IDBPDatabase } from 'idb';
+import type { PhotoStudioFields } from '@/lib/photoStudioPayload';
 
 const DB_NAME = 'karigari-offline';
 const DB_VERSION = 1;
@@ -25,7 +26,10 @@ const STORE = 'captures';
  * the capture modal sends online is exactly what gets replayed, so the two
  * paths can never drift into producing different items.
  */
-export interface CapturePayload {
+export interface CapturePayload extends PhotoStudioFields {
+  // V11 photo-studio fields come from PhotoStudioFields, all optional: a row
+  // queued before V11 replays exactly as it did, and one queued after keeps
+  // its original frame and looks through the replay.
   craftType: string;
   laborDays: number;
   rawMaterialCost: number;

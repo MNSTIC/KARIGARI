@@ -4,13 +4,15 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { estimateCraftValuation, getPricingDiscrepancy } from '@/lib/pricing';
+import { MAX_CAPTURE_IMAGES, resolveStudioFields, validateListingImages } from '@/lib/photoStudioPayload';
+import { enforceLookProvenance } from '@/lib/lookProvenance';
 
 export const dynamic = 'force-dynamic';
 
 type AuthToken = { userId: string; role: string };
 
 /** Same ceiling the capture flow allows. */
-const MAX_IMAGES = 4;
+const MAX_IMAGES = MAX_CAPTURE_IMAGES;
 
 /**
  * Finish an IVR draft: attach the photo(s) and the price the phone call could
@@ -40,10 +42,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'itemId is required.' }, { status: 400 });
     }
 
-    const images: string[] = Array.isArray(body?.images)
-      ? body.images.filter((i: unknown): i is string => typeof i === 'string' && i.length > 0)
-      : [];
-    if (images.length === 0) {
+    // Same caps as capture: at most four photos, each within MAX_UPLOAD_BYTES.
+    // This route had no byte cap at all, so one raw 8 MB phone photo went
+    // straight into the row.
+    const checked = validateListingImages(
+      Array.isArray(body?.images) ? body.images.slice(0, MAX_IMAGES) : body?.images
+    );
+    if (!checked.ok) {
+      return NextResponse.json({ error: checked.error }, { status: 400 });
+    }
+    if (checked.images.length === 0) {
       return NextResponse.json({ error: 'At least one photo is required.' }, { status: 400 });
     }
 
@@ -94,10 +102,18 @@ export async function POST(req: Request) {
     const flagged = priceVerdict.flagged;
     const flagReason = flagged ? priceVerdict.reason : null;
 
+    // Same provenance rule as capture: a look that cannot be proven to be the
+    // camera frame's pixels is replaced by the frame itself.
+    const proven = await enforceLookProvenance(resolveStudioFields(body, checked.images), checked.images);
+    const images = proven.images;
+
     const updated = await prisma.craftItem.update({
       where: { id: item.id },
       data: {
-        images: images.slice(0, MAX_IMAGES),
+        images,
+        // V11: a draft finished with studio data keeps its original frame and
+        // looks, exactly as an in-app capture does. `{}` when none was sent.
+        ...proven.fields,
         askingPrice,
         craftType,
         descriptionEnglish,

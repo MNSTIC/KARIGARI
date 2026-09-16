@@ -51,6 +51,9 @@ export async function GET(req: Request) {
     const artisanId = decoded.userId;
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    // The seven days before that, for the headline's week-over-week change.
+    const twoWeeksAgo = new Date(oneWeekAgo);
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 7);
 
     // Rolling 12-month window for the earnings charts, anchored to the first of
     // the month so the series always has twelve whole buckets.
@@ -245,6 +248,31 @@ export async function GET(req: Request) {
     const pastWeekEarnings =
       pastWeekAdvances + (pastWeekQueued._sum.finalPayoutQueued || 0) + pastWeekDemandEarnings;
 
+    // The same three streams for the week before, so the change is like for
+    // like. A separate batch rather than more positions in the destructure above.
+    const [prevWeekAdvancedItems, prevWeekQueued, prevWeekDemandAgg] = await Promise.all([
+      prisma.craftItem.findMany({
+        where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] }, createdAt: { gte: twoWeeksAgo, lt: oneWeekAgo } },
+        select: { advancePaid: true },
+      }),
+      prisma.craftItem.aggregate({
+        _sum: { finalPayoutQueued: true },
+        where: { artisanId, status: 'SOLD_FINAL', createdAt: { gte: twoWeeksAgo, lt: oneWeekAgo } },
+      }),
+      prisma.artisanOrder.aggregate({
+        _sum: { settledAmount: true },
+        where: { artisanId, settledAt: { gte: twoWeeksAgo, lt: oneWeekAgo } },
+      }),
+    ]);
+    const prevWeekEarnings =
+      prevWeekAdvancedItems.reduce((sum, item) => sum + (item.advancePaid || 0), 0) +
+      (prevWeekQueued._sum.finalPayoutQueued || 0) +
+      (prevWeekDemandAgg._sum.settledAmount ?? 0);
+    // No percentage against an empty week: "+∞%" is not a number anyone can use,
+    // so the client falls back to the rupee amount instead.
+    const earningsChangePct =
+      prevWeekEarnings > 0 ? Math.round(((pastWeekEarnings - prevWeekEarnings) / prevWeekEarnings) * 100) : null;
+
     /**
      * Twelve whole months, oldest first, with empty months present as zeroes.
      * A chart that silently skips a month with no sales reads as though time
@@ -416,7 +444,9 @@ export async function GET(req: Request) {
           captures: `+${pastWeekCaptures}`,
           advances: `+₹${pastWeekAdvances.toLocaleString()}`,
           sold: `+${pastWeekSold}`,
-          earnings: `+₹${pastWeekEarnings.toLocaleString()}`
+          earnings: `+₹${pastWeekEarnings.toLocaleString()}`,
+          /** Week-over-week change in realised earnings; null when last week was empty. */
+          earningsChangePct,
         }
       }
     });

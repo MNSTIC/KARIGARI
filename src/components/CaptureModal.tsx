@@ -13,6 +13,7 @@ import {
 } from "@/lib/fileToDataUrl";
 import { estimateCraftValuation, formatRupees } from "@/lib/pricing";
 import { downscaleImage, enhanceProductPhoto } from "@/lib/imageEnhance";
+import { PhotoStudio, PHOTO_STUDIO_ENABLED, usePhotoStudio, type StudioVerdict } from "@/components/PhotoStudio";
 import { Avatar } from "@/components/ui/Avatar";
 // SmartDraftAssistant was retired in V8.1 — its questions now render inline
 // in the main chat via `runSmartDraft` below.
@@ -306,6 +307,8 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
    */
   const [visionRejected, setVisionRejected] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
+  /** V11 — how many times the studio's retake prompt was followed. */
+  const [photoRetakeCount, setPhotoRetakeCount] = useState(0);
 
   /** Every other former `alert()` lands here and renders as a banner. */
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -382,7 +385,9 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
     // `visionRejected` is part of the guard on purpose: without it a rejected
     // photo re-triggers this effect forever, because the effect itself flips
     // isVerifyingVision back to false.
-    if (images.length > 0 && !isVisionVerified && !isVerifyingVision && !visionRejected && step === 2) {
+    // With the V11 studio on, <PhotoStudio>'s pipeline replaces this effect;
+    // switching NEXT_PUBLIC_PHOTO_STUDIO_ENABLED off restores it unchanged.
+    if (!PHOTO_STUDIO_ENABLED && images.length > 0 && !isVisionVerified && !isVerifyingVision && !visionRejected && step === 2) {
       setIsVerifyingVision(true);
       setIsEnhancingImage(true);
 
@@ -491,6 +496,50 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
       });
     }
   }, [images, isVisionVerified, isVerifyingVision, visionRejected, step, englishDescription, language, t, craftType]);
+
+  /**
+   * V11 — the studio's verdict lands in the same state the legacy effect wrote,
+   * so the listing boxes, the Groq pipeline and the Next gate below all keep
+   * working without knowing which path produced it.
+   */
+  const handleStudioVerified = (verdict: StudioVerdict) => {
+    setIsVisionVerified(true);
+    setVisionRejected(false);
+    setRejectionReason("");
+    if (verdict.unavailable) {
+      setCraftDetails((prev) => prev || englishDescription);
+      setNotice({
+        tone: 'warning',
+        title: t('vision_unavailable_title'),
+        body: t('vision_unavailable_body'),
+      });
+      return;
+    }
+    setEcommerceDescEnglish(verdict.descriptionEnglish || englishDescription || "");
+    setEcommerceDescLocal(verdict.descriptionLocal || "");
+    setCraftDetails(verdict.craftDetails || englishDescription);
+    if (verdict.score !== null) setPhotoQualityScore(verdict.score);
+    setBgRecommendation(verdict.recommendedBg);
+  };
+
+  const studio = usePhotoStudio({
+    // Not tied to `step`: photos only exist from step 2 on, and flipping this
+    // on Back → Next would re-run the check (spending quota) and drop the look.
+    enabled: PHOTO_STUDIO_ENABLED,
+    photo: images[0],
+    description: englishDescription,
+    craftType,
+    language,
+    retakeCount: photoRetakeCount,
+    onVerified: handleStudioVerified,
+  });
+
+  /** "Retake photo": drop the frame, count it, and let the artisan shoot again. */
+  const retakeStudioPhoto = () => {
+    setImages((prev) => prev.slice(1));
+    setPhotoRetakeCount((count) => count + 1);
+    setIsVisionVerified(false);
+  };
 
   // ---- Revised capture pipeline: fire Groq Steps 3-6 in parallel --------
   // Kicks off ONCE the moment vision-verify succeeds AND the artisan has typed
@@ -649,6 +698,14 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
     const englishListing = (ecommerceDescEnglish.trim() || englishDescription.trim());
     const localListing = (ecommerceDescLocal.trim() || originalTranscript.trim());
 
+    // V11: the chosen look becomes images[0]; the camera frame, the enhanced
+    // frame, thumbnails and the quality verdict ride alongside. `collect` sheds
+    // optional data to keep the body under the platform limit.
+    const studioPayload = PHOTO_STUDIO_ENABLED && images.length > 0 ? studio.collect(images.slice(1)) : null;
+    const listingImages = studioPayload?.listingImage
+      ? [studioPayload.listingImage, ...images.slice(1)]
+      : images;
+
     // One payload, two destinations. The offline branch parks this exact object
     // in IndexedDB and `offlineSync` POSTs it verbatim later, so a queued craft
     // can never become a different item from a live one.
@@ -662,7 +719,7 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
       tags: aiCatalog?.tags?.length ? aiCatalog.tags : [craftType || "ArtisanCraft"],
       // Already run through `downscaleImage` at capture time, so the queued row
       // stays small enough for IndexedDB on a low-end handset.
-      images: images,
+      images: listingImages,
       aiGeneratedListing: englishListing,
       // Revised-pipeline artefacts. Server recomputes tier from these; the
       // client value is a UX hint only.
@@ -675,6 +732,7 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
       // Optional raw-material bill. Rides in the same payload so a capture
       // queued offline keeps its proof when it is POSTed later.
       rawMaterialProofUrl: billDataUrl,
+      ...(studioPayload?.fields ?? {}),
     };
 
     /**
@@ -1334,6 +1392,9 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
 
   const removeImage = (index: number) => {
     setImages(images.filter((_, i) => i !== index));
+    // The studio checks `images[0]` only, and only once per photo — removing a
+    // second angle must not un-verify the first, or Next would never re-enable.
+    if (PHOTO_STUDIO_ENABLED && index > 0) return;
     setIsVisionVerified(false);
     // Clearing the rejection re-arms the verification effect for the next photo.
     setVisionRejected(false);
@@ -1368,6 +1429,7 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
       setSmartDraftComplete(false);
       smartDraftHistoryRef.current = { questions: [], answers: [] };
       setImages([]);
+      setPhotoRetakeCount(0);
       setLaborDays(0);
       setRawMaterialCost(0);
       setIsVisionVerified(false);
@@ -1633,6 +1695,16 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
               <h3 className="text-2xl font-bold mb-2">{t('craft_photos')}</h3>
               <p className="text-gray-500 mb-6">Capture the craft using your live camera or upload existing photos.</p>
               
+              {PHOTO_STUDIO_ENABLED && images.length > 0 && (
+                <PhotoStudio
+                  state={studio.state}
+                  t={t}
+                  onRetake={retakeStudioPhoto}
+                  onUseAnyway={studio.acceptPhoto}
+                  onSelect={studio.select}
+                />
+              )}
+
               {isEnhancingImage ? (
                 <div className="bg-purple-50 border border-purple-200 text-purple-800 px-4 py-3 rounded-xl mb-6 text-sm flex gap-3 items-center shadow-sm animate-pulse">
                   <Sparkles size={20} className="text-purple-600" />
@@ -1668,15 +1740,24 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
 
               {isVisionVerified && images.length > 0 && (
                 <div className="mb-6 space-y-4">
-                  <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm flex gap-3 items-center shadow-sm animate-fade-in-up">
-                    <ShieldCheck size={20} className="text-green-600 shrink-0" />
-                    <p>
-                      <strong>{t('ai_verified_enhanced')}</strong>{' '}
-                      {/* Says which of the two actually happened, rather than
-                          claiming a cutout that may have timed out. */}
-                      {backgroundRemoved ? t('bg_removed_note') : t('bg_kept_note')}
-                    </p>
-                  </div>
+                  {!PHOTO_STUDIO_ENABLED ? (
+                    <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm flex gap-3 items-center shadow-sm animate-fade-in-up">
+                      <ShieldCheck size={20} className="text-green-600 shrink-0" />
+                      <p>
+                        <strong>{t('ai_verified_enhanced')}</strong>{' '}
+                        {/* Says which of the two actually happened, rather than
+                            claiming a cutout that may have timed out. */}
+                        {backgroundRemoved ? t('bg_removed_note') : t('bg_kept_note')}
+                      </p>
+                    </div>
+                  ) : studio.state.verdict?.source === 'AI' && studio.state.verdict.match && !studio.state.usedAnyway ? (
+                    // Only a real AI verdict earns the check mark. A heuristic or
+                    // unchecked photo says nothing rather than something untrue.
+                    <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-xl text-sm flex gap-3 items-center shadow-sm animate-fade-in-up">
+                      <ShieldCheck size={20} className="text-green-600 shrink-0" aria-hidden="true" />
+                      <p><strong>{t('photo_checked_ai')}</strong></p>
+                    </div>
+                  ) : null}
 
                   {/* Both listings are editable before save. The English one is
                       the text that goes out as the ONDC listing. */}
@@ -1771,7 +1852,9 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
                           fill
                           sizes="(max-width: 640px) 33vw, 180px"
                           unoptimized={String(img).startsWith("data:") || String(img).startsWith("/api/")}
-                          className={cn("object-cover transition-all duration-1000", isVisionVerified ? "brightness-110 contrast-105 saturate-110" : "")}
+                          // No CSS filter: the thumbnail shows the pixels that are
+                          // stored, never a brighter preview of them.
+                          className="object-cover"
                         />
                         <button 
                           onClick={() => removeImage(idx)}

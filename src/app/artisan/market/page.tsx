@@ -9,7 +9,9 @@ import {
   Clock,
   Download,
   Globe,
+  ImageIcon,
   Info,
+  Lock,
   Loader2,
   MapPin,
   Package,
@@ -36,10 +38,13 @@ import {
 } from "@/lib/orderStage";
 import { PillTabs } from "@/components/ui/SegmentedToggle";
 import {
-  SYNDICATION_PLATFORMS,
-  SYNDICATION_PLATFORM_KEYS,
+  EXPORT_PLATFORMS,
+  EXPORT_PLATFORM_KEYS,
   type PriceComparison,
 } from "@/lib/syndication";
+import { ShopifyShopCard } from "@/components/ShopifyShopCard";
+import { LookGallery, type LookOption } from "@/components/PhotoStudio";
+import { downscaleImage, renderPreset } from "@/lib/imageEnhance";
 
 /**
  * The artisan's own marketplace view.
@@ -74,6 +79,18 @@ interface Listing {
   stageUpdatedAt?: string | null;
   escrowStatus?: string | null;
   qrVerified?: boolean | null;
+  /** V11: which look is the listing photo; null for pieces captured before looks existed. */
+  selectedImageVariant?: string | null;
+  /** Set once a buyer has paid — the listing photo is frozen from then on. */
+  paidAt?: string | null;
+}
+
+/** GET /api/artisan/listings?looks=<id> */
+interface ItemLooks {
+  selectedKey: string;
+  options: LookOption[];
+  cutout: string | null;
+  locked: boolean;
 }
 
 interface BoardDemand {
@@ -151,6 +168,13 @@ export default function MarketPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
+
+  /** V11 look picker: one item at a time. */
+  const [lookItemId, setLookItemId] = useState<string | null>(null);
+  const [looks, setLooks] = useState<ItemLooks | null>(null);
+  const [lookChoice, setLookChoice] = useState<string>("ORIGINAL");
+  const [lookBusy, setLookBusy] = useState<"loading" | "saving" | null>(null);
+  const [lookError, setLookError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadFailed(false);
@@ -272,6 +296,72 @@ export default function MarketPage() {
       setSaveError(t("listing_save_failed"));
     } finally {
       setSaving(false);
+    }
+  };
+
+  /** Open the look picker for one item and fetch its stored looks. */
+  const openLooks = async (item: Listing) => {
+    setLookItemId(item.id);
+    setLooks(null);
+    setLookError(null);
+    setLookBusy("loading");
+    try {
+      const res = await fetch(`/api/artisan/listings?looks=${encodeURIComponent(item.id)}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        setLookError(data?.error || t("photo_looks_failed"));
+        return;
+      }
+      setLooks(data.looks);
+      setLookChoice(data.looks.selectedKey);
+    } catch {
+      setLookError(t("photo_looks_failed"));
+    } finally {
+      setLookBusy(null);
+    }
+  };
+
+  /**
+   * Save the chosen look. A preset is re-rendered here from the stored cutout —
+   * canvas only exists in the browser — and sent as the new listing photo; the
+   * Original and Enhanced frames are already on the server.
+   */
+  const saveLook = async (item: Listing) => {
+    if (!looks) return;
+    if (lookChoice === looks.selectedKey) {
+      setLookItemId(null);
+      return;
+    }
+    setLookBusy("saving");
+    setLookError(null);
+    try {
+      const option = looks.options.find((o) => o.key === lookChoice);
+      let imageDataUrl: string | undefined;
+      if (option?.kind === "PRESET") {
+        const rendered = looks.cutout ? await renderPreset(looks.cutout, lookChoice) : null;
+        if (!rendered) {
+          setLookError(t("photo_looks_failed"));
+          return;
+        }
+        imageDataUrl = await downscaleImage(rendered);
+      }
+      const res = await fetch("/api/artisan/listings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: item.id, selectedImageVariant: lookChoice, imageDataUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        setLookError(data?.error || t("photo_looks_failed"));
+        return;
+      }
+      setLookItemId(null);
+      setSavedId(null);
+      await load();
+    } catch {
+      setLookError(t("photo_looks_failed"));
+    } finally {
+      setLookBusy(null);
     }
   };
 
@@ -474,6 +564,82 @@ export default function MarketPage() {
             })()}
 
             {isDraft && <p className="text-[11px] text-gray-400 italic pt-3">{t("draft_hint")}</p>}
+
+            {/* V11: change the listing photo's look. Only for pieces captured
+                with the studio; frozen once a buyer has paid. */}
+            {item.selectedImageVariant && !isEditing && (
+              lookItemId === item.id ? (
+                <section
+                  aria-labelledby={`look-title-${item.id}`}
+                  className="mt-4 rounded-xl border border-gray-200 bg-white p-3"
+                >
+                  <h4 id={`look-title-${item.id}`} className="mb-2 text-sm font-bold text-gray-900">
+                    {t("photo_choose_look")}
+                  </h4>
+                  {lookBusy === "loading" && (
+                    <p role="status" className="flex items-center gap-2 text-xs text-gray-500">
+                      <Loader2 size={14} className="animate-spin" aria-hidden="true" /> {t("photo_looks_loading")}
+                    </p>
+                  )}
+                  {looks && looks.options.length === 0 && (
+                    <p className="text-xs text-gray-500">{t("photo_looks_empty")}</p>
+                  )}
+                  {looks && looks.options.length > 0 && (
+                    <>
+                      {looks.locked && (
+                        <p className="mb-2 flex items-center gap-1.5 text-xs text-gray-600">
+                          <Lock size={12} aria-hidden="true" /> {t("photo_look_locked")}
+                        </p>
+                      )}
+                      <LookGallery
+                        options={looks.options}
+                        selectedKey={lookChoice}
+                        onSelect={setLookChoice}
+                        t={t}
+                        labelledBy={`look-title-${item.id}`}
+                        disabled={looks.locked || lookBusy === "saving"}
+                      />
+                      <p className="mt-1 text-[11px] leading-relaxed text-gray-600">{t("photo_untouched_note")}</p>
+                    </>
+                  )}
+                  {lookError && (
+                    <p role="alert" className="mt-2 text-xs font-bold text-red-700">{lookError}</p>
+                  )}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLookItemId(null)}
+                      className="min-h-[44px] flex-1 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50"
+                    >
+                      {t("cancel")}
+                    </button>
+                    {looks && !looks.locked && looks.options.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => saveLook(item)}
+                        disabled={lookBusy !== null}
+                        className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--color-maroon)] text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
+                      >
+                        {lookBusy === "saving" && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
+                        {t("photo_look_save")}
+                      </button>
+                    )}
+                  </div>
+                </section>
+              ) : item.paidAt ? (
+                <p className="mt-4 flex items-center gap-1.5 text-[11px] text-gray-500">
+                  <Lock size={12} aria-hidden="true" /> {t("photo_look_locked")}
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openLooks(item)}
+                  className="kg-press w-full mt-4 flex items-center justify-center gap-2 text-sm font-bold text-primary border border-[var(--color-sage)] rounded-xl min-h-[44px] hover:bg-[var(--color-mint)]"
+                >
+                  <ImageIcon size={14} aria-hidden="true" /> {t("photo_change_look")}
+                </button>
+              )
+            )}
 
             {!isEditing && (
               <button
@@ -727,7 +893,9 @@ export default function MarketPage() {
  *
  * Honest about scope, exactly like the ONDC/GeM features already are:
  * publishing marks an item broadcast-ready and produces the payloads. It does
- * not transmit to Paytm, Magicpin, gem.gov.in or Amazon.
+ * not transmit to Paytm, Magicpin, gem.gov.in or Amazon. The master switch and
+ * the chips use EXPORT_PLATFORMS only; the one channel that really transmits —
+ * the artisan's Shopify shop — has its own card, route and state.
  * ------------------------------------------------------------------------- */
 
 interface ComparisonState {
@@ -762,7 +930,7 @@ function SyndicationHub({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           craftItemId: itemId,
-          targetPlatforms: SYNDICATION_PLATFORM_KEYS,
+          targetPlatforms: EXPORT_PLATFORM_KEYS,
         }),
       });
       const json = await res.json();
@@ -882,7 +1050,7 @@ function SyndicationHub({
         {!publishAllRunning && progress && progress.done > 0 && (
           <p className="text-xs font-bold text-primary bg-[var(--color-mint)] rounded-lg px-3 py-2 mt-3 inline-block">
             {progress.done} listing{progress.done === 1 ? "" : "s"} published to all{" "}
-            {SYNDICATION_PLATFORMS.length} channels.
+            {EXPORT_PLATFORMS.length} channels.
           </p>
         )}
 
@@ -894,6 +1062,9 @@ function SyndicationHub({
           Paytm, Magicpin, gem.gov.in or Amazon.
         </p>
       </section>
+
+      {/* V11: the one live storefront. Renders nothing when not configured. */}
+      <ShopifyShopCard items={items} />
 
       {/* Per-listing channels + price comparison */}
       <section>
@@ -947,7 +1118,7 @@ function SyndicationHub({
 
                   {/* Channel chips — mint once the channel is on the row */}
                   <div className="flex flex-wrap gap-2 mt-4">
-                    {SYNDICATION_PLATFORMS.map((platform) => {
+                    {EXPORT_PLATFORMS.map((platform) => {
                       const on = channels.includes(platform.key);
                       return (
                         <span

@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
  * composes with `cn()` and stays out of the way.
  */
 export const FIELD_INPUT =
-  "block h-[52px] w-full rounded-xl border border-gray-300 bg-white px-4 text-[15px] text-gray-900 placeholder:text-gray-400 transition-colors focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900";
+  "block h-[50px] w-full rounded-xl border border-gray-200 bg-white shadow-sm px-4 text-[14px] text-gray-900 placeholder:text-gray-500 transition-colors focus:border-[#1A3A30] focus:outline-none focus:ring-1 focus:ring-[#1A3A30]";
 
 /**
  * The same box, in its invalid state.

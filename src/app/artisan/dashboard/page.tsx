@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
-  ArrowRight, ArrowUpRight, Camera, CheckCircle2, Globe2, Loader2,
-  QrCode, X,
+  ArrowRight, Camera, CheckCircle2, Globe2, Loader2,
+  QrCode, X, ShieldCheck, CloudUpload, Award, Leaf,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -15,13 +15,14 @@ import { Card } from "@/components/ui/Card";
 import { SectionLabel } from "@/components/ui/SectionLabel";
 import { SectionEyebrow, SectionHeading } from "@/components/ui/SectionEyebrow";
 import { Badge, PatchIdChip, statusBadge } from "@/components/ui/Badge";
-import { HeadlineStat, StatTile } from "@/components/ui/StatTile";
+import { MonthlyOverview } from "@/components/dashboard/MonthlyOverview";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
 import { BandMarker, ProgressBar } from "@/components/ui/ProgressBar";
 import { Shell } from "@/components/ui/AppShell";
 import { ESCROW_HELD, STAGE1_ADVANCE_PAID_40, STAGE2_SETTLED_89 } from "@/lib/escrow";
 import { setArtisanIdentity } from "@/lib/artisanIdentity";
 import { cn } from "@/lib/utils";
+import { NotificationTicker } from "@/components/NotificationTicker";
 
 /**
  * Modals are code-split out of the first paint.
@@ -271,38 +272,30 @@ export default function ArtisanDashboard() {
 
   return (
     <Shell>
+      {/* ============================================ Notification ticker
+          Pulled up to sit just under the header and out to the Shell's edges,
+          so its soft edge fade spans the content width like the reference. */}
+      <div className="-mx-4 -mt-4 mb-8 sm:-mx-6 sm:-mt-6 sm:mb-10 lg:-mx-10">
+        <NotificationTicker />
+      </div>
+
       {/* ============================================ Overview + capture */}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-10">
         <div className="kg-enter min-w-0">
-          <HeadlineStat
-            eyebrow={t("monthly_overview")}
-            value={formatRupees(dashboardData?.totalEarnings ?? 0)}
-            deltaIcon={<ArrowUpRight size={15} className="text-[var(--color-rust)]" />}
-            delta={
-              dashboardData?.trends?.earnings
-                ? t("delta_last_7_days").replace("{amount}", dashboardData.trends.earnings)
-                : undefined
+          <MonthlyOverview
+            t={t}
+            totalEarnings={dashboardData?.totalEarnings ?? 0}
+            earningsChangePct={
+              typeof dashboardData?.trends?.earningsChangePct === "number"
+                ? dashboardData.trends.earningsChangePct
+                : null
             }
+            pastWeekEarnings={dashboardData?.trends?.earnings ?? null}
+            itemsSold={dashboardData?.itemsSold ?? 0}
+            pendingVerifications={tiles.pending}
+            pendingNote={tiles.capped ? t("of_your_10_recent") : null}
+            schemesActive={tiles.schemes}
           />
-
-          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <StatTile
-              label={t("items_sold")}
-              value={dashboardData?.itemsSold ?? 0}
-              icon={<Image src="/icons/items-sold.jpg" alt="" width={28} height={28} className="mix-blend-multiply" />}
-            />
-            <StatTile
-              label={t("pending_verification_label")}
-              value={tiles.pending}
-              delta={tiles.capped ? t("of_your_10_recent") : null}
-              icon={<Image src="/icons/pending-verification.jpg" alt="" width={28} height={28} className="mix-blend-multiply" />}
-            />
-            <StatTile
-              label={t("govt_schemes_active")}
-              value={tiles.schemes}
-              icon={<Image src="/icons/govt-schemes.jpg" alt="" width={28} height={28} className="mix-blend-multiply" />}
-            />
-          </div>
         </div>
 
         {/* The reference's stacked-shadow card. The offset layer is a hard
@@ -1081,51 +1074,72 @@ function TrustAndReportsCard({
         {t("trust_and_reports")}
       </SectionHeading>
 
-      <Card pad="lg" className="kg-enter">
-        <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="kg-enter rounded-[24px] bg-[#F2EFE9] border border-[#E8E4DB] shadow-sm p-6 sm:p-8">
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-8">
           {/* ---------------------------------------- health score */}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-end justify-between gap-3">
-              <span className="kg-label font-medium text-gray-500">
-                {t("health_score_label")}
+              <span className="kg-label font-bold tracking-wider text-gray-700">
+                HEALTH SCORE
               </span>
-              <span className="font-sans text-2xl font-black text-gray-900">
+              <span className="font-serif text-4xl font-bold text-gray-900">
                 {health}
-                <span className="text-sm font-bold text-gray-400">/{healthMax}</span>
+                <span className="font-sans text-xl font-bold text-gray-600">/100</span>
               </span>
             </div>
-            <ProgressBar
-              value={health}
-              max={healthMax}
-              label={t("health_score_label")}
-              tone={healthTone}
-              className="mt-3"
-            />
-
-            <p className="mt-4 text-2xl font-black text-primary">{verifiedCount}</p>
-            <p className="text-xs leading-relaxed text-gray-500">
-              {t("verified_genuine_deliveries")} —{" "}
-              {t("verified_genuine_note")
-                .replace("{reward}", String(reward))
-                .replace("{max}", String(healthMax))}
-            </p>
+            {/* Custom textured progress bar */}
+            <div className="mt-3 h-4 w-full overflow-hidden rounded-full bg-[#E8E2D5]">
+              <div
+                className="relative h-full rounded-full bg-[#245C42] transition-all duration-500 overflow-hidden"
+                style={{ width: `${Math.min(100, Math.max(0, health))}%` }}
+              >
+                <div className="absolute inset-0 bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:150px_auto] mix-blend-color-burn opacity-60" />
+              </div>
+            </div>
           </div>
 
-          {/* ---------------------------------------- ticket counts */}
-          <div className="grid grid-cols-3 gap-3 self-start">
-            <Fact label={t("tickets_open_label")} value={openTickets} />
-            <Fact label={t("tickets_guilty_label")} value={guiltyTickets} />
-            <Fact label={t("tickets_not_guilty_label")} value={notGuiltyTickets} />
+          {/* ---------------------------------------- stats blocks */}
+          <div className="flex flex-wrap items-center gap-3 xl:shrink-0">
+            <div className="flex min-w-[120px] items-center gap-3 rounded-xl bg-[#E5DFD1] px-4 py-3">
+              <ShieldCheck size={28} className="text-[#245C42] shrink-0" strokeWidth={2.5} />
+              <div>
+                <div className="kg-label text-[10px] font-bold tracking-widest text-gray-700">GPB</div>
+                <div className="text-xl font-black text-gray-900 leading-none">{openTickets}</div>
+              </div>
+            </div>
+            <div className="flex min-w-[120px] items-center gap-3 rounded-xl bg-[#E5DFD1] px-4 py-3">
+              <CloudUpload size={28} className="text-[#36494E] shrink-0" strokeWidth={2.5} />
+              <div>
+                <div className="kg-label text-[10px] font-bold tracking-widest text-gray-700">UPLOADED</div>
+                <div className="text-xl font-black text-gray-900 leading-none">{guiltyTickets}</div>
+              </div>
+            </div>
+            <div className="flex min-w-[120px] items-center gap-3 rounded-xl bg-[#E5DFD1] px-4 py-3">
+              <Award size={28} className="text-[#8C5A35] shrink-0" strokeWidth={2.5} />
+              <div>
+                <div className="kg-label text-[10px] font-bold tracking-widest text-gray-700">RECOGNIZED</div>
+                <div className="text-xl font-black text-gray-900 leading-none">{notGuiltyTickets}</div>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* ---------------------------------------- upheld reports */}
-        {recent.length === 0 ? (
-          <p className="mt-6 border-t border-gray-100 pt-5 text-sm leading-relaxed text-gray-500">
-            {t("trust_no_reports")}
-          </p>
-        ) : (
-          <ul className="mt-6 space-y-3 border-t border-gray-100 pt-5">
+        {/* ---------------------------------------- insights pill */}
+        <div className="mt-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-[#E4EACD] px-5 py-4">
+          <div className="flex items-center gap-3">
+            <Leaf size={20} className="text-[#4B6B38] shrink-0" />
+            <span className="text-[13px] font-medium text-gray-800">
+              Insights are updated as per ~{Math.round(verifiedCount * 2.5)}% reach, cap {healthMax}
+            </span>
+          </div>
+          <span className="text-[13px] font-medium text-gray-800 sm:text-right">
+            {recent.length === 0 ? "No keywords or copyright concerns. Keep it up." : "Some copyright concerns require your attention."}
+          </span>
+        </div>
+
+        {/* ---------------------------------------- upheld reports list (if any) */}
+        {recent.length > 0 && (
+          <ul className="mt-6 space-y-3 border-t border-gray-200/50 pt-5">
             {recent.map((ticket) => (
               <li
                 key={ticket.id}
@@ -1171,7 +1185,7 @@ function TrustAndReportsCard({
             ))}
           </ul>
         )}
-      </Card>
+      </div>
     </section>
   );
 }

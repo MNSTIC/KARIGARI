@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { requireArtisan } from '@/lib/artisanAuth';
 import {
+  provenanceReference,
   base64Bytes,
   compareProductPhotos,
   IMAGE_DATA_URL_RE,
@@ -135,7 +136,7 @@ export async function POST(req: Request) {
     // ready gate by scanning any patch they happened to have to hand.
     const item = await prisma.craftItem.findFirst({
       where: { patchId },
-      select: { id: true, artisanId: true, images: true, craftType: true },
+      select: { id: true, artisanId: true, images: true, originalImageUrl: true, craftType: true },
     });
     if (!item) {
       return NextResponse.json(
@@ -160,7 +161,8 @@ export async function POST(req: Request) {
     }
 
     // (e) Nothing to compare against.
-    const originalImage = item.images?.[0] ?? null;
+    // The camera frame, never the chosen listing look — see provenanceReference().
+    const originalImage = provenanceReference(item);
     if (!originalImage) {
       return NextResponse.json(
         {

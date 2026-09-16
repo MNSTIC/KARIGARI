@@ -58,6 +58,9 @@ model User {
   // commitment against a buyer's bulk request; a CraftItem is a piece.
   artisanOrders            ArtisanOrder[]
   passkeys                 Passkey[]
+  /// V11. The artisan's shop inside the ONE platform Shopify store — a custom
+  /// collection, since Shopify's Admin API cannot create a store per artisan.
+  shopifyShop              ShopifyShop?
 
   // Admin fields
   patchBankBalance Int @default(5000)
@@ -206,6 +209,76 @@ model CraftItem {
   /// column (each grant has a `QR_RULE_GRANDFATHERED` AuditLog row).
   qrExemptAt          DateTime?
 
+  // ---- V11: AI Photo Studio ---------------------------------------------------
+  //
+  // `images[0]` is still the listing photo every surface reads. These columns
+  // exist because the enhance pass used to REPLACE the camera frame, with no copy
+  // kept and no choice offered. Ordering-by-convention inside `images[]` ("[0]
+  // is the pick, [1] the original…") would not be a contract: every existing
+  // writer treats `images` as "the artisan's photos", complete-draft slices it
+  // to four, and the listing grid renders `[1]` as a second product shot. Named
+  // columns cannot be reshuffled by a writer that never heard of the convention.
+
+  /// The camera frame, downscaled for storage and otherwise untouched. Written
+  /// by /api/items/capture and /api/items/complete-draft. THIS — not the chosen
+  /// look — is what every authenticity comparator reads (`provenanceReference()`
+  /// in src/lib/buyerVerify.ts), so a background swap can never become the
+  /// frame a buyer's delivered piece is judged against.
+  originalImageUrl      String?
+  /// The canvas-enhanced frame (white balance, levels, sharpen). Same writers.
+  enhancedImageUrl      String?
+  /// Which look is in `images[0]`: ORIGINAL | ENHANCED | PRESET_<name> |
+  /// GENERATED_<n>. Written at capture and by the listing picker through
+  /// PATCH /api/artisan/listings.
+  selectedImageVariant  String?
+  /// `{ v: 1, variants: [{ key, label, kind, thumb }], cutout? }` — ≤320 px
+  /// thumbnails plus an optional downscaled transparent cutout, so the picker can
+  /// re-render a preset later. Never a full-resolution copy of every look: the
+  /// capture route drops this whole blob rather than store an oversized one.
+  imageVariants         Json?
+  /// 1-10, and only ever written when a score was actually produced.
+  photoQualityScore     Int?
+  /// The specific, kind reason behind the verdict.
+  photoQualityNotes     String?
+  /// AI | HEURISTIC | UNCHECKED. AI = Gemini scored this frame. HEURISTIC = only
+  /// the on-device blur/exposure pre-check ran. UNCHECKED = neither did. A
+  /// fallback can therefore never be mistaken for an AI verdict.
+  photoQualitySource    String?
+  /// Retakes of this photo. The quality gate stops prompting after the first.
+  photoRetakeCount      Int       @default(0)
+  /// ON_DEVICE | SERVER | NONE — which tier produced the cutout, so "no
+  /// background removal" is recorded rather than implied.
+  backgroundRemovalMode String?
+
+  // ---- V11: Shopify -----------------------------------------------------------
+  //
+  // The FIRST channel that performs a real outbound write; every other channel in
+  // src/lib/syndication.ts only stamps `syndicatedChannels`. All of these are
+  // written by exactly one route, POST /api/artisan/shopify/publish.
+
+  /// gid://shopify/Product/…, persisted the instant productCreate returns. It is
+  /// the resume point: a retry after a failed image upload finds this and never
+  /// creates a second product.
+  shopifyProductId      String?
+  /// The default variant productCreate made; the listing price goes on it.
+  shopifyVariantId      String?
+  /// Deterministic `karigari-<patchId|id>`. Also an idempotency key: before
+  /// creating, the route looks this handle up and adopts a product it finds,
+  /// which covers a crash between productCreate and the write above.
+  shopifyHandle         String?
+  /// NOT_PUBLISHED | PUBLISHING | LIVE | FAILED | WITHDRAWN. WITHDRAWN = sold on
+  /// Karigari and set to draft on Shopify by `withdrawSoldPiece()`; terminal.
+  shopifyStatus         String?
+  /// When `shopifyStatus` last changed — lets a PUBLISHING claim that outlived
+  /// its request (a killed function) be taken over instead of wedging the item.
+  shopifyStatusAt       DateTime?
+  shopifyPublishedAt    DateTime?
+  /// The actionable sentence shown next to Retry. Never a stack trace.
+  shopifySyncError      String?
+  /// The `selectedImageVariant` currently on Shopify, so a re-publish after the
+  /// artisan changes the look replaces the image and one without does not.
+  shopifySyncedImageKey String?
+
   // Zero-ID multi-platform syndication. The artisan owns the listing outright;
   // there is no external seller account to reconcile against.
   isOndcLive           Boolean  @default(false)
@@ -348,6 +421,7 @@ model CraftItem {
   @@index([affiliateCreatorId])
   @@index([buyerName])
   @@index([relatedDemandId])
+  @@index([shopifyStatus])
 }
 
 model AuditLog {
@@ -838,4 +912,28 @@ model AffiliateClick {
 
   @@index([creatorId])
   @@index([createdAt])
+}
+
+/// An artisan's shop: a custom collection inside the ONE platform Shopify store.
+///
+/// Shopify's Admin API is scoped to a single store and has no way to create one
+/// per artisan, so the shareable `shopUrl` below IS their shop. Written only by
+/// `ensureArtisanShop()` in src/lib/shopify.ts.
+model ShopifyShop {
+  id               String    @id @default(uuid())
+  /// @unique is the concurrency guard. The row is CLAIMED before any collection
+  /// is created in Shopify, so two simultaneous first publishes cannot both
+  /// create one — the second hits the constraint and waits for the first.
+  artisanId        String    @unique
+  artisan          User      @relation(fields: [artisanId], references: [id])
+  /// Null while `status` is CREATING.
+  collectionId     String?
+  /// The handle Shopify actually assigned; it suffixes on collision.
+  collectionHandle String?
+  shopUrl          String?
+  /// CREATING | ACTIVE | FAILED
+  status           String    @default("CREATING")
+  productCount     Int       @default(0)
+  createdAt        DateTime  @default(now())
+  lastSyncedAt     DateTime?
 }

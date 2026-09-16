@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   ArrowLeft,
+  ArrowRight,
   Check,
   Copy,
   ExternalLink,
@@ -11,6 +13,8 @@ import {
   Loader2,
   MapPin,
   Megaphone,
+  MoreHorizontal,
+  PackageOpen,
   Sparkles,
   GraduationCap,
   CirclePlay,
@@ -51,10 +55,8 @@ interface Outreach {
 }
 
 function PlatformMark({ platform }: { platform: string }) {
-  // lucide-react v1 dropped its brand marks, so these are neutral stand-ins
-  // rather than Instagram/YouTube logos — the label beside them carries the name.
   if (platform === "INSTAGRAM") return <Camera size={13} />;
-  if (platform === "YOUTUBE") return <CirclePlay size={13} />;
+  if (platform === "YOUTUBE") return <CirclePlay size={13} className="text-red-500" />;
   return <GraduationCap size={13} />;
 }
 
@@ -178,16 +180,29 @@ export default function ArtisanMarketingPage() {
 
   return (
     <Shell>
-      <div className="mb-9">
+      <div className="mb-8">
         <PageTitle>{t("page_marketing_title")}</PageTitle>
         <PageLede>{t("influencer_marketing_subtitle")}</PageLede>
       </div>
 
-        {/* Opt-in */}
+      {/* Banner */}
+      <div className="relative mb-8 w-full overflow-hidden rounded-2xl">
+        <Image
+          src="/influencer-banner-highres.png"
+          alt="Stories that keep traditions alive"
+          width={1992}
+          height={472}
+          className="h-auto w-full object-cover"
+          priority
+          unoptimized
+        />
+      </div>
+
+      {/* Opt-in */}
         <Card pad="lg" className="kg-enter mb-8">
-          <div className="flex flex-col sm:flex-row sm:items-start gap-5">
-            <div className="w-12 h-12 rounded-2xl bg-green-50 text-[#1A1A1A] flex items-center justify-center shrink-0">
-              <Megaphone size={24} />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600">
+              <Megaphone size={20} />
             </div>
             <div className="min-w-0 flex-1">
               <h2 className="text-lg font-bold text-gray-900 mb-1.5">
@@ -278,9 +293,14 @@ export default function ArtisanMarketingPage() {
         <section>
           <SectionLabel>{t("marketing_attributed_title")}</SectionLabel>
           {attributed.length === 0 ? (
-            <Card pad="lg" className="border-dashed text-center text-sm text-gray-500 italic">
-              {t("marketing_attributed_empty")}
-            </Card>
+            <div className="flex flex-col items-center justify-center rounded-2xl bg-gray-50 border border-gray-100 p-8 text-center">
+              <div className="mb-3 text-gray-400">
+                <PackageOpen size={24} strokeWidth={1.5} />
+              </div>
+              <p className="text-xs font-medium text-gray-500">
+                {t("marketing_attributed_empty")}
+              </p>
+            </div>
           ) : (
             <ul className="space-y-3">
               {attributed.map((item) => (
@@ -365,40 +385,41 @@ function CreatorRow({ creator, language }: { creator: PublicCreator; language: s
 
   return (
     <article className="bg-white border border-gray-200 rounded-2xl shadow-card p-5 flex flex-col">
-      <div className="flex items-start gap-3">
-        <Avatar name={creator.name} src={creator.photoUrl} size={44} />
-        <div className="min-w-0 flex-1">
-          <h3 className="font-bold text-gray-900 truncate">{creator.name}</h3>
-          <p className="text-xs text-gray-500 truncate">@{creator.handle}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <Avatar name={creator.name} src={creator.photoUrl} size={44} />
+          <div className="min-w-0">
+            <h3 className="font-bold text-gray-900 truncate">{creator.name}</h3>
+            <p className="text-xs text-gray-500 truncate">@{creator.handle}</p>
+          </div>
         </div>
-        {outreach && (
-          <span className="shrink-0 bg-[var(--color-mint)] text-primary text-[10px] font-bold px-2 py-1 rounded-md">
-            {t("marketing_match_score")} {outreach.matchScore}
-          </span>
-        )}
+        <button className="text-gray-400 hover:text-gray-600">
+          <MoreHorizontal size={18} />
+        </button>
       </div>
 
-      <div className="flex flex-wrap gap-1.5 mt-3">
-        <span className="inline-flex items-center gap-1 bg-gray-100 text-gray-700 text-[10px] font-bold px-2 py-1 rounded-md">
+      <div className="flex flex-wrap gap-2 mt-4">
+        <span className="inline-flex items-center gap-1.5 bg-gray-50 text-gray-600 text-[11px] font-medium px-2.5 py-1 rounded-md border border-gray-100">
           <PlatformMark platform={creator.platform} />
           {platformLabel(creator.platform)}
         </span>
-        <span className="bg-gray-100 text-gray-700 text-[10px] font-bold px-2 py-1 rounded-md">
+        <span className="inline-flex items-center gap-1.5 bg-gray-50 text-gray-600 text-[11px] font-medium px-2.5 py-1 rounded-md border border-gray-100">
+          <Sparkles size={11} className="text-gray-400" />
           {creator.nicheCategory}
         </span>
         {creator.location && (
-          <span className="inline-flex items-center gap-1 bg-gray-100 text-gray-700 text-[10px] font-bold px-2 py-1 rounded-md">
-            <MapPin size={10} /> {creator.location}
+          <span className="inline-flex items-center gap-1.5 bg-gray-50 text-gray-600 text-[11px] font-medium px-2.5 py-1 rounded-md border border-gray-100">
+            <MapPin size={11} className="text-gray-400" /> {creator.location}
           </span>
         )}
       </div>
 
-      <p className="text-[11px] text-gray-500 mt-3">
-        {creator.totalClicks} {t("creator_clicks")} · {creator.totalSales} {t("creator_sales")}
+      <p className="text-xs text-gray-500 mt-4 mb-4">
+        {creator.totalClicks} {t("creator_clicks")} <span className="mx-1 font-bold text-gray-300">·</span> {creator.totalSales} {t("creator_sales")}
       </p>
 
       {outreach ? (
-        <div className="mt-4 rounded-xl border border-[var(--color-sage)]/60 bg-[var(--color-mint)]/40 p-4">
+        <div className="rounded-xl border border-[var(--color-sage)]/60 bg-[var(--color-mint)]/40 p-4">
           <p className="text-[10px] font-bold uppercase tracking-wider text-primary/70 flex items-center gap-1.5 mb-2">
             <Sparkles size={11} /> {t("marketing_ai_label")}
           </p>
@@ -423,15 +444,17 @@ function CreatorRow({ creator, language }: { creator: PublicCreator; language: s
           </button>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={draft}
-          disabled={drafting}
-          className="mt-auto pt-4 w-full min-h-[44px] text-xs font-bold text-[#1A1A1A] flex items-center justify-center gap-1.5 disabled:opacity-50"
-        >
-          {drafting ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-          {t("marketing_draft_outreach")}
-        </button>
+        <div className="mt-auto pt-4 border-t border-gray-100">
+          <button
+            type="button"
+            onClick={draft}
+            disabled={drafting}
+            className="w-full text-xs font-bold text-gray-700 hover:text-gray-900 flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
+          >
+            {drafting ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+            <span className="underline underline-offset-4 decoration-gray-300 hover:decoration-gray-400">{t("marketing_draft_outreach")}</span>
+          </button>
+        </div>
       )}
 
       {error && (

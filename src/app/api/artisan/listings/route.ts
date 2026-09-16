@@ -4,6 +4,9 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { ARTISAN_SETTABLE_STAGES, resolveStage, stageIndex, type OrderStage } from '@/lib/orderStage';
+import { dataUrlBytes, MAX_UPLOAD_BYTES } from '@/lib/fileToDataUrl';
+import { VARIANT_KEY_RE, type StoredImageVariants } from '@/lib/photoStudioPayload';
+import { verifyLook } from '@/lib/lookProvenance';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,17 +63,69 @@ const LISTING_FIELDS = {
   productionStage: true,
   stageUpdatedAt: true,
   estimatedDeliveryAt: true,
+  // V11 photo studio. Only the KEY is listed here — the looks themselves
+  // (thumbnails plus a cutout, up to ~1 MB) are fetched per item with
+  // `GET ?looks=<id>` when the artisan opens the picker.
+  selectedImageVariant: true,
+  // A paid-for listing photo is frozen; the picker reads this to say so.
+  paidAt: true,
 } as const;
+
+/** Stored looks as the picker needs them, with what can actually be switched to. */
+function lookOptionsFor(item: {
+  selectedImageVariant: string | null;
+  originalImageUrl: string | null;
+  enhancedImageUrl: string | null;
+  imageVariants: unknown;
+  paidAt: Date | null;
+}) {
+  const blob = (item.imageVariants && typeof item.imageVariants === 'object'
+    ? item.imageVariants
+    : null) as StoredImageVariants | null;
+  const cutout = typeof blob?.cutout === 'string' ? blob.cutout : null;
+  const options = (Array.isArray(blob?.variants) ? blob.variants : []).filter((v) => {
+    if (v.key === item.selectedImageVariant) return true;
+    if (v.key === 'ORIGINAL') return Boolean(item.originalImageUrl);
+    if (v.key === 'ENHANCED') return Boolean(item.enhancedImageUrl);
+    // A preset can be re-rendered from the stored cutout. A generated backdrop
+    // was never stored, so it can only stay selected, never be switched back to.
+    if (v.kind === 'PRESET') return Boolean(cutout);
+    return false;
+  });
+  return {
+    selectedKey: item.selectedImageVariant ?? 'ORIGINAL',
+    options,
+    cutout,
+    locked: Boolean(item.paidAt),
+  };
+}
 
 /**
  * The artisan's marketplace view: what is already published, and what is still
  * waiting so a "New Listing" action has something real to attach copy to.
  */
-export async function GET() {
+export async function GET(req: Request) {
   const auth = await requireArtisan();
   if (!auth.ok) return auth.response;
 
   try {
+    // `?looks=<itemId>`: the stored looks for one of the artisan's own items.
+    const looksFor = new URL(req.url).searchParams.get('looks');
+    if (looksFor) {
+      const item = await prisma.craftItem.findFirst({
+        where: { id: looksFor, artisanId: auth.userId },
+        select: {
+          selectedImageVariant: true,
+          originalImageUrl: true,
+          enhancedImageUrl: true,
+          imageVariants: true,
+          paidAt: true,
+        },
+      });
+      if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 });
+      return NextResponse.json({ success: true, looks: lookOptionsFor(item) });
+    }
+
     const [listings, drafts] = await Promise.all([
       prisma.craftItem.findMany({
         where: {
@@ -129,10 +184,105 @@ export async function PATCH(req: Request) {
         escrowStatus: true,
         qrVerified: true,
         productionStage: true,
+        images: true,
+        selectedImageVariant: true,
+        originalImageUrl: true,
+        enhancedImageUrl: true,
+        imageVariants: true,
+        paidAt: true,
       },
     });
     if (!item) {
       return NextResponse.json({ error: 'Item not found' }, { status: 404 });
+    }
+
+    /**
+     * V11 — change the listing photo's look.
+     *
+     * Handled on its own, before the text and stage edits, so one request can
+     * never half-apply. The camera frame (`originalImageUrl`) is never touched:
+     * only `images[0]` and `selectedImageVariant` change, and every
+     * authenticity comparator reads the original — see provenanceReference().
+     */
+    if (body?.selectedImageVariant !== undefined) {
+      const key = String(body.selectedImageVariant);
+      if (!VARIANT_KEY_RE.test(key)) {
+        return NextResponse.json({ error: 'That look does not exist.' }, { status: 400 });
+      }
+      // What a buyer paid for is what they receive a photo of. Frozen.
+      if (item.paidAt) {
+        return NextResponse.json(
+          { error: 'A buyer has paid for this piece, so its listing photo can no longer be changed.' },
+          { status: 409 }
+        );
+      }
+      if (!item.selectedImageVariant) {
+        return NextResponse.json(
+          { error: 'This piece was photographed before looks existed, so there is nothing to switch to.' },
+          { status: 400 }
+        );
+      }
+      if (key === item.selectedImageVariant) {
+        return NextResponse.json({ success: true, unchanged: true });
+      }
+
+      const { options, cutout } = lookOptionsFor(item);
+      const option = options.find((o) => o.key === key);
+      if (!option) {
+        return NextResponse.json({ error: 'That look is not available for this piece.' }, { status: 400 });
+      }
+
+      let listingImage: string | null = null;
+      if (key === 'ORIGINAL') listingImage = item.originalImageUrl;
+      else if (key === 'ENHANCED') listingImage = item.enhancedImageUrl;
+      else if (option.kind === 'PRESET' && cutout) {
+        // The browser re-renders the preset from the stored cutout (canvas only
+        // exists there) and sends the composite. It is size- and type-checked;
+        // its pixels cannot affect provenance, which reads the original frame.
+        const candidate = typeof body?.imageDataUrl === 'string' ? body.imageDataUrl : '';
+        if (!/^data:image\/(jpeg|png|webp);base64,/.test(candidate) || dataUrlBytes(candidate) > MAX_UPLOAD_BYTES) {
+          return NextResponse.json({ error: 'The new photo could not be prepared. Please try again.' }, { status: 400 });
+        }
+        // The browser rendered it, so prove it: the stored cutout must be the
+        // camera frame's pixels, and the new photo must be the cutout's.
+        const cutoutOk = item.originalImageUrl
+          ? (await verifyLook({ look: item.originalImageUrl, reference: cutout, mode: 'cutout' })).ok
+          : false;
+        const lookOk = cutoutOk && (await verifyLook({ look: candidate, reference: cutout, mode: 'cutout' })).ok;
+        if (!lookOk) {
+          return NextResponse.json(
+            { error: 'That look could not be matched to your original photo, so it was not applied.' },
+            { status: 422 }
+          );
+        }
+        listingImage = candidate;
+      }
+      if (!listingImage) {
+        return NextResponse.json({ error: 'That look is not available for this piece.' }, { status: 400 });
+      }
+
+      const updated = await prisma.craftItem.update({
+        where: { id: item.id },
+        data: {
+          images: [listingImage, ...item.images.slice(1)],
+          selectedImageVariant: key,
+        },
+        select: LISTING_FIELDS,
+      });
+
+      await logCraftItemEvent({
+        prisma,
+        craftItemId: item.id,
+        actorId: auth.userId,
+        actorRole: 'ARTISAN',
+        action: 'LISTING_PHOTO_LOOK_CHANGED',
+        previousState: { selectedImageVariant: item.selectedImageVariant },
+        newState: { selectedImageVariant: key },
+        comments:
+          'Artisan changed the look of their listing photo. The original camera frame used for authenticity checks is unchanged.',
+      });
+
+      return NextResponse.json({ success: true, item: updated });
     }
 
     /**

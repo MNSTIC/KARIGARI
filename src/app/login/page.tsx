@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
+import { Loader2, Mail, Lock, Eye, EyeOff, Globe, ArrowRight } from "lucide-react";
 import { useLanguage, type Language } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 import { AltSignIn } from "@/components/AltSignIn";
@@ -12,37 +12,15 @@ import { AlreadySignedInBanner } from "@/components/AlreadySignedInBanner";
 
 type Role = "ARTISAN" | "ADMIN";
 
-/**
- * Sign in.
- *
- * The layout is the reference's split screen — textile plate and quote on the
- * left, a quiet white panel on the right. The **form is not**: the reference
- * shows a mobile number and a four-box OTP, and this app has no OTP rail. It
- * authenticates with email + password against `POST /api/auth/login`, so that
- * is what the panel asks for. Shipping a non-functional OTP form would look
- * right and lock every artisan out.
- *
- * The role toggle is Artisan / Admin for the same reason: those are the only
- * two roles the schema has. The reference's third "Facilitator" tab maps to no
- * distinct login — one ADMIN account opens both the Facilitator and the Nodal
- * dashboards — so it is not drawn.
- */
 export default function LoginPage() {
   const router = useRouter();
   const { t, language, changeLanguage } = useLanguage();
   const [role, setRole] = useState<Role>("ARTISAN");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const [formData, setFormData] = useState({ email: "", password: "" });
-  /**
-   * Why a Google attempt bounced back here.
-   *
-   * The callback never renders its own error page — it redirects with a code,
-   * and this turns the code into a sentence. Read off the URL in a deferred
-   * effect rather than via useSearchParams, so this page needs no Suspense
-   * boundary, matching the pattern the buyer board and market page use.
-   */
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
@@ -58,16 +36,11 @@ export default function LoginPage() {
         "google_unavailable",
         "google_failed",
       ];
-      // An unrecognised code becomes the generic message rather than being
-      // echoed back — this value comes from the query string.
       setNotice(KNOWN.includes(code) ? `auth_notice_${code}` : "auth_notice_google_failed");
     }, 0);
     return () => clearTimeout(kickoff);
   }, []);
 
-  // "For Admins" on the landing page arrives as /login?role=admin. Read it off
-  // the URL in a deferred effect rather than via useSearchParams, so this fully
-  // client page needs no Suspense boundary — the pattern the dashboard uses.
   useEffect(() => {
     const kickoff = setTimeout(() => {
       const requested = new URLSearchParams(window.location.search).get("role");
@@ -96,7 +69,6 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to log in");
 
-      // Check they picked the tab that matches the account.
       if (data.user.role === "ADMIN" && role === "ARTISAN") {
         throw new Error("Invalid role. This account belongs to an Admin.");
       }
@@ -104,7 +76,6 @@ export default function LoginPage() {
         throw new Error("Invalid role. This account belongs to an Artisan.");
       }
 
-      // One ADMIN role opens both admin dashboards; land on Facilitator.
       router.push(data.user.role === "ADMIN" ? "/admin/facilitator" : "/artisan/dashboard");
     } catch (err) {
       setError((err as Error).message);
@@ -142,33 +113,44 @@ export default function LoginPage() {
       </div>
 
       {/* -------------------------------------------------- Panel */}
-      <div className="relative flex min-h-screen flex-col justify-center bg-white px-6 py-12 sm:px-10 lg:px-16 xl:px-24">
-        <div className="absolute inset-0 z-0 opacity-[0.08] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
-        <div className="relative z-10 mx-auto w-full max-w-[420px]">
-          <Link href="/" className="kg-display block text-2xl leading-none text-gray-900">
-            Karigari
-          </Link>
+      <div className="relative flex min-h-screen flex-col justify-center bg-[#F6F3EE] px-6 py-12 sm:px-10 lg:px-16 xl:px-24">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 z-0 opacity-[0.16] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
+        
+        {/* Glassy Card Wrapper */}
+        <div className="relative z-10 mx-auto w-full max-w-[420px] rounded-[32px] bg-white/50 backdrop-blur-md p-6 sm:p-8 shadow-[0_8px_32px_rgba(26,26,26,0.06)] border border-white/60">
+          
+          <div className="flex flex-col items-center text-center">
+            <Link href="/" className="flex flex-col items-center">
+              <Image 
+                src="/auth-logo-transparent.png" 
+                alt="Karigari" 
+                width={1024} 
+                height={366} 
+                priority
+                className="w-[220px] sm:w-[250px] h-auto object-contain drop-shadow-sm"
+              />
+            </Link>
 
-          <h1 className="kg-display mt-10 text-[28px] leading-tight text-gray-900">
-            {t("login_welcome")}
-          </h1>
-          <p className="mt-2 text-[15px] leading-relaxed text-gray-600">
-            Sign in to manage your craft portfolio and network.
-          </p>
+            <h1 className="kg-display mt-8 text-[24px] leading-tight text-gray-900">
+              Welcome back
+            </h1>
+            <p className="mt-2 text-[13px] leading-relaxed text-gray-600">
+              Sign in to manage your craft portfolio and network.
+            </p>
+          </div>
 
           <AlreadySignedInBanner />
 
-          {/* Segmented role toggle. Real radios, because it is one choice out of
-              a set and a screen reader has to be told that. */}
           <div
             role="radiogroup"
             aria-label="Account type"
-            className="mt-9 grid grid-cols-2 gap-1 rounded-xl bg-[var(--color-pill)] p-1"
+            className="mt-8 grid grid-cols-2 gap-1 rounded-xl bg-black/5 p-1 backdrop-blur-sm"
           >
             {(
               [
-                { value: "ARTISAN", label: t("role_artisan") },
-                { value: "ADMIN", label: t("role_admin") },
+                { value: "ARTISAN", label: "Artisan" },
+                { value: "ADMIN", label: "Admin" },
               ] as { value: Role; label: string }[]
             ).map((option) => {
               const active = role === option.value;
@@ -180,8 +162,8 @@ export default function LoginPage() {
                   aria-checked={active}
                   onClick={() => setRole(option.value)}
                   className={cn(
-                    "kg-press min-h-[44px] rounded-lg text-[14px] font-semibold transition-colors",
-                    active ? "bg-white text-gray-900 shadow-card" : "text-gray-500 hover:text-gray-800"
+                    "kg-press min-h-[40px] rounded-lg text-[13px] font-semibold transition-colors",
+                    active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"
                   )}
                 >
                   {option.label}
@@ -193,13 +175,13 @@ export default function LoginPage() {
           {notice && (
             <p
               role="alert"
-              className="mt-8 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+              className="mt-6 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
             >
               {t(notice)}
             </p>
           )}
 
-          <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
+          <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
             {error && (
               <p
                 role="alert"
@@ -209,7 +191,7 @@ export default function LoginPage() {
               </p>
             )}
 
-            <Field label={t("email_address")} htmlFor="email">
+            <Field icon={<Mail size={16} />}>
               <input
                 id="email"
                 name="email"
@@ -223,11 +205,22 @@ export default function LoginPage() {
               />
             </Field>
 
-            <Field label={t("password")} htmlFor="password">
+            <Field 
+              icon={<Lock size={16} />} 
+              suffix={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-gray-500 hover:text-gray-800 transition-colors"
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              }
+            >
               <input
                 id="password"
                 name="password"
-                type="password"
+                type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 required
                 value={formData.password}
@@ -237,15 +230,12 @@ export default function LoginPage() {
               />
             </Field>
 
-            <Field label={t("language")} htmlFor="language">
+            <Field icon={<Globe size={16} />}>
               <select
                 id="language"
-                /* Goes through changeLanguage, not localStorage directly: that
-                   is what dispatches `language-change`, so every other mounted
-                   component re-renders instead of waiting for a reload. */
                 onChange={(e) => changeLanguage(e.target.value as Language)}
                 value={language}
-                className={cn(INPUT, "appearance-none bg-white pr-10")}
+                className={cn(INPUT, "appearance-none pr-10")}
               >
                 <option value="en">English</option>
                 <option value="hi">हिन्दी (Hindi)</option>
@@ -257,30 +247,28 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="kg-press flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-maroon)] text-[15px] font-semibold text-[#F0A48C] transition-colors hover:bg-[#6B2020] disabled:opacity-60"
+              className="kg-press mt-2 flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl bg-[#1A3A30] text-[14px] font-semibold text-white transition-colors hover:bg-[#122A22] disabled:opacity-60"
             >
               {loading && <Loader2 size={17} className="animate-spin" />}
               {loading ? t("signing_in") : "Verify & Login"}
+              {!loading && <ArrowRight size={17} />}
             </button>
           </form>
 
-          {/* Google and passkeys, for accounts created with them. The existing
-              password form above is untouched — V10 changed nothing about how
-              an existing account signs in. */}
           <AltSignIn role={role} />
 
-          <div className="mt-12 border-t border-gray-200 pt-8 text-center">
-            <p className="text-[14px] text-gray-600">New to the platform?</p>
+          <div className="mt-8 pt-6 text-center">
+            <p className="text-[13px] text-gray-600">New to the platform?</p>
             <div className="mt-4 flex flex-wrap justify-center gap-3">
               <Link
                 href="/register"
-                className="kg-press inline-flex min-h-[46px] items-center rounded-xl border border-gray-300 px-5 text-[14px] font-semibold text-gray-800 hover:border-gray-400 hover:bg-gray-50"
+                className="kg-press inline-flex min-h-[42px] items-center rounded-xl border border-black/10 bg-transparent px-4 text-[13px] font-semibold text-gray-800 transition-colors hover:bg-black/5"
               >
                 Register as Artisan
               </Link>
               <Link
                 href="/creators"
-                className="kg-press inline-flex min-h-[46px] items-center rounded-xl border border-gray-300 px-5 text-[14px] font-semibold text-gray-800 hover:border-gray-400 hover:bg-gray-50"
+                className="kg-press inline-flex min-h-[42px] items-center rounded-xl border border-black/10 bg-transparent px-4 text-[13px] font-semibold text-gray-800 transition-colors hover:bg-black/5"
               >
                 Partner with us
               </Link>
@@ -293,23 +281,30 @@ export default function LoginPage() {
 }
 
 const INPUT =
-  "block h-[52px] w-full rounded-xl border border-gray-300 bg-white px-4 text-[15px] text-gray-900 placeholder:text-gray-400 transition-colors focus:border-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900";
+  "block h-[50px] w-full rounded-xl border border-gray-200 bg-white shadow-sm pl-11 pr-4 text-[14px] text-gray-900 placeholder:text-gray-500 transition-colors focus:border-[#1A3A30] focus:outline-none focus:ring-1 focus:ring-[#1A3A30]";
 
 function Field({
-  label,
-  htmlFor,
+  icon,
+  suffix,
   children,
 }: {
-  label: string;
-  htmlFor: string;
+  icon?: React.ReactNode;
+  suffix?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <label htmlFor={htmlFor} className="mb-2 block text-[13px] font-semibold text-gray-800">
-        {label}
-      </label>
+    <div className="relative">
+      {icon && (
+        <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-gray-500">
+          {icon}
+        </div>
+      )}
       {children}
+      {suffix && (
+        <div className="absolute inset-y-0 right-4 flex items-center">
+          {suffix}
+        </div>
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
   middlemanAdvantage,
   normalizePlatforms,
 } from '@/lib/syndication';
+import { SHOPIFY_CONFIGURED } from '@/lib/shopify';
 
 /**
  * Zero-ID multi-platform syndication.
@@ -198,7 +199,7 @@ export async function GET(req: Request) {
       });
     }
 
-    const comparisons = buildPriceComparison(base);
+    const comparisons = buildPriceComparison(base, { shopify: SHOPIFY_CONFIGURED });
 
     return NextResponse.json({
       success: true,

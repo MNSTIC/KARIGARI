@@ -13,6 +13,7 @@ import {
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 import { estimateCraftValuation, formatRupees } from "@/lib/pricing";
+import { downscaleImage } from "@/lib/imageEnhance";
 
 /**
  * Finishes a draft created over the toll-free IVR.
@@ -127,7 +128,11 @@ function DraftEditor({
     canvasRef.current.width = videoRef.current.videoWidth || 640;
     canvasRef.current.height = videoRef.current.videoHeight || 480;
     context.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-    setImages((prev) => (prev.length < MAX_IMAGES ? [...prev, canvasRef.current!.toDataURL("image/png")] : prev));
+    // Same compression as in-app capture: complete-draft now enforces the 2 MB
+    // per-photo cap, and a full-resolution PNG frame routinely exceeds it.
+    void downscaleImage(canvasRef.current.toDataURL("image/png")).then((dataUrl) =>
+      setImages((prev) => (prev.length < MAX_IMAGES ? [...prev, dataUrl] : prev))
+    );
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -137,7 +142,9 @@ function DraftEditor({
     reader.onload = (event) => {
       const result = event.target?.result;
       if (typeof result === "string") {
-        setImages((prev) => (prev.length < MAX_IMAGES ? [...prev, result] : prev));
+        void downscaleImage(result).then((dataUrl) =>
+          setImages((prev) => (prev.length < MAX_IMAGES ? [...prev, dataUrl] : prev))
+        );
       }
     };
     reader.readAsDataURL(file);

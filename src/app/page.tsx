@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import dynamic from "next/dynamic";
-import { ArrowRight, HandCoins, MapPin, ShieldCheck, TrendingUp } from "lucide-react";
+import { ArrowRight, HandCoins, MapPin, ShieldCheck, TrendingUp, Store, Users, ShoppingCart } from "lucide-react";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 import { SectionEyebrow } from "@/components/ui/SectionEyebrow";
 import { HeritageMarquee } from "@/components/HeritageMarquee";
@@ -133,43 +133,44 @@ export default function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col bg-[var(--color-background)] font-sans">
       {/* ------------------------------------------------------------- Nav */}
-      <nav className="sticky top-0 z-50 border-b border-gray-200/60 bg-[var(--color-background)]/90 backdrop-blur-md">
-        <div className="mx-auto flex h-[72px] max-w-[1180px] items-center gap-4 px-4 sm:px-6 lg:px-10">
-          <Link href="/" className="flex shrink-0 items-center gap-2.5">
-            <span
-              aria-hidden
-              className="kg-display flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-[17px] text-white"
-            >
-              K
-            </span>
-            <span className="kg-display text-[21px] leading-none text-gray-900">Karigari</span>
+      <nav className="absolute top-4 left-0 right-0 z-50 mx-auto w-[calc(100%-2rem)] max-w-[1180px] rounded-[32px] border border-gray-200/60 bg-[var(--color-background)]/90 px-4 sm:px-6 backdrop-blur-md shadow-sm">
+        <div className="flex h-[72px] items-center justify-between gap-4">
+          <Link href="/" className="flex shrink-0 items-center">
+            <Image
+              src="/logo.png"
+              alt="Karigari"
+              width={186}
+              height={64}
+              className="h-[44px] w-[128px] object-contain mt-1"
+              priority
+            />
           </Link>
 
-          <div className="ml-auto hidden items-center gap-7 md:flex">
-            <Link href="/marketplace" className="text-[14px] font-medium text-gray-600 hover:text-gray-900">
+          <div className="hidden shrink-0 lg:flex items-center gap-1.5 rounded-full border border-gray-200/60 bg-black/5 p-1.5 backdrop-blur-md">
+            <Link href="/marketplace" className="group relative z-0 flex whitespace-nowrap items-center gap-2 overflow-hidden rounded-full px-5 py-2 text-[14px] font-medium text-gray-600 transition-all duration-300 before:absolute before:left-1/2 before:top-1/2 before:-z-10 before:aspect-square before:w-[150%] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-white before:scale-0 before:transition-transform before:duration-300 before:ease-out hover:text-gray-900 hover:shadow-sm hover:before:scale-100">
+              <Store size={16} className="text-gray-400 transition-colors group-hover:text-gray-900" />
               {t("nav_marketplace")}
             </Link>
-            <Link href="/creators" className="text-[14px] font-medium text-gray-600 hover:text-gray-900">
+            <Link href="/creators" className="group relative z-0 flex whitespace-nowrap items-center gap-2 overflow-hidden rounded-full px-5 py-2 text-[14px] font-medium text-gray-600 transition-all duration-300 before:absolute before:left-1/2 before:top-1/2 before:-z-10 before:aspect-square before:w-[150%] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-white before:scale-0 before:transition-transform before:duration-300 before:ease-out hover:text-gray-900 hover:shadow-sm hover:before:scale-100">
+              <Users size={16} className="text-gray-400 transition-colors group-hover:text-gray-900" />
               {t("nav_creator_affiliation")}
             </Link>
-            <Link href="/buyer" className="text-[14px] font-medium text-gray-600 hover:text-gray-900">
+            <Link href="/buyer" className="group relative z-0 flex whitespace-nowrap items-center gap-2 overflow-hidden rounded-full px-5 py-2 text-[14px] font-medium text-gray-600 transition-all duration-300 before:absolute before:left-1/2 before:top-1/2 before:-z-10 before:aspect-square before:w-[150%] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-white before:scale-0 before:transition-transform before:duration-300 before:ease-out hover:text-gray-900 hover:shadow-sm hover:before:scale-100">
+              <ShoppingCart size={16} className="text-gray-400 transition-colors group-hover:text-gray-900" />
               {t("nav_buyer")}
             </Link>
-            <Link href="/login?role=admin" className="text-[14px] font-medium text-gray-600 hover:text-gray-900">
+            <Link href="/login?role=admin" className="group relative z-0 flex whitespace-nowrap items-center gap-2 overflow-hidden rounded-full px-5 py-2 text-[14px] font-medium text-gray-600 transition-all duration-300 before:absolute before:left-1/2 before:top-1/2 before:-z-10 before:aspect-square before:w-[150%] before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:bg-white before:scale-0 before:transition-transform before:duration-300 before:ease-out hover:text-gray-900 hover:shadow-sm hover:before:scale-100">
+              <ShieldCheck size={16} className="text-gray-400 transition-colors group-hover:text-gray-900" />
               {t("nav_for_admins")}
             </Link>
           </div>
 
-          <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-4 md:ml-6">
+          <div className="flex shrink-0 items-center gap-3">
             <LanguageSwitcher />
-            {/* Signed in: one button, straight to their own dashboard. Signed
-                out: the pair this app has always shown. While the check is in
-                flight neither is rendered, because guessing wrong for a moment
-                is worse than a beat of nothing on a nav bar. */}
             {signedIn ? (
               <Link
                 href={dashboard ?? "/artisan/dashboard"}
-                className="kg-press inline-flex min-h-[42px] items-center gap-1.5 rounded-full bg-primary px-5 text-[13px] font-semibold text-white hover:bg-primary-dark"
+                className="kg-press inline-flex whitespace-nowrap min-h-[42px] items-center gap-1.5 rounded-full bg-primary px-5 text-[13px] font-semibold text-white hover:bg-primary-dark"
               >
                 {t("nav_go_to_dashboard")}
                 <ArrowRight size={14} />
@@ -178,13 +179,13 @@ export default function LandingPage() {
               <>
                 <Link
                   href="/login"
-                  className="hidden text-[14px] font-medium text-gray-600 hover:text-gray-900 sm:block"
+                  className="hidden kg-press whitespace-nowrap min-h-[42px] items-center rounded-full border border-gray-200/60 bg-transparent px-5 text-[14px] font-medium text-gray-900 transition-all hover:bg-white hover:shadow-sm sm:inline-flex"
                 >
                   {t("login")}
                 </Link>
                 <Link
                   href="/register"
-                  className="kg-press inline-flex min-h-[42px] items-center rounded-full bg-primary px-5 text-[13px] font-semibold text-white hover:bg-primary-dark"
+                  className="kg-press inline-flex whitespace-nowrap min-h-[42px] items-center rounded-full bg-[#18211E] px-5 text-[13px] font-medium text-white transition-colors hover:bg-black"
                 >
                   Get Started
                 </Link>
@@ -213,7 +214,7 @@ export default function LandingPage() {
             className="absolute inset-0 -z-10 bg-gradient-to-b from-[#F6F3EE]/85 via-[#F1EAE0]/70 to-[#F6F3EE]/95"
           />
 
-          <div className="mx-auto flex max-w-[820px] flex-col items-center px-4 py-24 text-center sm:px-6 sm:py-32">
+          <div className="mx-auto flex max-w-[820px] flex-col items-center px-4 pt-40 pb-24 text-center sm:px-6 sm:pt-48 sm:pb-32">
             {/* No eyebrow above the headline: the hero leads with the promise
                 itself, and the pill was repeating a line the footer and the
                 login plate already carry. */}
@@ -266,7 +267,7 @@ export default function LandingPage() {
 
         {/* ---------------------------------------------------- Difference */}
         <section className="relative w-full">
-          <div className="absolute inset-0 z-0 opacity-[0.08] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
+          <div className="absolute inset-0 z-0 opacity-[0.16] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
           
           <div className="relative z-10 mx-auto max-w-[1180px] px-4 py-20 sm:px-6 sm:py-24 lg:px-10">
             <div className="mx-auto max-w-2xl text-center">
@@ -331,7 +332,7 @@ export default function LandingPage() {
 
         {/* ------------------------------------------- Mapping the Roots */}
         <section className="relative border-t border-gray-200/70 bg-[#F1EDE6]">
-          <div className="absolute inset-0 z-0 opacity-[0.08] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
+          <div className="absolute inset-0 z-0 opacity-[0.16] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
           <div className="relative z-10 mx-auto grid max-w-[1180px] items-center gap-12 px-4 py-20 sm:px-6 sm:py-24 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:px-10">
             <div>
               <SectionEyebrow>Mapping the Roots</SectionEyebrow>
@@ -410,7 +411,7 @@ export default function LandingPage() {
 
       {/* ------------------------------------------------------- Footer */}
       <footer className="relative border-t border-gray-200 bg-[var(--color-background)]">
-        <div className="absolute inset-0 z-0 opacity-[0.08] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
+        <div className="absolute inset-0 z-0 opacity-[0.16] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
         <div className="relative z-10 mx-auto grid max-w-[1180px] gap-10 px-4 py-14 sm:px-6 md:grid-cols-3 lg:px-10">
           <div>
             <p className="kg-display text-[21px] leading-none text-gray-900">Karigari</p>

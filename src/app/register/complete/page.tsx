@@ -82,15 +82,15 @@ const FIELD_ORDER: ReadonlyArray<{ key: keyof FieldErrors; id: string }> = [
 /** The shell both the form and every other state render inside. */
 function AuthShell({ children, plate }: { children: React.ReactNode; plate: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[var(--color-background)] font-sans lg:grid lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)]">
+    <div className="min-h-screen bg-[var(--color-background)] font-sans lg:grid lg:grid-cols-2">
       {/* -------------------------------------------------- Plate */}
       <div className="relative hidden overflow-hidden lg:block">
         <Image
-          src="/hero-mural.jpg"
-          alt="A hand-painted Pattachitra scroll from Odisha"
+          src="/register-hero-full.jpg"
+          alt="Artisan workspace"
           fill
           priority
-          sizes="440px"
+          sizes="50vw"
           className="object-cover"
         />
         <div
@@ -101,8 +101,12 @@ function AuthShell({ children, plate }: { children: React.ReactNode; plate: Reac
       </div>
 
       {/* -------------------------------------------------- Panel */}
-      <div className="flex min-h-screen flex-col justify-center bg-white px-6 py-12 sm:px-10 lg:px-16">
-        <div className="mx-auto w-full max-w-[520px]">{children}</div>
+      <div className="relative flex min-h-screen flex-col justify-center bg-[#F6F3EE] px-6 py-12 sm:px-10 lg:px-16">
+        <div className="absolute inset-0 z-0 opacity-[0.16] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
+
+        <div className="relative z-10 mx-auto w-full max-w-[520px] rounded-[24px] bg-[#FCFAF8] p-6 sm:p-8 md:p-10 shadow-sm border border-gray-200/50">
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -314,9 +318,18 @@ export default function CompleteSignupPage() {
   };
 
   const wordmark = (
-    <Link href="/" className="kg-display block text-2xl leading-none text-gray-900">
-      Karigari
-    </Link>
+    <div className="flex flex-col items-center text-center sm:items-start sm:text-left mb-6">
+      <Link href="/" className="flex flex-col items-center sm:self-center w-full">
+        <Image 
+          src="/auth-logo-transparent.png" 
+          alt="Karigari" 
+          width={1024} 
+          height={366} 
+          priority
+          className="w-[180px] sm:w-[220px] h-auto object-contain"
+        />
+      </Link>
+    </div>
   );
 
   // ---- Loading: the real shell with a skeleton, not a spinner on a void ----
@@ -356,7 +369,7 @@ export default function CompleteSignupPage() {
   }
 
   const identityPanel = (
-    <div className="mt-9 flex items-start gap-4 rounded-2xl bg-[var(--color-background)] p-4">
+    <div className="mt-6 flex items-start gap-4 rounded-xl bg-[#F0EBE1]/60 p-4">
       <Avatar name={pending.name || pending.email} src={pending.picture} size={56} priority />
       <div className="min-w-0">
         <p className="truncate text-[15px] font-semibold text-gray-900">
@@ -411,7 +424,7 @@ export default function CompleteSignupPage() {
               onClick={() => void addPasskey()}
               disabled={passkeyBusy}
               className={cn(
-                "kg-press flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-gray-100 text-[15px] font-semibold text-gray-800 transition-colors hover:bg-gray-200",
+                "kg-press flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl bg-black/[0.04] text-[14px] font-semibold text-gray-800 transition-colors hover:bg-black/[0.08]",
                 passkeyBusy && "cursor-not-allowed opacity-60"
               )}
             >
@@ -426,7 +439,7 @@ export default function CompleteSignupPage() {
           <button
             type="button"
             onClick={goToDashboard}
-            className="kg-press flex min-h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-maroon)] text-[15px] font-semibold text-[#F0A48C] transition-colors hover:bg-[#6B2020]"
+            className="kg-press flex min-h-[50px] w-full items-center justify-center rounded-xl bg-[#5A1A1A] text-[14px] font-semibold text-white transition-colors hover:bg-[#4A1515]"
           >
             {passkeyDone ? t("continue_btn") : t("passkey_skip")}
           </button>
@@ -695,7 +708,7 @@ export default function CompleteSignupPage() {
 
           <button
             type="submit"
-            className="kg-press flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-maroon)] text-[15px] font-semibold text-[#F0A48C] transition-colors hover:bg-[#6B2020] disabled:opacity-60"
+            className="kg-press mt-4 flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl bg-[#5A1A1A] text-[14px] font-semibold text-white transition-colors hover:bg-[#4A1515] disabled:opacity-60"
           >
             {loading && <Loader2 size={17} className="animate-spin" />}
             {loading ? t("auth_creating") : t("auth_complete_cta")}

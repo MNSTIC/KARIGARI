@@ -2,6 +2,7 @@
 
 import React, { useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   Activity,
@@ -179,11 +180,15 @@ function Wordmark({ role }: { role: ShellRole }) {
   const { t } = useLanguage();
 
   return (
-    <Link href={homeForRole(role)} className="block shrink-0">
-      <span className="kg-display block text-[26px] leading-none text-gray-900">Karigari</span>
-      <span className="kg-label mt-1.5 block font-medium text-gray-400">
-        {t("shell_eyebrow")}
-      </span>
+    <Link href={homeForRole(role)} className="flex shrink-0 justify-center">
+      <Image
+        src="/logo.png"
+        alt="Karigari"
+        width={186}
+        height={64}
+        className="h-[46px] w-[134px] object-contain"
+        priority
+      />
     </Link>
   );
 }
@@ -303,7 +308,7 @@ export function Sidebar({
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-[264px] flex-col border-r border-gray-200/70 bg-[var(--color-sidebar)] px-4 py-7 lg:flex">
-      <div className="px-3">
+      <div className="flex justify-center pb-2">
         <Wordmark role={role} />
       </div>
 

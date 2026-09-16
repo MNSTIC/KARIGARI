@@ -1,9 +1,10 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { getPricingDiscrepancy } from '@/lib/pricing';
+import { SHOPIFY_CONFIGURED, withdrawSoldPiece } from '@/lib/shopify';
 
 /** Reads the auth cookie, so it must never be statically optimised. */
 export const dynamic = 'force-dynamic';
@@ -119,6 +120,10 @@ export async function POST(req: Request) {
         comments: `${discrepancy.reason}. Held for facilitator review under the anti-exploitation policy.`
       });
     }
+
+    // V11: a piece sold here must not stay buyable on the artisan's Shopify shop.
+    // Same after-response, never-throws withdraw as the payment route.
+    if (SHOPIFY_CONFIGURED) after(() => withdrawSoldPiece(itemId));
 
     return NextResponse.json({ success: true, item: updatedItem, pricing: discrepancy });
   } catch (error: any) {

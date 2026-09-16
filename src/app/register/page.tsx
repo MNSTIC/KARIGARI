@@ -101,15 +101,15 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--color-background)] font-sans lg:grid lg:grid-cols-[minmax(0,440px)_minmax(0,1fr)]">
+    <div className="min-h-screen bg-[var(--color-background)] font-sans lg:grid lg:grid-cols-2">
       {/* -------------------------------------------------- Plate */}
       <div className="relative hidden overflow-hidden lg:block">
         <Image
-          src="/hero-mural.jpg"
-          alt="A hand-painted Pattachitra scroll from Odisha"
+          src="/register-hero-full.jpg"
+          alt="Artisan workspace"
           fill
           priority
-          sizes="440px"
+          sizes="50vw"
           className="object-cover"
         />
         <div
@@ -130,21 +130,32 @@ export default function RegisterPage() {
       </div>
 
       {/* -------------------------------------------------- Panel */}
-      <div className="flex min-h-screen flex-col justify-center bg-white px-6 py-12 sm:px-10 lg:px-16">
-        <div className="mx-auto w-full max-w-[520px]">
-          <Link href="/" className="kg-display block text-2xl leading-none text-gray-900">
-            Karigari
-          </Link>
+      <div className="relative flex min-h-screen flex-col justify-center bg-[#F6F3EE] px-6 py-12 sm:px-10 lg:px-16">
+        <div className="absolute inset-0 z-0 opacity-[0.16] bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:500px_auto] mix-blend-multiply pointer-events-none" />
 
-          <h1 className="kg-display mt-10 text-[28px] leading-tight text-gray-900">
-            Register as Artisan
-          </h1>
-          <p className="mt-2 text-[15px] leading-relaxed text-gray-600">
-            Already have an account?{" "}
-            <Link href="/login" className="font-semibold text-gray-900 underline underline-offset-4">
-              Sign in
+        <div className="relative z-10 mx-auto w-full max-w-[520px] rounded-[24px] bg-[#FCFAF8] p-6 sm:p-8 md:p-10 shadow-sm border border-gray-200/50">
+          <div className="flex flex-col items-center text-center sm:items-start sm:text-left">
+            <Link href="/" className="flex flex-col items-center sm:self-center w-full mb-6">
+              <Image 
+                src="/auth-logo-transparent.png" 
+                alt="Karigari" 
+                width={1024} 
+                height={366} 
+                priority
+                className="w-[180px] sm:w-[220px] h-auto object-contain"
+              />
             </Link>
-          </p>
+
+            <h1 className="kg-display text-[28px] font-semibold leading-tight text-gray-900 w-full">
+              Get Started
+            </h1>
+            <p className="mt-1 text-[13px] leading-relaxed text-gray-700">
+              Already have an account?{" "}
+              <Link href="/login" className="font-semibold text-gray-900 transition-colors hover:text-gray-600 underline underline-offset-4">
+                Sign in
+              </Link>
+            </p>
+          </div>
 
           <AlreadySignedInBanner />
 
@@ -152,7 +163,7 @@ export default function RegisterPage() {
           <div
             role="radiogroup"
             aria-label="Account type"
-            className="mt-9 grid grid-cols-2 gap-1 rounded-xl bg-[var(--color-pill)] p-1"
+            className="mt-6 grid grid-cols-2 gap-1 rounded-xl bg-[#F0EBE1] p-1"
           >
             {[
               { value: "ARTISAN" as const, label: "Artisan", icon: <User size={15} /> },
@@ -167,8 +178,8 @@ export default function RegisterPage() {
                   aria-checked={active}
                   onClick={() => setRole(option.value)}
                   className={cn(
-                    "kg-press flex min-h-[44px] items-center justify-center gap-2 rounded-lg text-[14px] font-semibold transition-colors",
-                    active ? "bg-white text-gray-900 shadow-card" : "text-gray-500 hover:text-gray-800"
+                    "kg-press flex min-h-[44px] items-center justify-center gap-2 rounded-lg text-[13px] font-semibold transition-colors",
+                    active ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
                   )}
                 >
                   {option.icon}
@@ -183,22 +194,20 @@ export default function RegisterPage() {
               the six artisan fields Google cannot supply. The form below is
               unchanged and remains the way an account with a password is made. */}
           <AltSignIn role={role} showPasskey={false} />
-          <p className="mt-3 text-center text-[12px] text-gray-500">
+          <p className="mt-2 text-center text-[11px] text-gray-500">
             {t("auth_google_signup_note")}
           </p>
 
           <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
-            {/* Optional profile photo. Skipping it is fine — the Avatar falls
-                back to initials on a colour derived from the name. */}
-            <div className="flex items-center gap-4 rounded-2xl bg-[var(--color-background)] p-4">
-              <Avatar name={formData.name} src={photoUrl} size={56} />
+            <div className="flex items-center gap-4 rounded-xl bg-[#F0EBE1]/60 p-4">
+              <Avatar name={formData.name} src={photoUrl} size={48} />
               <div className="min-w-0">
                 <button
                   type="button"
                   onClick={() => photoInputRef.current?.click()}
                   className="text-[13px] font-semibold text-gray-900 underline underline-offset-4"
                 >
-                  {photoUrl ? t("change_photo") : t("add_photo")}
+                  {photoUrl ? t("change_photo") : "Add a photo"}
                 </button>
                 {photoUrl && (
                   <button
@@ -209,7 +218,7 @@ export default function RegisterPage() {
                     {t("remove")}
                   </button>
                 )}
-                <p className="mt-1 text-xs text-gray-500">{t("photo_optional_hint")}</p>
+                <p className="mt-1 text-[11px] text-gray-500">Optional. Without one we'll use your initials.</p>
               </div>
               <input
                 ref={photoInputRef}
@@ -348,7 +357,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              className="kg-press flex min-h-[52px] w-full items-center justify-center rounded-xl bg-[var(--color-maroon)] text-[15px] font-semibold text-[#F0A48C] transition-colors hover:bg-[#6B2020] disabled:opacity-60"
+              className="kg-press mt-2 flex min-h-[50px] w-full items-center justify-center gap-2 rounded-xl bg-[#5A1A1A] text-[14px] font-semibold text-white transition-colors hover:bg-[#4A1515] disabled:opacity-60"
             >
               {loading ? "Registering…" : `Register as ${role === "ADMIN" ? "Admin" : "Artisan"}`}
             </button>

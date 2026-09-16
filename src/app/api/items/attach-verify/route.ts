@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { productIdentityPrompt, provenanceReference } from '@/lib/buyerVerify';
 import { cookies } from 'next/headers';
 import jwt from 'jsonwebtoken';
 import jsQR from 'jsqr';
@@ -328,20 +329,17 @@ async function confirmSameItem(
   newBase64: string,
   craftType: string
 ): Promise<SameItemVerdict> {
-  const prompt = `You are an anti-fraud verifier for a handicraft marketplace.
-
-You are shown TWO photographs. The FIRST is the original photo an artisan captured of their "${craftType}". The SECOND is a photo of a physical product with a printed QR patch attached to it.
-
-Decide whether the SECOND photo shows THE SAME INDIVIDUAL ITEM as the first — the same piece, not merely another item of the same category.
-
-Compare: the specific motif and pattern layout, the exact colour combination, border/edge treatment, weave or texture, and any distinguishing irregularities.
-
-Be tolerant of: different lighting, white balance, camera angle, distance, background, folding or draping, and the QR sticker itself covering part of the piece.
-
-Be strict about: a different pattern, a different colour scheme, or a clearly different object. Those mean the patch has been moved to another product, which is the fraud this check exists to catch.
-
-Return JSON only:
-{ "isSameItem": true|false, "reasoning": "one short sentence the artisan can act on" }`;
+  // The shared, background-blind identity instruction (productIdentityPrompt in
+  // src/lib/buyerVerify.ts) — the same definition of "the same piece" the buyer
+  // and ready checks use. Only this route's situation and output differ. The QR
+  // itself is decoded and compared as an exact string in check 1, not here.
+  const prompt = productIdentityPrompt({
+    craftType,
+    secondPhoto:
+      'a photo of a physical product with a printed QR patch attached to it. If it is a different piece, the patch has been moved to another product — the fraud this check exists to catch',
+    output:
+      'Return JSON only:\n{ "isSameItem": true|false, "reasoning": "one short sentence the artisan can act on" }',
+  });
 
   const result = await generateContentWithFallback(
     [
@@ -405,6 +403,7 @@ export async function POST(req: Request) {
         patchId: true,
         craftType: true,
         images: true,
+        originalImageUrl: true,
         qrVerified: true,
       },
     });
@@ -422,7 +421,9 @@ export async function POST(req: Request) {
       // Idempotent: re-submitting an already-verified piece is not an error.
       return NextResponse.json({ success: true, status: 'SELLABLE', alreadyVerified: true });
     }
-    if (!item.images?.[0]) {
+    // The camera frame, never the chosen listing look — see provenanceReference().
+    const referenceImage = provenanceReference(item);
+    if (!referenceImage) {
       return NextResponse.json(
         { success: false, reason: 'The original capture has no photo to compare against.' },
         { status: 409 }
@@ -468,7 +469,7 @@ export async function POST(req: Request) {
     }
 
     /* ---- Check 2: it is the same physical piece --------------------------- */
-    const originalBase64 = await originalAsBase64(item.images[0], req);
+    const originalBase64 = await originalAsBase64(referenceImage, req);
     if (!originalBase64) {
       return NextResponse.json(
         {

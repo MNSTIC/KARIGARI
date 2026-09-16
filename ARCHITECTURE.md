@@ -7,12 +7,13 @@
 | Concern | Reality in code |
 |---|---|
 | Framework | Next.js **App Router** (TypeScript, React server + client components) |
-| Data | **Prisma → PostgreSQL** via `PrismaPg` adapter. Models: `User`, `ArtisanProfile`, `CraftItem`, `AuditLog`, `SchemeApplication`, `Demand`, `ArtisanOrder`, `OrderLog`, `Notification`, `BuyerNotification`, `Ticket`, `Review`, `ResourceRequest`, `Creator`, `AffiliateClick` |
+| Data | **Prisma → PostgreSQL** via `PrismaPg` adapter. Models: `User`, `ArtisanProfile`, `CraftItem`, `AuditLog`, `SchemeApplication`, `Demand`, `ArtisanOrder`, `OrderLog`, `Notification`, `BuyerNotification`, `Ticket`, `Review`, `ResourceRequest`, `Creator`, `AffiliateClick`, `ShopifyShop` (V11) |
 | Auth | **JWT** (`jsonwebtoken`) in an **httpOnly cookie** `auth-token` (7d), minted in one place (`src/lib/authSession.ts`). Three ways to get one: **password** (`bcryptjs`), **Google** (hand-rolled OAuth 2.0 + PKCE, `id_token` verified against Google's JWKS with `node:crypto` — no `next-auth`), and **passkeys** (`@simplewebauthn`). `User.authProvider` records which. Google and passkeys are for NEW accounts only: a Google sign-in on an email that already has a password account is **refused**, never auto-linked |
 | RBAC | **No `middleware.ts`.** Every protected handler runs `jwt.verify()` then checks `decoded.role`; else `401/403` |
 | Roles | Prisma `Role` enum is **`ADMIN | ARTISAN` only** — there is still **no Buyer role**. Buyers are identified by a free-text `buyerName` matched case-insensitively on `Demand`, `CraftItem`, `Review`, `Ticket` and `BuyerNotification`. This is why buyer alerts live in their own model rather than in nullable-user `Notification` rows |
 | Admin model | One `ADMIN` role, two dashboard views: **Facilitator** (field, unmasked PII) and **Nodal** (macro, no PII) |
-| AI | Google **Gemini** (`@google/genai`) for vision/valuation/voice; **OpenAI Whisper** for STT. All fall back to simulated output if keys are absent |
+| AI | Google **Gemini** (`@google/genai`) for vision/valuation/voice; **OpenAI Whisper** for STT. All fall back to simulated output if keys are absent. Background removal runs **on the device** (`@imgly/background-removal`, WebGPU + worker) or, behind `SERVER_CUTOUT_ENABLED`, **on the server** (`@imgly/background-removal-node`). Gemini image models are asked for **empty backdrops only**, never a product — and the free-tier key has no image quota, so that tier is absent in practice |
+| Outbound commerce | **Shopify Admin GraphQL** (V11) — the only channel that performs a real outbound write. One platform store; each artisan's shop is a collection in it. Env-gated; every other syndication channel is export-only |
 | Payments | **Razorpay Checkout is wired and live.** `/api/payments/create-order` opens it; `/api/payments/verify-payment` is the trust boundary and writes nothing until the HMAC signature checks out. The charge is a flat ₹1 demo amount (`paidAmountPaise`); the sale is always booked at the DISPLAYED price (`salePrice`). Money **out** to an artisan needs RazorpayX, which is not enabled — `/api/payments/settle-escrow` records each tranche as `SIMULATED`, never as a bank credit |
 
 ---
@@ -56,8 +57,11 @@ graph TD
   subgraph CAPTURE["Craft Capture and AI Valuation"]
     DASH --> CAP["CaptureModal"]:::ui
     CAP --> VP["POST /api/items/voice-parse<br/>Gemini STT + extract"]:::ai
-    CAP --> VV["POST /api/items/vision-verify<br/>Gemini authenticity + copy"]:::ai
-    CAP --> CE["POST /api/items/capture<br/>fair-wage engine"]:::api
+    CAP --> STUDIO["PhotoStudio (V11)<br/>pre-check, retake, choose the look"]:::ui
+    STUDIO --> VV["POST /api/items/vision-verify<br/>match, score, blur, exposure, retakeAdvice"]:::ai
+    STUDIO --> BG["POST /api/items/background<br/>server cutout, env-gated"]:::api
+    STUDIO --> BD["POST /api/items/backdrop<br/>empty backdrops only"]:::ai
+    CAP --> CE["POST /api/items/capture<br/>fair-wage engine + look provenance"]:::api
     CE --> BENCH["validateArtisanClaim<br/>benchmark guardrail"]:::api
     CE --> NEWITEM[("CraftItem status<br/>PENDING_VERIFICATION")]:::db
     CE --> LOG1[("AuditLog: UPLOAD_CREATED")]:::db
@@ -94,12 +98,14 @@ graph TD
   RADV -. buyer scan sale .-> BUYER["Buyer QR verify /verify/patchId"]:::ext
   DASH --> VO["VoiceOnboarding<br/>/api/transcribe + /api/voice-assistant"]:::ai
   DASH --> INS["Insights /artisan/insights"]:::ui
-  DASH --> MKT["Market /artisan/market<br/>ONDC listing UI - NOT YET IMPLEMENTED"]:::flag
+  DASH --> MKT["Market /artisan/market<br/>listings, look picker, Syndication Hub"]:::ui
+  MKT --> SYN["POST /api/artisan/syndicate<br/>EXPORT channels: payloads, not sent"]:::api
+  MKT --> SHOP["POST /api/artisan/shopify/publish<br/>LIVE_PUBLISH: real Shopify product"]:::ext
 ```
 
-**Routes:** `POST /api/auth/register`, `GET /api/artisan/dashboard`, `PUT /api/artisan/profile`, `POST /api/items/voice-parse`, `POST /api/items/vision-verify`, `POST /api/items/capture` → `PENDING_VERIFICATION`, `POST /api/artisan/vision-verify`, `POST /api/disbursement/apply` → `ADVANCE_PAID|SOLD_MIDDLEMAN|LISTED_AUCTION`, `POST /api/artisan/cross-check` → `TAG_ATTACHED`, `GET /api/artisan/schemes`, `POST /api/artisan/schemes/apply`, `POST /api/artisan/request-review` → `APPLIED_FOR_REVIEW`.
+**Routes:** `POST /api/auth/register`, `GET /api/artisan/dashboard`, `PUT /api/artisan/profile`, `POST /api/items/voice-parse`, `POST /api/items/vision-verify`, `POST /api/items/background`, `POST /api/items/backdrop`, `POST /api/items/capture` → `PENDING_VERIFICATION`, `GET|PATCH /api/artisan/listings` (incl. `?looks=` and `selectedImageVariant`), `POST /api/artisan/syndicate`, `GET /api/artisan/shopify`, `POST /api/artisan/shopify/publish`, `POST /api/artisan/vision-verify`, `POST /api/disbursement/apply` → `ADVANCE_PAID|SOLD_MIDDLEMAN|LISTED_AUCTION`, `POST /api/artisan/cross-check` → `TAG_ATTACHED`, `GET /api/artisan/schemes`, `POST /api/artisan/schemes/apply`, `POST /api/artisan/request-review` → `APPLIED_FOR_REVIEW`.
 
-Fair-wage engine (in `/api/items/capture`): `fairWageFloor = laborDays*baseWage + rawMaterialCost + 10% overhead`. `/artisan/market` (ONDC) is **UI-only — [Not Yet Implemented]**.
+Fair-wage engine (in `/api/items/capture`): `fairWageFloor = laborDays*baseWage + rawMaterialCost + 10% overhead`. `/artisan/market` is **real**: the artisan's listings with editable ONDC copy, the production-stage ladder, the V11 look picker, and the Syndication Hub (export channels plus, when configured, the Shopify card). See §4 for the capture pipeline and the channel status machines.
 
 ---
 
@@ -258,6 +264,41 @@ graph LR
 ### CraftItem status machine
 `PENDING_VERIFICATION → VERIFIED → TAG_ATTACHED → (ADVANCE_PAID | SOLD_MIDDLEMAN | LISTED_AUCTION | PENDING_DISBURSEMENT) → SOLD_FINAL → PAYOUT_COMPLETED`; penalty branch `FLAGGED → APPLIED_FOR_REVIEW`. Every transition writes an immutable `AuditLog` row (hash-ledger via `ledgerHash`).
 
+### Capture pipeline — the Photo Studio (V11)
+
+Step 2 of `CaptureModal` runs `usePhotoStudio()` (`src/components/PhotoStudio.tsx`). Off with `NEXT_PUBLIC_PHOTO_STUDIO_ENABLED=false`, which restores the pre-V11 single auto-enhanced frame.
+
+| Stage | Where | What is true |
+|---|---|---|
+| 1. Pre-check | `assessPhotoLocally()` · `src/lib/photoQuality.ts` | On-device blur (Laplacian variance) and exposure on a 256 px thumbnail. **Warns only** — never produces a retake. Thresholds calibrated on 80 seed photos. |
+| 2. Verdict | `POST /api/items/vision-verify` → `adviseRetake()` · `src/lib/photoGate.ts` | One Gemini call on the **camera frame**. `PASS \| SOFT \| RETAKE`. RETAKE only for a mismatch, severe blur, score ≤ 3, or bad exposure at score ≤ 4; after one retake, never again. An unreadable model reply is `scoreSource: FALLBACK`; a 5xx is "check unavailable". Neither shows an "AI checked" claim, and `photoQualitySource` records `AI \| HEURISTIC \| UNCHECKED`. |
+| 3. Cutout | `obtainCutout()` · `src/lib/imageEnhance.ts` | `ON_DEVICE` (WebGPU + worker) → `SERVER` (`/api/items/background`, when enabled) → `NONE`. `assessCutout()` discards a cutout that cut into the craft (calibrated on 60 seed photos) and says so. |
+| 4. Looks | `buildPhotoVariants()` | Original (first, always), Enhanced, five canvas presets drawn from theme tokens, and at most two looks on Gemini-generated **empty** backdrops. The cutout is always drawn last. |
+| 5. Pick | `LookGallery` radiogroup | The pick becomes `images[0]`. Changeable later on `/artisan/market`; locked once `paidAt` is set. |
+| 6. Persist | `POST /api/items/capture`, `POST /api/items/complete-draft` | `src/lib/photoStudioPayload.ts` caps: ≤ 4 photos × 2 MB; original ≤ 2 MB; enhanced ≤ 1 MB; ≤ 8 thumbnails; cutout ≤ 700 KB; blob ≤ 1.2 MB — optional data is dropped, never the capture. Measured: a 4.78 MB camera photo stores as 549 KB in total. |
+
+**Provenance, enforced twice.** (1) Every authenticity comparator — `verifyBuyerImage`, `verify-ready`, `attach-verify`, `verify-authenticity` — reads `provenanceReference(item) = originalImageUrl ?? images[0]`, so a chosen look is never what a delivered piece is judged against. (2) `enforceLookProvenance()` (`src/lib/lookProvenance.ts`) proves on the server that a non-Original look's product pixels come from the camera frame — gradient-structure correlation, frame → cutout → look, calibrated so every genuine look passed and every substituted or redrawn product in the set failed. A look that fails or cannot be proven is replaced by the camera frame and noted. The listing picker's PATCH refuses such a look with 422.
+
+### Syndication channels and the Shopify status machine (V11)
+
+`SyndicationPlatform.mode` separates the two kinds of channel **structurally**:
+
+- `EXPORT` — Paytm/Magicpin (ONDC), GeM, Amazon Karigar. `POST /api/artisan/syndicate` stamps `syndicatedChannels` and builds payloads. **Nothing is transmitted.** `normalizePlatforms()` accepts only EXPORT keys, so the master switch can never stamp a live channel.
+- `LIVE_PUBLISH` — the artisan's Shopify shop. Written only by `POST /api/artisan/shopify/publish`, only after Shopify confirms.
+
+**The model.** Shopify's Admin API cannot create stores: ONE platform store, provisioned by hand; each artisan's shop is a custom collection `karigari-<name>-<8 hex of id>`, published to the Online Store, with their name as every product's vendor. `ShopifyShop` (one per artisan, `@unique artisanId`) is claimed before any Shopify write, so concurrent first publishes create exactly one collection.
+
+`CraftItem.shopifyStatus`: `null / NOT_PUBLISHED → PUBLISHING → LIVE`; `PUBLISHING → FAILED → PUBLISHING` on Retry; `LIVE → WITHDRAWN` (terminal).
+
+| Transition | Endpoint / function | Guard |
+|---|---|---|
+| claim `→ PUBLISHING` | `POST /api/artisan/shopify/publish` | owner (403 otherwise); `unpurchasableReason() === null`; a price; a photo; guarded `updateMany` — a fresh claim returns 409, a claim older than 3 min is taken over |
+| `→ LIVE` | same, after `ensureArtisanShop()` → `publishProduct()` | `productSet` upserts by the deterministic handle `karigari-<patch>-<8 hex of item id>`, so a retry updates rather than duplicates. `shopifyProductId` is written the moment Shopify returns it. |
+| `→ FAILED` + `shopifySyncError` | same | An actionable sentence per failure: auth, missing scope, throttled, refused listing, network, wrong currency. A failed update of a LIVE product stays `LIVE` with the error. |
+| `LIVE → WITHDRAWN` | `withdrawSoldPiece()` in `after()` of `POST /api/payments/verify-payment` and `POST /api/admin/simulate-sale` | Sold on Karigari → the Shopify product is set to DRAFT. If Shopify refuses, the row stays LIVE and says so. |
+
+Price on Shopify is `salePrice ?? getListingPrice(item)` in **rupees**. The ₹10 demo charge and ₹4 advance never reach a listing, and a non-INR store is refused. With `SHOPIFY_LOCATION_ID`, a piece is stock-tracked at quantity 1 with `inventoryPolicy: DENY`, set on first publish only. Orders placed on Shopify are fulfilled in Shopify admin; they do not enter Karigari's escrow.
+
 
 ### Demand + ArtisanOrder status machine (V9)
 
@@ -380,7 +421,9 @@ To ensure **100% digital inclusion** and B2B scalability, KARIGARI implements fo
 | Cart & wishlist | **[Not Yet Implemented]** | — |
 | Razorpay checkout | **Implemented (money IN)** | Live keys, HMAC-verified in `verify-payment`. ₹1 demo charge; sale booked at the displayed price. Money OUT still `SIMULATED` |
 | Order history / reviews | **Implemented** | `/buyer` My Orders (`GET /api/buyer/orders`), `POST /api/reviews`. Returns still absent |
-| ONDC B2B listing | **Partial** | `/artisan/market` is real (listings, syndication hub, `GET /api/ondc/catalog`). Its `buyers` tab is now a read-only preview that deep-links to `/artisan/orders?tab=demands&demandId=` — one accept path, one source of truth |
+| ONDC B2B listing | **Partial** | `/artisan/market` is real (listings, syndication hub, `GET /api/ondc/catalog`). Export channels prepare payloads and **do not transmit**. Its `buyers` tab is a read-only preview that deep-links to `/artisan/orders?tab=demands&demandId=` — one accept path, one source of truth |
+| AI photo studio | **Implemented (V11)** | Lenient quality gate, cutout ladder, canvas looks, server-enforced look provenance. Generated backdrops built but absent on a free-tier Gemini key |
+| Shopify artisan shops | **Implemented (V11), env-gated** | One store, a collection per artisan, real products via `productSet`, withdraw on sale. Verified against a stateful fake Admin API and an unreachable store — **not yet against a real store** |
 | Product moderation / disputes | **Implemented** | `resolve-flag`, `request-review`, grace-period flagging |
 | Payout / commission tracking | **Partial** | Endpoints + ledger exist and are exercised; RazorpayX is off, so each tranche is recorded `SIMULATED` and must never be described as paid |
 | Buyer↔artisan order sync | **Implemented (V9)** | One lifecycle, `BuyerNotification` feed, ready/pack/dispatch chain, unified `GET /api/demand/track` |

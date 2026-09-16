@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ArrowUpDown, CheckCircle2, Info, ShieldCheck, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 import { FilterTabs, Pill } from "@/components/ui/FilterTabs";
@@ -146,16 +147,15 @@ export default function MarketplacePage() {
     <div className="min-h-screen bg-[var(--color-background)] font-sans">
       <header className="sticky top-0 z-40 border-b border-gray-200/60 bg-[var(--color-background)]/90 backdrop-blur-md">
         <div className="mx-auto flex h-[72px] max-w-[1180px] items-center gap-4 px-4 sm:px-6 lg:px-10">
-          <Link href="/" className="flex shrink-0 items-center gap-2.5">
-            <span
-              aria-hidden
-              className="kg-display flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-[17px] text-white"
-            >
-              K
-            </span>
-            <span className="kg-display hidden text-[21px] leading-none text-gray-900 sm:block">
-              Karigari
-            </span>
+          <Link href="/" className="flex shrink-0 items-center">
+            <Image
+              src="/logo.png"
+              alt="Karigari"
+              width={186}
+              height={64}
+              className="h-[44px] w-[128px] object-contain mt-1"
+              priority
+            />
           </Link>
 
           <div className="ml-auto flex min-w-0 items-center gap-3 sm:gap-4">

@@ -7,6 +7,8 @@ import { logCraftItemEvent } from '@/lib/auditLogger';
 import { validateArtisanClaim } from '@/lib/benchmarkData';
 import { estimateCraftValuation, getPricingDiscrepancy } from '@/lib/pricing';
 import { dataUrlBytes, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/fileToDataUrl';
+import { resolveStudioFields, validateListingImages } from '@/lib/photoStudioPayload';
+import { enforceLookProvenance } from '@/lib/lookProvenance';
 
 /** Reads the auth cookie, so it must never be statically optimised. */
 export const dynamic = 'force-dynamic';
@@ -62,6 +64,23 @@ export async function POST(req: Request) {
     if (!craftType || rawMaterialCost === undefined || laborDays === undefined) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
+
+    // The listing photos are refused, not trimmed, when over the caps: a
+    // silently dropped photo is a listing the artisan never approved.
+    const listingImages = validateListingImages(images);
+    if (!listingImages.ok) {
+      return NextResponse.json({ error: listingImages.error }, { status: 400 });
+    }
+    // V11 photo studio. Optional data is capped and dropped, never refused —
+    // see src/lib/photoStudioPayload.ts. `{}` from a pre-V11 client. Then the
+    // chosen look must be provably the camera frame's pixels, or the frame
+    // itself is listed — see src/lib/lookProvenance.ts.
+    const proven = await enforceLookProvenance(
+      resolveStudioFields(body, listingImages.images),
+      listingImages.images
+    );
+    const studioFields = proven.fields;
+    const storedImages = proven.images;
 
     /**
      * Optional raw-material bill. JPEG/PNG/PDF only, and capped at the same
@@ -204,7 +223,8 @@ export async function POST(req: Request) {
         descriptionEnglish,
         aiGeneratedListing,
         tags: tags || [],
-        images: images || [],
+        images: storedImages,
+        ...studioFields,
         rawMaterialCost: rawCost,
         rawMaterialProofUrl: billProofUrl,
         laborDays: days,
@@ -234,7 +254,18 @@ export async function POST(req: Request) {
       actorId: decoded.userId,
       actorRole: 'ARTISAN',
       action: 'UPLOAD_CREATED',
-      newState: { status: 'PENDING_VERIFICATION' },
+      newState: {
+        status: 'PENDING_VERIFICATION',
+        ...(studioFields.photoQualitySource
+          ? {
+              photoQualitySource: studioFields.photoQualitySource,
+              photoQualityScore: studioFields.photoQualityScore ?? null,
+              selectedImageVariant: studioFields.selectedImageVariant ?? null,
+              backgroundRemovalMode: studioFields.backgroundRemovalMode ?? null,
+              photoRetakeCount: studioFields.photoRetakeCount ?? 0,
+            }
+          : {}),
+      },
       comments: `Artisan uploaded ${craftType}. Auto-verified math plausible. Sent to Admin for review.`
     });
 

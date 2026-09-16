@@ -1,0 +1,211 @@
+/*
+ * NotificationTicker — three faint strips gliding right to left.
+ *
+ * Tune it with the variables on `.ticker`:
+ *   --ticker-duration      one full crossing of a strip; all three share it
+ *   --ticker-stagger       how far behind the previous strip each one starts,
+ *                          as a fraction of that cycle (0.2 = 20%)
+ *   --ticker-start         where the whole cycle is on first paint, as a
+ *                          fraction; 0.25 puts strip 1 just inside the right
+ *                          edge, so the region is never empty on load
+ *   --ticker-fade          width of the soft fade at each edge of the region
+ *   --ticker-lane-height   height of one strip
+ *   --ticker-lane-gap      vertical breathing room between strips
+ *
+ * How the loop stays seamless. Each lane's track is `padding-left: 100%` of the
+ * lane plus one strip; animating it from translateX(0) to translateX(-100%)
+ * carries the strip from fully past the right edge to fully past the left edge,
+ * so the restart happens while nothing is visible. Every strip gets the SAME
+ * width (the widest of the three, or --ticker-strip-min of the region if that
+ * is wider — measured in JS and written to --ticker-strip-width), so every lane
+ * travels the same distance in the same
+ * time: identical speeds, and the stagger set by the negative delays below
+ * never drifts.
+ */
+
+.ticker {
+  --ticker-duration: 32s;
+  --ticker-stagger: 0.2;
+  --ticker-start: 0.25;
+  --ticker-fade: 12%;
+  --ticker-lane-height: 40px;
+  --ticker-lane-gap: 6px;
+  --ticker-font-size: 15px;
+  /* A strip is never narrower than this share of the region, so the colour
+     haze reads as a long band (as in the reference) and every lane always has
+     its strip in view. Its text stays centred. */
+  --ticker-strip-min: 0.72;
+  --ticker-strip-width: max-content;
+
+  position: relative;
+  display: grid;
+  gap: var(--ticker-lane-gap);
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  /* The atmospheric edge: strips dissolve into the page at both sides. */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--ticker-fade),
+    #000 calc(100% - var(--ticker-fade)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 var(--ticker-fade),
+    #000 calc(100% - var(--ticker-fade)),
+    transparent 100%
+  );
+}
+
+.lane {
+  height: var(--ticker-lane-height);
+  overflow: hidden;
+}
+
+.track {
+  display: flex;
+  width: max-content;
+  height: 100%;
+  padding-left: 100%;
+  will-change: transform;
+  animation: ticker-glide var(--ticker-duration) linear infinite;
+  animation-delay: calc(var(--ticker-duration) * var(--ticker-start) * -1);
+}
+
+/* The same cycle for all three, offset by whole fractions of it. */
+.lane:nth-child(2) .track {
+  animation-delay: calc(var(--ticker-duration) * (var(--ticker-start) + var(--ticker-stagger)) * -1);
+}
+.lane:nth-child(3) .track {
+  animation-delay: calc(var(--ticker-duration) * (var(--ticker-start) + var(--ticker-stagger) * 2) * -1);
+}
+
+@keyframes ticker-glide {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-100%, 0, 0);
+  }
+}
+
+.strip {
+  --strip-bg: #eef7e9;
+  --strip-fg: #16743e;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ticker-strip-width);
+  height: 100%;
+  padding: 0 clamp(56px, 8vw, 120px);
+  gap: 0.6em;
+  white-space: nowrap;
+  font: inherit;
+  font-size: var(--ticker-font-size);
+  font-weight: 500;
+  line-height: 1;
+  color: var(--strip-fg);
+  /* A colour haze, not a box: transparent at both ends, so no strip ever shows
+     a hard rectangular start or finish even before the region's edge fade. */
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--strip-bg) 22%,
+    var(--strip-bg) 78%,
+    transparent 100%
+  );
+  border: 0;
+  cursor: pointer;
+  text-decoration: none;
+  opacity: 0.9;
+  transition: opacity 200ms ease;
+}
+
+.strip:hover {
+  opacity: 1;
+}
+
+.strip:focus-visible {
+  outline: 2px solid var(--strip-fg);
+  outline-offset: -4px;
+  opacity: 1;
+}
+
+.insight {
+  --strip-bg: #eef7e9;
+  --strip-fg: #16743e;
+}
+
+.sync {
+  --strip-bg: #edf5ff;
+  --strip-fg: #1857a8;
+}
+
+.delivery {
+  --strip-bg: #fff1de;
+  --strip-fg: #96501e;
+}
+
+.lead {
+  font-weight: 700;
+}
+
+.arrow {
+  display: inline-block;
+  margin-left: 0.35em;
+  transition: transform 200ms ease;
+}
+
+.strip:hover .arrow {
+  transform: translateX(3px);
+}
+
+/* A keyboard user who tabs onto a moving target gets it held still. Hover does
+   NOT pause — the glide keeps going under the pointer, as specified. */
+.ticker:focus-within .track {
+  animation-play-state: paused;
+}
+
+/* Hidden copy used to measure the widest strip before it moves. */
+.measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  height: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+@media (max-width: 1023px) {
+  .ticker {
+    --ticker-font-size: 14px;
+    --ticker-lane-height: 38px;
+  }
+}
+
+@media (max-width: 639px) {
+  .ticker {
+    --ticker-font-size: 13px;
+    --ticker-lane-height: 36px;
+    --ticker-lane-gap: 4px;
+    --ticker-fade: 8%;
+  }
+}
+
+/* No motion requested: the three strips sit still, centred and fully readable. */
+@media (prefers-reduced-motion: reduce) {
+  .track {
+    animation: none;
+    padding-left: 0;
+    width: 100%;
+    justify-content: center;
+  }
+  .strip {
+    width: auto;
+    max-width: 100%;
+  }
+}

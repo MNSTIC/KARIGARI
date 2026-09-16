@@ -35,6 +35,86 @@ export const base64Bytes = dataUrlBytes;
  * actually arrived at — the same rule `/api/demand/match` already follows with
  * its `scoredBy: 'text' | 'reference'`.
  */
+/**
+ * The frame every authenticity check compares against: the artisan's own
+ * camera capture.
+ *
+ * Since V11 an artisan chooses how their listing LOOKS — the original, the
+ * enhanced frame, or their piece cut out onto a studio backdrop — and that
+ * choice lands in `images[0]`. It must never become the thing authenticity is
+ * judged against. A buyer photographs the delivered piece on their own floor;
+ * comparing that to a studio composite asks a different question from "is this
+ * the piece the artisan photographed", and a generated backdrop has no business
+ * in a provenance decision at all. `originalImageUrl` is the camera frame, kept
+ * untouched at capture time.
+ *
+ * Rows captured before V11 have no `originalImageUrl`, and for them
+ * `images[0]` IS the capture — so they behave exactly as they always did.
+ *
+ * Used by all four comparators: verifyBuyerImage below,
+ * /api/artisan/orders/verify-ready, /api/items/attach-verify and
+ * /api/verify-authenticity. A fifth must use it too.
+ */
+export function provenanceReference(item: {
+  originalImageUrl?: string | null;
+  images?: string[] | null;
+}): string | null {
+  return item.originalImageUrl || item.images?.[0] || null;
+}
+
+/**
+ * The product-identity instruction every authenticity comparator sends — the
+ * ONE wording.
+ *
+ * BACKGROUND-BLIND ON PURPOSE. The reference is the artisan's camera frame (see
+ * `provenanceReference()`), but the other photo is taken by a buyer on their
+ * own table, or by the artisan in a different room on a different day. A prompt
+ * that simply says "compare weave, texture, colour and style" lets the model
+ * score a white studio sweep against a cluttered kitchen table as dissimilar —
+ * a false rejection for the most honest artisans, the ones whose listing looks
+ * good. So the setting is excluded explicitly, in both directions: a different
+ * background is not evidence of a mismatch, and a MATCHING background is not
+ * evidence of a match either. Judging the product alone makes it harder, not
+ * easier, to pass off a different object.
+ *
+ * Used by `compareProductPhotos()` (buyer delivery check + artisan ready check),
+ * `/api/items/attach-verify` (QR patch attach) and `/api/verify-authenticity`.
+ * Each caller appends only its own JSON output contract, so the definition of
+ * "the same piece" cannot drift between them. QR / patch codes are compared
+ * separately as exact strings and are deliberately outside this instruction.
+ */
+export function productIdentityPrompt(input: {
+  /** The artisan's description of the piece, when the caller has it. */
+  craftType?: string | null;
+  /** What the SECOND photo is, in the caller's situation. */
+  secondPhoto: string;
+  /** The caller's JSON output contract, appended verbatim. */
+  output: string;
+}): string {
+  const described = input.craftType?.trim() ? ` (described as "${input.craftType.trim().slice(0, 120)}")` : '';
+  return `You are verifying the physical identity of ONE handcrafted piece for a fair-trade marketplace.
+
+The FIRST photo is the artisan's original capture of the piece${described}. The SECOND photo is ${input.secondPhoto}.
+
+The two photos were taken in different places, at different times, on different cameras. Their backgrounds, surfaces, props, lighting, colour temperature, shadows, camera angle, distance, framing and staging are EXPECTED to differ completely. Disregard all of that entirely. None of it is evidence for or against a match: a different background does not make the pieces different, and a similar or identical background does not make them the same.
+
+Judge ONLY the physical product itself:
+- weave or knit pattern, and surface texture
+- the colours of the piece (allowing for lighting and white balance)
+- material
+- shape and silhouette (allowing for folding, draping and perspective)
+- visible motifs, borders and embellishments, and how they are laid out
+- proportions, and the small irregularities that make a handmade piece individual
+
+It must be the SAME INDIVIDUAL PIECE — another piece of the same category, or a similar design in a different colourway or layout, is NOT a match.
+
+Example: a studio-lit photo of a saree on a plain white backdrop, compared with a phone photo of that same saree folded on a kitchen table under a yellow bulb, IS a match when the saree itself — its motifs, border, colours and weave — is identical; the white backdrop, the table and the lighting are not evidence of a mismatch. Two different sarees photographed on the same bedsheet in the same room are NOT a match.
+
+You are answering "is this the same physical object?", not "was this photographed in the same place?". Do not read or judge any QR code, patch, label or sticker: those are checked separately by exact comparison, and a sticker covering part of the piece is not a difference.
+
+${input.output}`;
+}
+
 export interface PhotoComparison {
   /** 0-100, clamped. */
   similarityScore: number;
@@ -72,8 +152,14 @@ export async function compareProductPhotos(
       `[compare] original ${describeSaving(preparedOriginal)}, candidate ${describeSaving(preparedCandidate)}`
     );
 
-    const prompt =
-      'Compare these two photos of a handcrafted artisan product. Analyse weave, texture, colour, and style. Reply as JSON only: { "isAuthentic": boolean, "similarityScore": number 0-100, "reasoning": "string" }';
+    // Background-blind: see productIdentityPrompt(). The output contract, the
+    // threshold, the downscale and the fallback below are unchanged.
+    const prompt = productIdentityPrompt({
+      secondPhoto:
+        'a new photo of the piece, taken later by a buyer or by the artisan, in whatever setting they happened to be in',
+      output:
+        'similarityScore is your confidence, from 0 to 100, that the SECOND photo shows the same physical piece — judged on the product alone.\nReply as JSON only: { "isAuthentic": boolean, "similarityScore": number 0-100, "reasoning": "string" }',
+    });
 
     const response = await generateContentWithFallback(
       [
@@ -172,6 +258,7 @@ export async function verifyBuyerImage(
       id: true,
       artisanId: true,
       images: true,
+      originalImageUrl: true,
       artisan: { select: { name: true } },
     },
   });
@@ -221,7 +308,8 @@ export async function verifyBuyerImage(
     }
   }
 
-  const originalImage = item.images?.[0] ?? null;
+  // The camera frame, never the artisan's chosen look — see provenanceReference().
+  const originalImage = provenanceReference(item);
   if (!originalImage) {
     return {
       patchIdValid: true,

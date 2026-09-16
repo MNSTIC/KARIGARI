@@ -15,6 +15,7 @@
     "@ducanh2912/next-pwa": "^10.2.6",
     "@google/genai": "^2.17.1",
     "@imgly/background-removal": "^1.7.0",
+    "@imgly/background-removal-node": "^1.4.5",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.10.0",
     "@simplewebauthn/browser": "^14.0.0",
@@ -64,5 +65,10 @@
     "prisma@7.10.0": true,
     "protobufjs@7.6.5": true,
     "unrs-resolver@1.12.2": true
+  },
+  "overrides": {
+    "@imgly/background-removal-node": {
+      "sharp": "0.35.4"
+    }
   }
 }

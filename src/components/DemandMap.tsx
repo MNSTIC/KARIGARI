@@ -174,13 +174,22 @@ export default function DemandMap({
    */
   const [mapKey] = useState(() => `map-${Math.random().toString(36).slice(2)}`);
   const mapRef = useRef<L.Map | null>(null);
-  useEffect(
-    () => () => {
-      mapRef.current?.remove();
-      mapRef.current = null;
-    },
-    []
-  );
+
+  useEffect(() => {
+    return () => {
+      // During Fast Refresh or Strict Mode unmount, do NOT call map.remove()
+      // as it causes "Cannot read properties of undefined (reading 'appendChild')".
+      // Instead, just clear Leaflet's initialization stamp so the next mount
+      // doesn't throw "Map container is being reused by another instance".
+      if (mapRef.current) {
+        const container = mapRef.current.getContainer();
+        if (container) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          delete (container as any)._leaflet_id;
+        }
+      }
+    };
+  }, []);
 
   return (
     <div className="relative w-full aspect-video rounded-xl border border-gray-200 overflow-hidden shadow-inner">

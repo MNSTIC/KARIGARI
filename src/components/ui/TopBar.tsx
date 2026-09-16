@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Globe, LogOut, Menu, Package, Search, SignalLow } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
@@ -324,8 +325,15 @@ export function TopBar({
 
         {/* The wordmark only appears where the rail is hidden; above lg it
             already sits at the top of the sidebar. */}
-        <Link href={role === "ADMIN" ? "/admin/facilitator" : "/artisan/dashboard"} className="lg:hidden">
-          <span className="kg-display text-xl leading-none text-gray-900">Karigari</span>
+        <Link href={role === "ADMIN" ? "/admin/facilitator" : "/artisan/dashboard"} className="lg:hidden shrink-0">
+          <Image
+            src="/logo.png"
+            alt="Karigari"
+            width={186}
+            height={64}
+            className="h-[34px] w-[99px] object-contain"
+            priority
+          />
         </Link>
 
         <div className="ml-auto hidden min-w-0 max-w-[420px] flex-1 sm:ml-0 sm:block lg:max-w-[520px]">
