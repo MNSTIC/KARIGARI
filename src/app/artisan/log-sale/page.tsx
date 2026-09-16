@@ -283,7 +283,11 @@ export default function LogSalePage() {
   }, []);
 
   const loadQueue = useCallback(async () => {
-    setQueued(await listQueuedOfflineSales());
+    const rows = await listQueuedOfflineSales();
+    setQueued(rows);
+    // A sale that was "saved on this phone" and has since uploaded is simply
+    // saved; the card must not keep telling the artisan they are offline.
+    if (rows.length === 0) setDone((current) => (current === "queued" ? "saved" : current));
   }, []);
 
   useEffect(() => {
@@ -789,7 +793,9 @@ export default function LogSalePage() {
 
             {/* ------------------------------------------------ the sale */}
             <Card pad="lg" className="kg-enter space-y-7">
-              <fieldset>
+              {/* min-w-0: a fieldset defaults to min-width: min-content, which
+                  would stretch it to the whole rail and scroll the page. */}
+              <fieldset className="min-w-0">
                 <legend className="mb-3 text-[13px] font-semibold text-gray-800">{t("log_sale_pick_piece")}</legend>
                 <div className="kg-rail -mx-6 flex gap-3 overflow-x-auto px-6 pb-1 sm:-mx-8 sm:px-8">
                   <button

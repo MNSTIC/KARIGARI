@@ -17,6 +17,7 @@ import {
   Package,
   Pencil,
   Plus,
+  Store,
   TrendingUp,
   Zap,
 } from "lucide-react";
@@ -401,6 +402,9 @@ export default function MarketPage() {
     const isEditing = editingId === item.id;
     const listingText = item.descriptionEnglish || item.aiGeneratedListing || "";
     const risk = marketRisk(item);
+    // Sold by the artisan at a haat: not live anywhere, and there is no order
+    // for a production stage to describe.
+    const soldOffline = item.status === "SOLD_OFFLINE";
 
     return (
       <article
@@ -426,12 +430,12 @@ export default function MarketPage() {
           )}
           <span className="absolute top-3 right-3">
             <Badge
-              variant={isDraft ? "warning" : "solid"}
+              variant={isDraft ? "warning" : soldOffline ? "neutral" : "solid"}
               caps
-              icon={isDraft ? <Clock size={11} /> : <CheckCircle2 size={11} />}
+              icon={isDraft ? <Clock size={11} /> : soldOffline ? <Store size={11} /> : <CheckCircle2 size={11} />}
               className="shadow-sm"
             >
-              {isDraft ? t("awaiting_qa") : t("live_on_ondc")}
+              {isDraft ? t("awaiting_qa") : soldOffline ? t("status_sold_offline") : t("live_on_ondc")}
             </Badge>
           </span>
         </div>
@@ -531,7 +535,7 @@ export default function MarketPage() {
             {/* Production stage. Only the steps ahead of where escrow and the
                 QA patch already put this piece are offered — nothing here can
                 claim a dispatch that has not happened. */}
-            {!isDraft && (() => {
+            {!isDraft && !soldOffline && (() => {
               const current = resolveStage(item);
               const next = ARTISAN_SETTABLE_STAGES.filter(
                 (stage) => stageIndex(stage) > stageIndex(current)

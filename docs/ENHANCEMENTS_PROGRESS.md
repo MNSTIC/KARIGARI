@@ -9,7 +9,7 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 | Phase | Feature | Status | Commit | Date | Notes |
 |:--|:--|:--|:--|:--|:--|
 | 0 | Baseline & ledger | DONE | e12da52 | 2026-09-16 | No feature code. Baseline gate numbers below. |
-| 1 | Hybrid Income Tracker (offline sale ledger) | PARTIAL | (this commit) | 2026-09-16 | Code complete; gates, unit tests and 51 live API checks pass. Browser page checks NOT run (no signed-in session in the Browser pane; owner chose to skip). See detail. |
+| 1 | Hybrid Income Tracker (offline sale ledger) | DONE | 6ea6a6d + (this commit) | 2026-09-17 | Code in 6ea6a6d; browser page checks and three fixes they found in this commit. One sub-check verified at API level only: the "Real local sales" line inside the capture modal's price step (see detail). |
 | 2 | Buyer Intelligence ("My Buyers" CRM) | PENDING | — | — | — |
 | 3 | Production Credit Score + bank share link | PENDING | — | — | — |
 | 4 | Buyer Discovery Page (QR passport + product page) | PENDING | — | — | — |
@@ -27,7 +27,7 @@ A commit cannot contain its own hash, so the newest row reads `(this commit)`;
 each phase backfills the previous row's short sha when it updates this file.
 
 ## Phase 1 detail
-- Status: **PARTIAL** — every piece of code in §1.2–§1.6 is written and committed, and everything that can be verified without a signed-in browser has been. The page-level checks in §1.8 (rendering in four languages, 360 px, console, the mic flow, the offline queue UI) were **not run**: the agent may not type a password into the login form, no session existed in the Browser pane, and the owner chose to skip them. Run them before marking this row DONE.
+- Status: **DONE** (2026-09-17). Code landed in `6ea6a6d` as PARTIAL; the page checks were then run in the Browser pane after the owner signed in, and the three defects they found are fixed in the follow-up commit. One §1.8 sub-check is verified at API level only — see "Verified at API level only" below.
 - Schema: `OfflineSale` model (additive; pushed with `db push --url $DIRECT_URL`); `User.offlineSales`; `CraftItem.offlineSale`. Single writer: `POST /api/artisan/offline-sales` (also what the offline queue replays); only delete is that route's 24 h undo.
 - Files created:
   `src/lib/offlineSales.ts` (pure domain: channels, thresholds, amount/date normalisation, median, `buildPriceSignal`, `buildComparison`, error codes) ·
@@ -46,6 +46,7 @@ each phase backfills the previous row's short sha when it updates this file.
   - lint: 115 errors / 178 warnings, identical to baseline; per-file comparison shows **0 files worse than baseline**; every new file lints clean
   - build PASS; the only warnings are the two baseline ones (lockfile root, Node ExperimentalWarning ×8)
   - `npm run test:all` PASS (orderStage 672 combinations; offlineSaleParse 41 utterances across en/hi/or/te incl. adversarial + 20 domain checks)
+  - Re-run after the page-check fixes (2026-09-17): tsc PASS; lint 115 / 178 with 0 files worse than baseline; build PASS with only the baseline warnings; test:all PASS
 - Verification actually performed (against `next dev`, demo account lakshmi@karigari.com, session signed locally with `JWT_SECRET` — 48/48 checks):
   - ✓ Empty ledger: count 0, `signal` null, `comparison` null, no median anywhere; dashboard offline stream 0
   - ✓ Parse route: "pandrah sau rupaye ka dupatta becha" → 1500 / Dupatta (Groq + rules, no conflict); a phone number → amount null; empty transcript → 200 with `success:false`, never 500
@@ -62,13 +63,28 @@ each phase backfills the previous row's short sha when it updates this file.
   - ✓ Undo restores the piece to its recorded previous status (VERIFIED), writes `SOLD_OFFLINE_REVERSED`, piece buyable again; unknown id 404; another artisan cannot undo
   - ✓ With GROQ_API_KEY, GROK_KEY and GEMINI_API_KEY blank (production build on :3001): Hindi and Telugu voice still parse (engine `rules`, notice `ai_unconfigured`); price-estimate degrades and still carries the signal
   - ✓ Every test row removed afterwards through the app's own undo route; the three touched pieces are back to VERIFIED / SELLABLE / SELLABLE. The AuditLog rows for those pieces remain, as audit history is append-only by design.
-- **Not verified — §1.8 items still open:**
-  - ✗ Voice logging through the page's mic button (browser recognizer / recorded clip → form fill)
-  - ✗ Earnings page rendering: three streams, total tooltip on hover/focus, stacked chart and its tooltip
-  - ✗ `/artisan/market` "sold" filter and badge for a SOLD_OFFLINE piece, visually
-  - ✗ CaptureModal Step 3 rendering "Real local sales: median ₹X from N sales"
-  - ✗ Offline queue end to end in a browser (save while offline → upload on reconnect), and the refused-row UI ("sold online on <date>", amount kept, "Save without this piece")
-  - ✗ All four languages on screen, 360 px, zero console warnings
+- Browser page checks (2026-09-17, `next dev`, Browser pane signed in by the owner as lakshmi@karigari.com):
+  - ✓ `/artisan/log-sale` empty state: ₹0 "None logged yet", no median, shortfall names its threshold ("needs at least 3 offline and 2 online sales of this craft; you have 0 and 0")
+  - ✓ Typed sale "₹1,500" saved → "Sale saved"; ledger ₹1,500; median card "2 more sales…"; second sale (Devanagari "१२००", Walk-in, Yesterday) → "1 more sale of this craft and we can show your local median"
+  - ✓ Offline (the page's own `navigator.onLine` / `offline` event path): save → "Saved on this phone", header badge "Offline — 1 saved on phone" → back online → uploaded, ₹1,800 lands in LAST MONTH, card reads "median ₹1,500 from 3 sales in the last 6 months"
+  - ✓ Queued sale whose piece was already paid online → refused row "Could not be saved — this piece sold online on 03 Sept 2026. Your amount is kept." → "Save without this piece" uploads the ₹2,400 with the piece detached; the paid piece is untouched
+  - ✓ IndexedDB upgraded to v2 in the browser with both `captures` and `offlineSales` stores present
+  - ✓ Catalogued piece picked from the rail (label prefilled read-only) → saved → `/artisan/market` "Sold" filter lists it with a "Sold offline" badge and no order-progress controls
+  - ✓ Two-tap Undo on that sale → row gone, "Sale removed…" notice, piece back to its recorded SELLABLE with `SOLD_OFFLINE_REVERSED` in AuditLog
+  - ✓ Voice → form: with the pane's microphone blocked, the mic button shows "The microphone is off for this site. Type the sale below instead."; with a stand-in recognizer supplying "pandrah sau rupaye ka dupatta becha, kal haat mein", the real page path (hook → parse route → form) shows "We heard", fills ₹1500 / Dupatta / yesterday / Haat, says "Nothing is saved until you tap Save", and saves nothing. The saved row records `captureMethod: VOICE`. Real microphone capture cannot run in the Browser pane.
+  - ✓ ₹1,50,000 → "₹1,50,000 is much higher than your usual sales. Is that right?" with a confirm button; nothing saved
+  - ✓ `/artisan/earnings`: TOTAL INCOME ₹84,497 = Online (settled) ₹74,397 + Demand orders ₹0 + Offline (self-logged) ₹10,100; the total's tooltip on keyboard focus reads "Online ₹74,397 + demand orders ₹0 + offline ₹10,100"; monthly chart stacks three series with a legend; September tooltip names all three streams
+  - ✓ `/artisan/dashboard`: TOTAL INCOME tile ₹84,497 with the three parts on its delta line
+  - ✓ `/artisan/log-sale`, `/artisan/earnings`, `/artisan/dashboard` in en / hi / or / te at 360 px: page scroll width = 360, no element overflows, no raw i18n key rendered; `/artisan/market` in Odia shows "ଅଫଲାଇନ ବିକ୍ରି ହୋଇଛି"
+  - ✓ Fresh loads of all four pages: zero React warnings, zero uncaught errors. The only console errors in the session were the pre-login 401s, the dev-server restart's HMR socket, the deliberate 409/422 refusal tests, a 404 from a probe script, and one transient HMR `Store is not defined` while the market page's import was mid-edit
+  - ✓ Cleanup: every test sale undone through the app (0 left), the phone queue empty, the form draft cleared; pieces back to VERIFIED / SELLABLE / SELLABLE
+- Defects the page checks found, fixed in the follow-up commit:
+  1. `/artisan/log-sale` scrolled the whole page sideways: a `<fieldset>` defaults to `min-width: min-content`, so it grew to the piece rail's full width. Fixed with `min-w-0`.
+  2. After a queued sale uploaded, the success card still said "You are offline. It will upload…". It now switches to "Sale saved" once the phone's queue is empty.
+  3. `/artisan/market` showed "LIVE ON ONDC" and live production-stage buttons on a SOLD_OFFLINE piece. It now shows a "Sold offline" badge and no stage controls.
+- Verified at API level only:
+  - The "Real local sales: median ₹X from N sales" line in CaptureModal Step 3. `price-estimate` / `price-market` return `localMarketSignal` correctly (checked live, with and without AI keys) and the page shows the median everywhere else, but reaching Step 3 in the pane needs a photo upload plus live Gemini vision and smart-draft calls on the free-tier key (20 requests/day, shared with the demo), so it was not rendered.
+- Pre-existing, noticed but out of scope: the earnings page subtitle and several of its older labels ("Gross sales", "Fair wage index", "Recent activity"…) are hard-coded English; `/artisan/dashboard` overflows below 360 px (seen at 313 px).
 - Decisions and deviations, each deliberate:
   1. **SmartDraftAssistant** renders no price band (it is the Step 1 follow-up questioner), so there was no "AI band" to place the signal above. The signal is rendered in CaptureModal Step 3, above the AI band, where the price is actually set.
   2. **`MIN_ONLINE_SAMPLES = 2`.** §1.4 says one online sale suffices, but §1.4 also says "never compute a delta from one row on either side"; the stricter rule wins and is named in the UI.
@@ -80,7 +96,7 @@ each phase backfills the previous row's short sha when it updates this file.
   8. The separate "Demand orders" card on the earnings page is gone, because demand is now one of the three headline streams. Its keys `demand_orders_label` / `demand_orders_note` are now unused.
   9. `prisma format` was not run: it realigns the whole schema file.
 - Known follow-ups:
-  - Run the ✗ checks above in a signed-in browser, then flip this row to DONE.
+  - Render the Step 3 "Real local sales" line once, in a capture with a real photo, on a day with Gemini quota to spare.
   - Replay idempotency: if a queued sale's POST commits but its response is lost, the next flush logs it again. The capture queue has the same property. A client-generated reference column would close it.
   - No demo artisan has two online sales of the same craft, so the offline/online comparison shows its not-enough-data state on live data. Its arithmetic is covered by the unit test.
   - Shopify withdrawal on an offline log was not exercised live, because no demo piece is LIVE on Shopify. An undo does not re-publish a withdrawn Shopify product (WITHDRAWN is terminal by design).
