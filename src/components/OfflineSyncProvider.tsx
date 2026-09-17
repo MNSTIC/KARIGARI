@@ -1,9 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useLanguage } from "@/lib/translations";
+import { fill } from "@/components/buyer/passportFormat";
 import { CheckCircle2, CloudOff, Loader2 } from "lucide-react";
 import { flushQueue, registerCaptureSync } from "@/lib/offlineSync";
-import { refreshQueueCount, setQueueState, useOfflineQueue } from "@/lib/offlineQueueStore";
+import {
+  hydrateLastSynced,
+  markSynced,
+  markSyncError,
+  refreshQueueCount,
+  setQueueState,
+  useOfflineQueue,
+} from "@/lib/offlineQueueStore";
 
 /**
  * Mounted once in the root layout.
@@ -16,6 +25,7 @@ import { refreshQueueCount, setQueueState, useOfflineQueue } from "@/lib/offline
  */
 export function OfflineSyncProvider() {
   const { syncing, queued, lastUploaded, online } = useOfflineQueue();
+  const { t } = useLanguage();
   /** Kept out of the shared store: purely this component's dismissal state. */
   const [showDone, setShowDone] = useState(false);
 
@@ -31,6 +41,12 @@ export function OfflineSyncProvider() {
         queued: result.remaining,
         lastUploaded: result.uploaded,
       });
+      // What the chip reports is whether the server could be REACHED. A row the
+      // server answered about — a sale whose amount it refuses, a piece already
+      // sold online — is the queue's business, and the badge beside the chip
+      // counts those. Only a run that reached nobody turns the chip red.
+      if (result.contacted) markSynced();
+      else if (result.failed > 0) markSyncError("Could not reach the server");
       if (result.uploaded > 0) {
         setShowDone(true);
         // The dashboard reads its items server-side on load, so a refresh is
@@ -40,6 +56,7 @@ export function OfflineSyncProvider() {
       }
     } catch (error) {
       console.warn("[offlineSync] flush failed:", (error as Error)?.message);
+      markSyncError((error as Error)?.message || "Sync failed");
       setQueueState({ syncing: false });
       await refreshQueueCount();
     }
@@ -62,6 +79,9 @@ export function OfflineSyncProvider() {
     const kickoff = setTimeout(() => {
       if (cancelled) return;
       publishOnline();
+      // The remembered time is read here, not at module load: this file is
+      // imported during SSR, and the value must not reach the first paint.
+      hydrateLastSynced();
       void refreshQueueCount();
       void registerCaptureSync();
       if (navigator.onLine) void runFlush();
@@ -97,16 +117,14 @@ export function OfflineSyncProvider() {
         {syncing ? (
           <>
             <Loader2 size={16} className="animate-spin shrink-0" />
-            <span>
-              Syncing {queued} saved {queued === 1 ? "item" : "items"}…
-            </span>
+            <span>{fill(t("sync_toast_syncing"), { n: queued })}</span>
           </>
         ) : (
           <>
             <CheckCircle2 size={16} className="shrink-0" />
             <span>
-              {lastUploaded} {lastUploaded === 1 ? "item" : "items"} uploaded
-              {queued > 0 ? ` — ${queued} still waiting` : ""}
+              {fill(t("sync_toast_uploaded"), { n: lastUploaded })}
+              {queued > 0 ? ` — ${fill(t("sync_toast_still_waiting"), { n: queued })}` : ""}
             </span>
           </>
         )}

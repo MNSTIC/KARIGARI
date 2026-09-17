@@ -30,6 +30,11 @@ export interface FlushCounts {
   remaining: number;
 }
 
+/** Set the moment any request comes back, however it answered. */
+interface Reachability {
+  contacted: boolean;
+}
+
 export interface FlushResult {
   /** Across both queues. */
   uploaded: number;
@@ -39,6 +44,13 @@ export interface FlushResult {
   /** The same three numbers, per queue. */
   captures: FlushCounts;
   offlineSales: FlushCounts;
+  /**
+   * True when the server answered at least one request in this run — the only
+   * honest basis for the header chip's "synced" time. An empty queue contacts
+   * nobody, so an empty drain leaves this false rather than claiming a
+   * round-trip that never happened.
+   */
+  contacted: boolean;
 }
 
 /** One flush at a time: `online` and mount can otherwise fire together. */
@@ -59,7 +71,7 @@ function isTerminal(code: string | undefined): boolean {
  *
  * Returns false when the network dropped mid-run, so the caller stops too.
  */
-async function flushCaptures(counts: FlushCounts): Promise<boolean> {
+async function flushCaptures(counts: FlushCounts, reach: Reachability): Promise<boolean> {
   const rows = await listQueued();
   for (const row of rows) {
     try {
@@ -68,6 +80,7 @@ async function flushCaptures(counts: FlushCounts): Promise<boolean> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(row.payload),
       });
+      reach.contacted = true;
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && data?.item?.id) {
@@ -96,7 +109,7 @@ async function flushCaptures(counts: FlushCounts): Promise<boolean> {
  * then left alone: replaying it would get the same answer. The row, and the
  * amount in it, stay until the artisan decides what to do.
  */
-async function flushOfflineSales(counts: FlushCounts): Promise<void> {
+async function flushOfflineSales(counts: FlushCounts, reach: Reachability): Promise<void> {
   const rows = await listQueuedOfflineSales();
   for (const row of rows) {
     if (isTerminal(row.lastErrorCode)) continue;
@@ -106,6 +119,7 @@ async function flushOfflineSales(counts: FlushCounts): Promise<void> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(row.payload),
       });
+      reach.contacted = true;
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && data?.sale?.id) {
@@ -134,11 +148,12 @@ export async function flushQueue(): Promise<FlushResult> {
   inFlight = (async (): Promise<FlushResult> => {
     const captures: FlushCounts = { uploaded: 0, failed: 0, remaining: 0 };
     const offlineSales: FlushCounts = { uploaded: 0, failed: 0, remaining: 0 };
+    const reach: Reachability = { contacted: false };
 
     const online = typeof navigator === 'undefined' || navigator.onLine;
     if (online) {
-      const stillOnline = await flushCaptures(captures);
-      if (stillOnline) await flushOfflineSales(offlineSales);
+      const stillOnline = await flushCaptures(captures, reach);
+      if (stillOnline) await flushOfflineSales(offlineSales, reach);
     }
 
     captures.remaining = await countQueued();
@@ -150,6 +165,7 @@ export async function flushQueue(): Promise<FlushResult> {
       remaining: captures.remaining + offlineSales.remaining,
       captures,
       offlineSales,
+      contacted: reach.contacted,
     };
   })().finally(() => {
     inFlight = null;

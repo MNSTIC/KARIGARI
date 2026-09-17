@@ -17,7 +17,8 @@
     "test:passport": "node src/lib/__tests__/passportFacts.test.mjs",
     "test:skill-stage": "node src/lib/__tests__/skillStage.test.mjs",
     "test:supply": "node src/lib/__tests__/supplyReminder.test.mjs",
-    "test:all": "npm run test:order-stage && npm run test:offline-parse && npm run test:buyers && npm run test:credit && npm run test:passport && npm run test:skill-stage && npm run test:supply"
+    "test:sync": "node src/lib/__tests__/syncStatus.test.mjs",
+    "test:all": "npm run test:order-stage && npm run test:offline-parse && npm run test:buyers && npm run test:credit && npm run test:passport && npm run test:skill-stage && npm run test:supply && npm run test:sync"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.6",

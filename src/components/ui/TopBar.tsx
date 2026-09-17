@@ -9,6 +9,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { logout } from "@/lib/authClient";
 import { NotificationsBell } from "@/components/NotificationsBell";
 import { OfflineQueueBadge } from "@/components/OfflineQueueBadge";
+import { SyncStatusChip } from "@/components/SyncStatusChip";
 import { groupsForRole, type ShellRole } from "@/components/ui/Sidebar";
 import { useArtisanIdentity } from "@/lib/artisanIdentity";
 import { useLanguage, type Language } from "@/lib/translations";
@@ -324,8 +325,14 @@ export function TopBar({
         </button>
 
         {/* The wordmark only appears where the rail is hidden; above lg it
-            already sits at the top of the sidebar. */}
-        <Link href={role === "ADMIN" ? "/admin/facilitator" : "/artisan/dashboard"} className="lg:hidden shrink-0">
+            already sits at the top of the sidebar. It is also dropped below
+            `sm`: on a 360px phone the 99px mark plus the status pills, the
+            language menu, the bell and the avatar overflowed the row, and the
+            hamburger beside it already identifies the app. */}
+        <Link
+          href={role === "ADMIN" ? "/admin/facilitator" : "/artisan/dashboard"}
+          className="hidden shrink-0 sm:block lg:hidden"
+        >
           <Image
             src="/logo.png"
             alt="Karigari"
@@ -344,6 +351,10 @@ export function TopBar({
           <SlowConnectionPill />
           <OfflineQueueBadge />
           {actions}
+          {/* Freshness, next to the queue count: the badge is silent when there
+              is nothing waiting, the chip always says when work last reached
+              the server. */}
+          <SyncStatusChip />
           <LanguageMenu />
           <LogoutButton />
 

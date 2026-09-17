@@ -14,8 +14,8 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 | 3 | Production Credit Score + bank share link | DONE | 6e91809 | 2026-09-17 | `creditScore.ts` (pure, 33 unit checks), frozen share snapshots, public `/credit/[token]` record that prints to one A4 page. 67 live API checks (one confirmed on a production build), browser checks in four languages at 360 px. |
 | 4 | Buyer Discovery Page (QR passport + product page) | DONE | 11eddd0 | 2026-09-17 | Shared passport (story, timeline, 3-layer trust, similar request, more from artisan, gallery) on `/verify/[patchId]` and the product page. Fixes a PII leak on the QR page. 21 unit checks, 65 page checks on dev and on a key-less production build, browser checks in four languages at 360 px. |
 | 5 | AI Learning Pathways (skill stages, offline cache) | DONE | 2fbcae9 | 2026-09-18 | `skillStage.ts` (pure, derived, never stored), three learning tracks from AI with a curated catalogue underneath, YouTube *search* links only, and an on-phone copy so the page opens offline. 26 unit checks, 71 live API checks on dev and again on a key-less production build, browser checks in four languages at 360 px. |
-| 6 | Proactive Supply Intelligence (20-day reminder) | DONE | (this commit) | 2026-09-18 | Lazy, idempotent 20-day restock nudge on the dashboard request — no cron added. Offline sales and demand orders count as activity. In-app alert stored in English and rendered in the artisan's language with the real day count, plus an inline card, a 7-day snooze and a per-device dismiss. 15 unit checks, 31 live API checks, browser checks in four languages at 360 px. |
-| 7 | Sync Status Indicator ("Synced 2 min ago") | PENDING | — | — | — |
+| 6 | Proactive Supply Intelligence (20-day reminder) | DONE | 210fc73 | 2026-09-18 | Lazy, idempotent 20-day restock nudge on the dashboard request — no cron added. Offline sales and demand orders count as activity. In-app alert stored in English and rendered in the artisan's language with the real day count, plus an inline card, a 7-day snooze and a per-device dismiss. 15 unit checks, 31 live API checks, browser checks in four languages at 360 px. |
+| 7 | Sync Status Indicator ("Synced 2 min ago") | DONE | (this commit) | 2026-09-18 | Header chip reporting the last confirmed round-trip, with a hydration-safe relative time from i18n keys. No new polling. Also fixes a pre-existing 360 px header overflow and translates the offline badge and sync toast. 17 unit checks, browser checks on dev and a production build in four languages at 360 px. |
 | 8 | Workshop Resources (rename + repair + tool schemes) | PENDING | — | — | — |
 | 9 | Recognition & Anonymous Cluster Benchmarks | PENDING | — | — | — |
 | 10 | Design Lab (AI concept + SVG motif composer) | PENDING | — | — | — |
@@ -25,6 +25,38 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 
 A commit cannot contain its own hash, so the newest row reads `(this commit)`;
 each phase backfills the previous row's short sha when it updates this file.
+
+## Phase 7 detail
+- Status: **DONE** (2026-09-18)
+- Schema: none.
+- Files created: `src/lib/relativeTime.ts` (pure: `relativeKeyAndValue` → an i18n key + a number, never an English string) · `src/lib/syncStatus.ts` (pure: `syncView`, the four states and their precedence) · `src/components/SyncStatusChip.tsx` · `src/lib/__tests__/syncStatus.test.mjs`
+- Files modified: `src/lib/offlineQueueStore.ts` (`lastSyncedAt` / `lastSyncError`, `markSynced`, `markSyncError`, `hydrateLastSynced`, `LAST_SYNCED_KEY`, both added to the server snapshot and to the change check) · `src/lib/offlineSync.ts` (`FlushResult.contacted`) · `src/components/OfflineSyncProvider.tsx` (marks synced/errored, hydrates the remembered time, toast translated) · `src/components/NotificationsBell.tsx` (marks synced on a successful load) · `src/components/OfflineQueueBadge.tsx` (translated; narrow-screen count) · `src/components/ui/TopBar.tsx` (mounts the chip; wordmark hidden below `sm`) · `package.json` (`test:sync` in `test:all`) · `src/lib/i18n/{en,hi,or,te}.ts`
+- i18n keys added: 20 × 4 dictionaries (the 11 in §7.4 plus `sync_synced_no_time`, `sync_never`, the two badge tooltips, `sync_uploading`, `sync_waiting_upload` and the three toast strings — the badge and the toast were English-only before this phase). Coverage script: 0 missing, 0 extra, placeholders identical, none left identical to English.
+- Gates: tsc PASS | lint 112 / 45 source (baseline), 0 files worse | build PASS, baseline warnings only | `test:all` PASS (+ syncStatus 17 checks)
+- Verification — browser (Browser pane, signed in as lakshmi@karigari.com, `next dev` unless noted):
+  - ✓ First load with the remembered time cleared: the chip reads "Synced just now" and `karigari_last_synced` is written
+  - ✓ **The label ages without a reload**: the same page later read "Synced 2 min ago", and after a long pause "Synced 4 h ago" — the 30 s timer re-renders the string and makes no request
+  - ✓ Offline (`navigator.onLine` forced false + the `offline` event): chip and badge both amber, "Offline"; with one row queued both read "Offline — 1 saved on phone", in en / hi / or / te
+  - ✓ Server stopped with a queued row: the flush reaches nobody and the chip becomes a `role="alert"` button, "Not synced / Retry", aria-label "Not synced: Retry"
+  - ✓ Server restarted, Retry tapped: the server answered (the row's attempt counter rose and it came back `AMOUNT_INVALID`), so the chip returned to "Synced just now" while the badge kept counting the refused row — reachability and queue state reported separately
+  - ✓ A row the server had already refused as terminal is not retried, and therefore does not turn the chip red (the existing queue rule, still holding)
+  - ✓ 360 px: chip 34 px and badge 50 px, icon-only, each carrying the full sentence in `aria-label` and `title`; page scroll width 360 with no overflow
+  - ✓ Production build, fresh tab: **zero hydration warnings and no React errors** — the only console message is the pane's own inability to register a service worker, which appears identically on every page of the app
+  - ✓ Production build in en / hi / or / te: chip text and the "what is saved on this phone" tooltip translated
+  - ✓ Cleanup: the queued test rows removed from IndexedDB (captures 0, offline sales 0); nothing was written to the database by these checks
+- Decisions and deviations:
+  1. **"Synced" means the server answered.** `flushQueue()` now reports `contacted`, and the chip's time is set only when a request came back — from a flush that reached the server, or the bell's load. The spec suggested marking a *successful empty drain* as a sync; an empty queue sends nothing, so that would have been a claim with no evidence behind it, and this is the honest version of the same idea.
+  2. **A rejected row is not a sync failure.** A sale the server refuses (an amount that needs fixing) is the queue's business and is counted by the badge; the chip turns red only when the server could not be reached at all. Both are visible at once, which is how the two pills divide the work.
+  3. **No new polling anywhere.** The 30 s interval re-renders the relative string only. The bell already fetches once per navigation and has no timer, so the chip's freshness is the freshness of work the app was doing anyway.
+  4. **Hydration safety**: the first paint renders the state with no relative time (`sync_synced_no_time`), and the time appears inside the deferred `setTimeout(…, 0)` effect. `relativeTime.ts` returns an i18n key and a number rather than a formatted string, so no locale is ever implied.
+  5. **Both new store fields are in `SERVER_SNAPSHOT` and in `setQueueState`'s equality check** — the second is what stops `useSyncExternalStore` from missing an update, and a test asserts the live state and the snapshot have exactly the same keys.
+  6. **A pre-existing 360 px overflow is fixed here.** The header already scrolled sideways at 360 px whenever the offline badge appeared (403 px of content in a 360 px row); adding a second pill made it permanent. The 99 px wordmark is now hidden below `sm`, where the hamburger beside it already identifies the app, and the row fits (360 px, measured with both pills visible).
+  7. **The badge and the sync toast were English-only** and are now translated, because this phase is checked in four languages and they sit next to the chip.
+  8. **`/offline`** already links back to the dashboard and explains that queued captures upload automatically, so it was left alone; it is the service worker's static fallback and is English-only, as before.
+- Known follow-ups:
+  - Offline was simulated by overriding `navigator.onLine` and firing the `offline` event, not by real airplane mode; and the service worker does not register inside the Browser pane, so a cold offline relaunch still has not been seen here.
+  - `lastSyncedAt` is per device and per browser profile, as `localStorage` is. Two browsers on the same phone show their own last-synced times.
+  - The chip lives in `TopBar`, so it appears on the artisan and admin shells only. Public pages (the storefront, a QR passport) have no header chip.
 
 ## Phase 6 detail
 - Status: **DONE** (2026-09-18)

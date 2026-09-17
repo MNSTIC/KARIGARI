@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/translations";
 import { DemandRequestCard } from "@/components/ui/DemandRequestCard";
 import { supplyNoticeText } from "@/lib/supplyNotice";
+import { markSynced } from "@/lib/offlineQueueStore";
 
 /**
  * Header bell backed by real `Notification` rows.
@@ -165,6 +166,10 @@ export function NotificationsBell({
       if (!res.ok) return;
       const data = await res.json();
       if (!data.success) return;
+      // A completed fetch is a confirmed round-trip, which is what the header's
+      // sync chip reports. The bell loads once per navigation and has no timer,
+      // so this adds no requests of its own.
+      markSynced();
       setItems(data.notifications ?? []);
       setUnread(data.unreadCount ?? 0);
       notify.current?.(data.notifications ?? []);
