@@ -89,7 +89,8 @@ export async function POST(req: Request) {
           deliveryVerified: result.productMatch && result.artisanMatch && result.qrValid,
           deliveryVerifiedAt: new Date(),
           deliveryScanPatchId: patchId,
-          deliveryScanScore: result.similarityScore,
+          // Same rule as /api/buyer/orders/verify: only a Gemini score is stored.
+          deliveryScanScore: result.scoredBy === 'gemini' ? result.similarityScore : null,
         },
       });
     }

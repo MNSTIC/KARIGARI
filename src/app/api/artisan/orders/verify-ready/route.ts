@@ -201,7 +201,10 @@ export async function POST(req: Request) {
         readyVerified: true,
         readyImageUrl: readyImageBase64,
         readyScanPatchId: patchId,
-        readySimilarityScore: comparison.similarityScore,
+        // Only a score Gemini produced is stored. The comparator's fallback
+        // (no key, quota, timeout) passes the check with a fixed number, and a
+        // fixed number is not a similarity — the buyer passport prints this.
+        readySimilarityScore: comparison.scoredBy === 'gemini' ? comparison.similarityScore : null,
         readyVerifiedAt: now,
         status: advanceOrderStatus(order.status, 'READY'),
       },

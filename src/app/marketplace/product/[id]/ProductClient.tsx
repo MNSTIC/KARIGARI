@@ -2,23 +2,30 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import Script from "next/script";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
   Info,
   Loader2,
   MapPin,
-  Package,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { VerifiedOriginBadge } from "@/components/ui/Badge";
 import { SectionEyebrow } from "@/components/ui/SectionEyebrow";
-import { artisanSharePctFor } from "@/lib/escrow";
+import { CREATOR_RATE, artisanSharePctFor } from "@/lib/escrow";
 import { formatRupees } from "@/lib/pricing";
-import { imageProps, marketPrice, type MarketItem } from "@/lib/marketplace";
+import { marketPrice, type MarketItem } from "@/lib/marketplace";
+import type { Passport } from "@/lib/passport";
+import { PassportGallery } from "@/components/buyer/PassportGallery";
+import { CraftStory } from "@/components/buyer/CraftStory";
+import { ProvenanceTimeline } from "@/components/buyer/ProvenanceTimeline";
+import { TrustLayers } from "@/components/buyer/TrustLayers";
+import { SimilarRequest } from "@/components/buyer/SimilarRequest";
+import { MoreFromArtisan } from "@/components/buyer/MoreFromArtisan";
+import { fill } from "@/components/buyer/passportFormat";
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 import { captureRefFromUrl, currentRef, trackRef } from "@/lib/affiliateRef";
@@ -46,12 +53,12 @@ import type { RazorpayFailureResponse, RazorpaySuccessResponse } from "@/types/r
  * mode that ₹10 is a real debit and telling a paying buyer "no live charge is
  * made" would be false.
  */
-export function ProductClient({ id }: { id: string }) {
+export function ProductClient({ id, passport }: { id: string; passport: Passport | null }) {
   const { t } = useLanguage();
+  const router = useRouter();
   const [item, setItem] = useState<MarketItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [activeImage, setActiveImage] = useState(0);
   const [buying, setBuying] = useState(false);
   const [buyError, setBuyError] = useState<string | null>(null);
   const [cancelled, setCancelled] = useState(false);
@@ -239,6 +246,9 @@ export function ProductClient({ id }: { id: string }) {
             rememberBuyer(buyerName, buyerContact);
             setPaid(true);
             void load();
+            // The passport below is server-rendered; refresh it so the timeline
+            // and the fair-pay block show the payment that just landed.
+            router.refresh();
           } catch (error) {
             console.error("Payment verification failed:", error);
             setBuyError(t("payment_verify_failed"));
@@ -271,7 +281,6 @@ export function ProductClient({ id }: { id: string }) {
   const description = item
     ? item.descriptionEnglish || item.aiGeneratedListing || item.descriptionOriginal || ""
     : "";
-  const images = item?.images?.length ? item.images : [];
 
   return (
     <div className="min-h-screen bg-[var(--color-background)] font-sans pb-16">
@@ -319,50 +328,12 @@ export function ProductClient({ id }: { id: string }) {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10">
-            {/* Gallery */}
-            <div>
-              <div className="relative aspect-square overflow-hidden rounded-3xl bg-[var(--color-pill)]">
-                {images[activeImage] ? (
-                  <Image
-                    {...imageProps(images[activeImage])}
-                    fill
-                    alt={item.craftType}
-                    className="object-cover"
-                    sizes="(max-width: 1024px) 100vw, 50vw"
-                    priority
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400">
-                    <Package size={48} />
-                  </div>
-                )}
-              </div>
-
-              {images.length > 1 && (
-                <div className="flex gap-3 mt-4 overflow-x-auto pb-1">
-                  {images.map((src, index) => (
-                    <button
-                      key={`${src.slice(0, 24)}-${index}`}
-                      onClick={() => setActiveImage(index)}
-                      aria-label={`${t('view_photo')} ${index + 1}`}
-                      className={cn(
-                        "relative h-16 w-16 shrink-0 rounded-xl overflow-hidden border-2 transition-colors",
-                        index === activeImage
-                          ? "border-gray-900"
-                          : "border-transparent hover:border-gray-300"
-                      )}
-                    >
-                      <Image
-                        {...imageProps(src)}
-                        fill
-                        alt=""
-                        className="object-cover"
-                        sizes="64px"
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
+            {/* Gallery — the passport's photos, fetched lazily through
+                /api/passport/[id]/image rather than inlined. */}
+            <div className="sm:mx-auto sm:w-full sm:max-w-lg lg:max-w-none">
+              {passport ? (
+                <PassportGallery images={passport.images} variants={passport.variants} alt={item.craftType} priority />
+              ) : null}
             </div>
 
             {/* Detail + buy */}
@@ -373,16 +344,15 @@ export function ProductClient({ id }: { id: string }) {
                   <p className="text-xs text-amber-900 leading-relaxed">
                     <span className="font-bold">{t('endorsed_by')} @{ref}</span>
                     <span className="block mt-0.5 text-amber-800/80">
-                      They earn 5% of this sale, paid direct to their UPI on delivery. The
-                      artisan&rsquo;s share is unchanged.
+                      {fill(t("creator_commission_note"), { pct: Math.round(CREATOR_RATE * 100) })}
                     </span>
                   </p>
                 </div>
               )}
 
-              {/* No GI badge. GI claims were removed from the product earlier and
-                  stay removed: what Karigari can actually attest to is that this
-                  piece carries a patch ID matched against a re-photograph. */}
+              {/* No GI badge here. A GI designation appears only in the craft
+                  story below, and only for a certified artisan profile — see
+                  giLabelFor() in src/lib/passportFacts.ts. */}
               <div className="mb-4 flex flex-wrap items-center gap-2.5">
                 {item.verified && <VerifiedOriginBadge className="shadow-none" />}
                 {item.isOndcLive && (
@@ -412,7 +382,7 @@ export function ProductClient({ id }: { id: string }) {
               {/* The real escrow arithmetic, not a fixed headline number. */}
               <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-y border-gray-200/70 py-3.5">
                 <span className="kg-label font-medium text-[var(--color-rust)]">
-                  Artisan Share: {artisanSharePctFor(price).toFixed(2)}%
+                  {fill(t("product_artisan_share"), { pct: artisanSharePctFor(price).toFixed(2) })}
                 </span>
                 {/* The raw patch ID is private — shown to the buyer only after
                     purchase (My Orders). Public detail page shows a verified
@@ -428,7 +398,7 @@ export function ProductClient({ id }: { id: string }) {
 
               {description && (
                 <div className="mt-7">
-                  <SectionEyebrow>The maker&rsquo;s account</SectionEyebrow>
+                  <SectionEyebrow>{t("product_about_piece")}</SectionEyebrow>
                   <p className="mt-2.5 whitespace-pre-line text-[15px] leading-relaxed text-gray-600">
                     {description}
                   </p>
@@ -627,6 +597,20 @@ export function ProductClient({ id }: { id: string }) {
         {/* Reviews live below the product body. Kept inside the same page for
             SEO — a reviewed piece prints its testimonials right on the URL a
             shopper landed on. */}
+        {item && passport && (
+          <div className="mt-14 space-y-12">
+            <div className="grid gap-8 lg:grid-cols-2">
+              <div className="rounded-2xl border border-gray-200/70 bg-card p-6 shadow-card">
+                <ProvenanceTimeline steps={passport.timeline} />
+              </div>
+              <TrustLayers trust={passport.trust} stacked />
+            </div>
+            <CraftStory passport={passport} />
+            <SimilarRequest draft={passport.demandDraft} imageSrc={passport.images[0]?.src ?? null} />
+            <MoreFromArtisan items={passport.moreFromArtisan} artisanName={passport.artisan.name} />
+          </div>
+        )}
+
         {item && <ReviewSection craftItemId={item.id} />}
       </main>
     </div>

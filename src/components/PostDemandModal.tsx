@@ -18,6 +18,12 @@ import { upcomingFestivals } from "@/lib/festivals";
 import { DemandRecommendation } from "@/components/DemandRecommendation";
 import { prepareImage } from "@/lib/clientImagePrep";
 import { cn } from "@/lib/utils";
+import {
+  DEMAND_CATEGORIES as CATEGORIES,
+  DEMAND_MATERIALS as MATERIALS,
+  DEMAND_PRODUCT_TYPES as PRODUCT_TYPES,
+  type DemandDraft,
+} from "@/lib/demandDraft";
 
 /**
  * Buyer-side form behind "Post New Demand".
@@ -83,45 +89,14 @@ interface PostDemandModalProps {
   onClose: () => void;
   defaultBuyerName?: string;
   onPosted: (demand: PostedDemand, notified: number) => void;
+  /**
+   * Fields to start the form from — "Want something similar?" on the buyer
+   * passport passes the piece being viewed. Everything stays editable and
+   * nothing is submitted until the buyer does it. Defaults to empty, so every
+   * existing caller is unchanged.
+   */
+  initial?: Partial<DemandDraft>;
 }
-
-/**
- * The category list. Fixed rather than free text because this is the one field
- * the matcher compares ACROSS artisans — a buyer inventing their own category
- * name would score against nobody.
- */
-const CATEGORIES = [
-  "Saree & Textile",
-  "Pottery & Ceramics",
-  "Jewellery",
-  "Handicraft",
-  "Painting & Art",
-  "Furniture",
-  "Home Décor",
-  "Metalwork",
-  "Leather",
-  "Other",
-] as const;
-
-/**
- * Suggestions for the product type, per category. A datalist, not a select: the
- * point is to save typing for the common case without blocking a buyer whose
- * article is not on anyone's list.
- */
-const PRODUCT_TYPES: Record<string, string[]> = {
-  "Saree & Textile": ["Saree", "Dupatta", "Stole", "Shawl", "Running fabric", "Kurta piece"],
-  "Pottery & Ceramics": ["Dinner set", "Vase", "Planter", "Water jug", "Serving bowl"],
-  Jewellery: ["Necklace", "Earrings", "Bangle set", "Anklet", "Ring"],
-  Handicraft: ["Wall hanging", "Basket", "Toy", "Mask", "Figurine"],
-  "Painting & Art": ["Canvas", "Scroll", "Framed print", "Wall mural"],
-  Furniture: ["Chair", "Stool", "Coffee table", "Cabinet", "Bed frame"],
-  "Home Décor": ["Lamp", "Cushion cover", "Table runner", "Mirror frame"],
-  Metalwork: ["Lamp", "Idol", "Bowl", "Tray", "Bell"],
-  Leather: ["Bag", "Wallet", "Footwear", "Belt", "Journal cover"],
-};
-
-/** Chips for the material field. "Other" reveals the free-text input. */
-const MATERIALS = ["Cotton", "Silk", "Wool", "Wood", "Clay", "Metal", "Leather", "Bamboo", "Other"];
 
 /** Budget presets, in rupees per piece. `null` bounds mean "custom". */
 const BUDGET_PRESETS: { id: string; label: string; min: number | null; max: number | null }[] = [
@@ -169,6 +144,22 @@ const EMPTY = {
 };
 
 type FormState = typeof EMPTY;
+
+const NO_INITIAL: Partial<DemandDraft> = {};
+
+/** The empty form with a prefill laid over it — only the fields a draft may carry. */
+function formFrom(initial: Partial<DemandDraft>): FormState {
+  return {
+    ...EMPTY,
+    category: initial.category ?? EMPTY.category,
+    productType: initial.productType ?? EMPTY.productType,
+    craftType: initial.craftType ?? EMPTY.craftType,
+    description: initial.description ?? EMPTY.description,
+    material: initial.material ?? EMPTY.material,
+    materialOther: initial.materialOther ?? EMPTY.materialOther,
+    color: initial.color ?? EMPTY.color,
+  };
+}
 type FieldErrors = Partial<Record<keyof FormState | "images", string>>;
 
 /** yyyy-mm-dd, N days out, for `requiredBy` and the date inputs' bounds. */
@@ -183,9 +174,12 @@ export function PostDemandModal({
   onClose,
   defaultBuyerName = "",
   onPosted,
+  initial = NO_INITIAL,
 }: PostDemandModalProps) {
   const { t } = useLanguage();
-  const [form, setForm] = useState<FormState>(EMPTY);
+  // The prefill is read when the modal mounts. Callers that prefill mount it
+  // only while it is open, so a different piece always starts a fresh form.
+  const [form, setForm] = useState<FormState>(() => formFrom(initial));
   // Derived, not synced: the field shows the caller's name until the buyer
   // types over it, so a changing prop never needs an effect to catch up.
   const [buyerNameEdit, setBuyerNameEdit] = useState<string | null>(null);
@@ -197,7 +191,7 @@ export function PostDemandModal({
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   /** Buyer's reference photos, held as data URLs — the same shape every other
       image in this app is stored in. There is no upload bucket. */
-  const [images, setImages] = useState<string[]>([]);
+  const [images, setImages] = useState<string[]>(() => (initial.referenceImageUrls ?? []).slice(0, MAX_IMAGES));
   const fileRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -416,8 +410,8 @@ export function PostDemandModal({
         return;
       }
       onPosted(data.demand, data.notified ?? 0);
-      setForm(EMPTY);
-      setImages([]);
+      setForm(formFrom(initial));
+      setImages((initial.referenceImageUrls ?? []).slice(0, MAX_IMAGES));
       onClose();
     } catch (e) {
       console.error("Failed to post demand", e);

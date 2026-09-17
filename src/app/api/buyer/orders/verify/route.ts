@@ -86,7 +86,9 @@ export async function POST(req: Request) {
         deliveryVerified: result.productMatch && result.artisanMatch,
         deliveryVerifiedAt: new Date(),
         deliveryScanPatchId: patchId,
-        deliveryScanScore: result.similarityScore,
+        // A fallback result carries a fixed score, not a measured one; store
+        // only what Gemini actually scored (the buyer passport prints this).
+        deliveryScanScore: result.scoredBy === 'gemini' ? result.similarityScore : null,
       },
     });
 

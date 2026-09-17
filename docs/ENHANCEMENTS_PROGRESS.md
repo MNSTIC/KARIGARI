@@ -11,8 +11,8 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 | 0 | Baseline & ledger | DONE | e12da52 | 2026-09-16 | No feature code. Baseline gate numbers below. |
 | 1 | Hybrid Income Tracker (offline sale ledger) | DONE | 6ea6a6d + 8b28a0e | 2026-09-17 | Code in 6ea6a6d; browser page checks and three fixes they found in 8b28a0e. One sub-check verified at API level only: the "Real local sales" line inside the capture modal's price step (see detail). |
 | 2 | Buyer Intelligence ("My Buyers" CRM) | DONE | f96d433 | 2026-09-17 | Marketplace search + search log, `/api/artisan/buyers`, My buyers tab. 15 unit checks, 28 live API checks, browser checks in four languages at 360 px. |
-| 3 | Production Credit Score + bank share link | DONE | (this commit) | 2026-09-17 | `creditScore.ts` (pure, 33 unit checks), frozen share snapshots, public `/credit/[token]` record that prints to one A4 page. 67 live API checks (one confirmed on a production build), browser checks in four languages at 360 px. |
-| 4 | Buyer Discovery Page (QR passport + product page) | PENDING | — | — | — |
+| 3 | Production Credit Score + bank share link | DONE | 6e91809 | 2026-09-17 | `creditScore.ts` (pure, 33 unit checks), frozen share snapshots, public `/credit/[token]` record that prints to one A4 page. 67 live API checks (one confirmed on a production build), browser checks in four languages at 360 px. |
+| 4 | Buyer Discovery Page (QR passport + product page) | DONE | (this commit) | 2026-09-17 | Shared passport (story, timeline, 3-layer trust, similar request, more from artisan, gallery) on `/verify/[patchId]` and the product page. Fixes a PII leak on the QR page. 21 unit checks, 65 page checks on dev and on a key-less production build, browser checks in four languages at 360 px. |
 | 5 | AI Learning Pathways (skill stages, offline cache) | PENDING | — | — | — |
 | 6 | Proactive Supply Intelligence (20-day reminder) | PENDING | — | — | — |
 | 7 | Sync Status Indicator ("Synced 2 min ago") | PENDING | — | — | — |
@@ -25,6 +25,56 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 
 A commit cannot contain its own hash, so the newest row reads `(this commit)`;
 each phase backfills the previous row's short sha when it updates this file.
+
+## Phase 4 detail
+- Status: **DONE** (2026-09-17)
+- Schema: none.
+- Files created: `src/lib/passport.ts` (server loader, explicit select, `cache()`d per request; photos referenced by URL, never inlined) · `src/lib/passportFacts.ts` (pure: `buildTimeline`, `buildTrustLayers`, `receivedFor`, `giLabelFor`, `materialFrom`/`colorFrom`, `demandDraftFor`) · `src/lib/demandDraft.ts` (demand-form vocabularies + `DemandDraft`, moved out of the modal) · `src/app/api/passport/[id]/image/route.ts` · `src/components/buyer/{PassportGallery,CraftStory,ProvenanceTimeline,TrustLayers,SimilarRequest,MoreFromArtisan}.tsx` · `src/components/buyer/passportFormat.ts` · `src/lib/__tests__/passportFacts.test.mjs`
+- Files modified: `src/app/verify/[patchId]/page.tsx` + `VerificationClient.tsx` (rewritten on the passport), `src/app/marketplace/product/[id]/page.tsx` (server-loads the passport, `generateMetadata`) + `ProductClient.tsx` (gallery and passport sections; buy flow unchanged; `router.refresh()` after a verified payment), `src/components/PostDemandModal.tsx` (optional `initial` prop, default empty; vocabularies imported), `src/app/api/artisan/orders/verify-ready/route.ts`, `src/app/api/buyer/orders/verify/route.ts`, `src/app/api/buyer/verify-item/route.ts` (store a similarity score only when Gemini produced it), `package.json` (`test:passport` in `test:all`), `src/lib/i18n/{en,hi,or,te}.ts`
+- i18n keys added: 106 × 4 dictionaries (all 37 in §4.7 plus 69: hero, gallery, story lines, trust bodies, 13 language names). Coverage: 0 missing, placeholders identical; only `gallery_position` ("{n} / {total}") is the same string in every language.
+- Gates: tsc PASS | lint 112 / 45 source, 0 files worse than baseline (the rewritten `/verify/[patchId]` page and client dropped 3 errors and 19 warnings; no other file changed) | build PASS, baseline warnings only | `test:all` PASS (+ passportFacts 21 checks)
+- Verification — server (65/65 against `next dev`, and 65/65 again against a production build started with `GEMINI_API_KEY`, `GOOGLE_API_KEY` and `GROQ_API_KEY` blank):
+  - ✓ Seven real pieces (verified + voice, QR-waived, sold with escrow held, settled, data-URL photo, bare unlisted, IVR): 200, `noindex, nofollow`, no mobile / UPI / bank / Aadhaar / buyer / Razorpay / payout-ref value or field name anywhere in the HTML or RSC payload, no base64 photo inlined (pages 54–61 KB)
+  - ✓ Negative control: the pre-Phase-4 QR page, served by stashing only the two verify files, contained Jethiben's mobile number, the shared UPI id, a bank account number, `aadhaarLast4`/`bankAccountNumber`/`mobileNumber` keys, raw audit comments and "Authentic. Fair. Verified."
+  - ✓ Waived piece reads "QR check waived (demo catalogue)" and never the matched step or badge; verified piece shows both; voice ("Catalogued by voice, in Gujarati") and IVR ("…over a phone call, in Odia") lines
+  - ✓ Fair pay: unsold → ₹0 "Not yet sold"; sold + escrow held → ₹0 "held in escrow"; settled → ₹13,051 = ₹5,842 + ₹7,209 with the simulated-payout label
+  - ✓ Timeline dates equal `createdAt` / `qrVerifiedAt` in IST; unlisted and unpaid steps grey with "Not recorded yet"; admin date from the `ADMIN_VERIFIED` row
+  - ✓ GI line for certified Jethiben ("GI: Kutch Embroidery"), none for uncertified Imran
+  - ✓ No "authenticated by AI", accuracy, "Authenticity score" or "Geographic Origin Protected" text on any page
+  - ✓ Unknown patch → 404; image route: data photo 200 `image/jpeg` 192 KB, `&w=240` thumbnail 8 KB, public cache header, bad index / unknown item 404, path photo 307 to the file
+  - ✓ Product page: title "Kutch Mirror Work Bridal Odhani by Jethiben Rabari · Karigari", meta description from the item, indexable, no patch ID, no PII
+  - ✓ "More from this artisan": Imran's only buyable piece shows no rail; his other piece shows a rail of one
+  - ✓ Key-less build: `/api/demand/recommend` still answers from rules; passport pages identical
+- Verification — browser (Browser pane):
+  - ✓ Gallery: ArrowRight/ArrowLeft move and wrap, a 100 px swipe moves, a 20 px swipe does not, full-size view opens with focus on Close, arrows work inside it, Escape closes and focus returns to "View full size"
+  - ✓ "Want something similar?": the form opens with category Saree & Textile, craft type, colour "red", the Cotton chip and the piece's photo as a data URL. Quantity 3, colour changed to "maroon", posted: the page said 1 artisan notified. The stored demand matched (maroon, Cotton, 1 photo), with exactly 1 in-app alert (Jethiben) and no SMS (`outboundSid` null; no artisan number is on the SMS allow-list). Craft changed to "Venetian blown glass chandelier", category Other, posted: 0 alerts, and the page showed the no-match wording. Both test demands, their alerts and the buyer notification were deleted; the test buyer name was cleared from the pane's storage
+  - ✓ Sold piece at 360 px: hero (patch-matched and Sold chips, raw patch ID), gallery, sold note, timeline, story (GI chip, bio, own-words quote, translation), fair pay with escrow explainer open, trust layers, similar request, rail, footer — in en / hi / or / te on the QR page and on the product page: scroll width 360, no overflowing element, no raw keys; language names translated ("गुजराती")
+  - ✓ Console across both pages, four languages and the gallery / demand interactions: no errors, no React or hydration warnings. The only warnings are Chrome's "Unrecognized feature: 'web-share' / 'local-network-access'" from the Razorpay checkout iframe, which the product page already loaded before this phase
+  - ✓ Throttled load (production build, Playwright, 390 px, Chrome "Fast 3G" 1.6 Mbps / 150 ms, fresh context each run): hero, story and timeline text painted at 1.1–1.6 s; the gallery photo (LCP) at 2.8 s, 2.8 s and 3.3 s (the first run hit a cold route); about 620 KB transferred. Warm server TTFB on the QR page dropped from 1.3 s to 0.35 s after the loader was cut to one query round
+- Decisions and deviations:
+  1. **PII leak fixed.** The QR page used to pass the whole item row and the whole artisan profile into a client component. Both surfaces now read one allow-listed `Passport`.
+  2. **No placeholder similarity.** The shared photo comparator returns a fixed 98 when Gemini fails, and three routes stored that number as `readySimilarityScore` / `deliveryScanScore`. Those columns are documented as "never a placeholder number", so they now store only a Gemini-produced score. The passport shows a similarity only when one is stored, labelled "Image similarity" with its source and date.
+  3. **Human-capture wording.** There is no geotag column, so geotagging is not claimed, and the capture layer does not say "at the workshop".
+  4. **AI layer.** The QR-patch step is shown as an AI photo match: `/api/items/attach-verify` fails closed when the AI is down, so a pass is a real match.
+  5. **Paid step reads `paidAt` only.** Thirty-one seeded SOLD_FINAL pieces have settled escrow but no `paidAt`. Their timeline shows "Paid: not recorded" while fair pay shows the released tranches — a seed artefact, not a guessed date.
+  6. **Payouts labelled simulated** unless `payoutMode` is RAZORPAYX, per the honesty rule in `src/lib/escrow.ts`.
+  7. **Removed from the old QR page:**
+     - the hero "Authentic. Fair. Verified.";
+     - an "Authenticity score" that was actually `fairnessScore`;
+     - "Geographic Origin Protected" — the village is shown now, as the product page already did;
+     - raw-material cost, which the market API treats as internal;
+     - the raw audit-log list, whose comments carried patch IDs, payment IDs and buyer names.
+  8. **Material and colour.** Whole-word matches from named term lists, read from the artisan's tags, then catalogue tags, then the English description.
+  9. **New vertical `ProvenanceTimeline`.** `OrderTimeline` is order-stage specific and `ProgressStepper` is a horizontal label strip, so neither fit.
+  10. **"More from this artisan"** applies `PURCHASABLE_WHERE` on the server rather than fetching `/api/items/market`, which ships every listing with its photos.
+  11. **Reference photo** is converted to a data URL in the browser, because `POST /api/demand` accepts only data URLs.
+  12. **Public image route.** It serves only `images[]` and look thumbnails — the same photos `/api/items/market?id=` already returns. Photos stored as a path redirect to the file.
+- Known follow-ups:
+  - No piece in the database has an AI photo-quality score, a material bill, stored looks, shipping timestamps or a stored similarity score. Those states are covered by the unit tests but have not been seen rendered with real rows.
+  - A real phone scan over conference wifi was emulated (Playwright Fast 3G), not performed. App-wide web fonts (~230 KB) are now the largest transfer on the passport.
+  - Pre-existing, not changed here:
+    - the demand form's category names are English-only;
+    - the recommendation panel's rule estimate (₹3,080 for a ₹30,771 odhani) is far from the listing price.
 
 ## Phase 3 detail
 - Status: **DONE** (2026-09-17)
