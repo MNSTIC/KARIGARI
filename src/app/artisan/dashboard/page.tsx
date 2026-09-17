@@ -17,6 +17,7 @@ import { SectionEyebrow, SectionHeading } from "@/components/ui/SectionEyebrow";
 import { Badge, PatchIdChip, statusBadge } from "@/components/ui/Badge";
 import { MonthlyOverview } from "@/components/dashboard/MonthlyOverview";
 import { StatTile } from "@/components/ui/StatTile";
+import { SupplyNudgeCard } from "@/components/SupplyNudgeCard";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
 import { BandMarker, ProgressBar } from "@/components/ui/ProgressBar";
 import { Shell } from "@/components/ui/AppShell";
@@ -100,6 +101,8 @@ export default function ArtisanDashboard() {
   const [listNotice, setListNotice] = useState<{ tone: 'ok' | 'warn'; text: string } | null>(null);
 
   const [dashboardData, setDashboardData] = useState<any>(null);
+  /** Set when "remind me later" succeeds, so the card leaves without a refetch. */
+  const [supplySnoozed, setSupplySnoozed] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any>(null);
   /* The dispute and agent-handoff flows are opened from elsewhere in the app;
      the dashboard only owns the closing side of them. */
@@ -472,6 +475,17 @@ export default function ArtisanDashboard() {
             </p>
           </Card>
         </section>
+
+        {/* ------------------------------------------------ Restock nudge
+            Shown only when the artisan has genuinely been quiet for
+            SUPPLY_IDLE_DAYS — offline sales and demand orders count as
+            activity, so a haat seller never sees it. */}
+        {!supplySnoozed && (
+          <SupplyNudgeCard
+            status={dashboardData?.supplyStatus}
+            onSnoozed={() => setSupplySnoozed(true)}
+          />
+        )}
 
         {/* -------------------------------------------- Recent portfolio */}
         <Card as="section" pad="lg" className="kg-enter min-w-0" radius="3xl">

@@ -2,19 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Bell,
   CalendarDays,
   ChevronDown,
   ChevronUp,
+  Landmark,
   Loader2,
   MessageCircle,
+  PackageSearch,
   TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/translations";
 import { DemandRequestCard } from "@/components/ui/DemandRequestCard";
+import { supplyNoticeText } from "@/lib/supplyNotice";
 
 /**
  * Header bell backed by real `Notification` rows.
@@ -47,7 +51,64 @@ function iconFor(type: string) {
   if (type === "DEMAND_ALERT") return <TrendingUp size={14} />;
   if (type === "FESTIVAL") return <CalendarDays size={14} />;
   if (type === "SCHEME") return <MessageCircle size={14} />;
+  if (type === "SUPPLY_REMINDER") return <PackageSearch size={14} />;
   return <Bell size={14} />;
+}
+
+/**
+ * The restock reminder's three actions.
+ *
+ * Spans rather than links and buttons: each notification row is itself a
+ * <button> (tapping it marks the alert read), and nesting interactive elements
+ * inside a button is invalid HTML. The demand expander above already uses this
+ * pattern in this file, keyboard handling included.
+ */
+function SupplyActions({
+  t,
+  onNavigate,
+  onSnooze,
+}: {
+  t: (key: string) => string;
+  onNavigate: (href: string) => void;
+  onSnooze: () => void;
+}) {
+  const act = (run: () => void) => ({
+    role: "button" as const,
+    tabIndex: 0,
+    onClick: (e: React.MouseEvent) => {
+      e.stopPropagation();
+      run();
+    },
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      e.stopPropagation();
+      run();
+    },
+  });
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <span
+        {...act(() => onNavigate("/artisan/materials"))}
+        className="kg-press inline-flex min-h-[32px] cursor-pointer items-center gap-1 rounded-lg bg-primary px-2.5 text-[11px] font-bold text-white"
+      >
+        <PackageSearch size={12} /> {t("supply_nudge_browse_suppliers")}
+      </span>
+      <span
+        {...act(() => onNavigate("/artisan/schemes"))}
+        className="kg-press inline-flex min-h-[32px] cursor-pointer items-center gap-1 rounded-lg border border-gray-300 px-2.5 text-[11px] font-bold text-gray-800"
+      >
+        <Landmark size={12} /> {t("supply_nudge_schemes")}
+      </span>
+      <span
+        {...act(onSnooze)}
+        className="inline-flex min-h-[32px] cursor-pointer items-center px-1 text-[11px] font-medium text-gray-600 underline underline-offset-2"
+      >
+        {t("supply_nudge_snooze")}
+      </span>
+    </div>
+  );
 }
 
 function relativeTime(iso: string, t: (k: string) => string): string {
@@ -79,6 +140,7 @@ export function NotificationsBell({
   triggerClassName?: string;
 }) {
   const { t } = useLanguage();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   /**
    * The demand whose full request the artisan has expanded.
@@ -150,6 +212,22 @@ export function NotificationsBell({
     }).catch((e) => console.error("Failed to mark notifications read", e));
   };
 
+  /** "Remind me later" from inside the panel: snooze, then drop the alert. */
+  const snoozeSupply = async (id: string) => {
+    setItems((prev) => prev.filter((n) => n.id !== id));
+    setUnread((u) => Math.max(0, u - 1));
+    await fetch("/api/artisan/supply-reminder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "snooze" }),
+    }).catch((e) => console.warn("Could not snooze the restock reminder", (e as Error)?.message));
+    await fetch("/api/artisan/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    }).catch(() => {});
+  };
+
   const badge = unread + localAlerts.length;
 
   return (
@@ -205,7 +283,11 @@ export function NotificationsBell({
               <div className="p-4 text-center text-sm text-gray-500">{t("no_notifications")}</div>
             )}
 
-            {items.map((n) => (
+            {items.map((n) => {
+              // Stored English, rendered in the artisan's language when it is
+              // one of ours; the raw row is the fallback.
+              const supply = supplyNoticeText(n, t);
+              return (
               <button
                 key={n.id}
                 onClick={() => !n.read && markRead(n.id)}
@@ -238,13 +320,23 @@ export function NotificationsBell({
                           n.read ? "font-medium text-gray-700" : "font-bold text-gray-900"
                         )}
                       >
-                        {n.title}
+                        {supply?.title ?? n.title}
                       </p>
                       <span className="shrink-0 text-[10px] text-gray-400">
                         {relativeTime(n.createdAt, t)}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-600 leading-relaxed mt-0.5">{n.message}</p>
+                    <p className="text-xs text-gray-600 leading-relaxed mt-0.5">{supply?.message ?? n.message}</p>
+                    {supply && (
+                      <SupplyActions
+                        t={t}
+                        onNavigate={(href) => {
+                          setOpen(false);
+                          router.push(href);
+                        }}
+                        onSnooze={() => void snoozeSupply(n.id)}
+                      />
+                    )}
                     {/* A demand alert says "40 sarees wanted" and nothing
                         about which kind. This is where the artisan reads the
                         buyer's reference photo, material and colour BEFORE
@@ -299,7 +391,8 @@ export function NotificationsBell({
                   </div>
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
 
           {/* Route to the full view, where the alerts sit alongside the

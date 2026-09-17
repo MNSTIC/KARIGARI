@@ -1884,6 +1884,18 @@ const dict: Record<string, string> = {
   learn_cat_digital_online_listing: "ऐसी लिस्टिंग लिखना जो आपकी कला की कहानी बताए",
   learn_cat_digital_online_listing_why: "ऑनलाइन ख़रीदार तब ज़्यादा देते हैं जब वे जानते हैं कि नग किसने और कैसे बनाया।",
   learn_cat_digital_online_listing_q: "हस्तनिर्मित सामान का विवरण कैसे लिखें",
+  notif_supply_title: "{days} दिनों से कोई नई लिस्टिंग नहीं",
+  notif_supply_body: "{days} दिनों से कुछ भी नया दर्ज नहीं हुआ। जाँचा हुआ कच्चा माल देखें, या जिन ऋण योजनाओं के आप पात्र हैं वे देखें।",
+  supply_nudge_title: "आपके पिछले नग को {days} दिन हो गए",
+  supply_nudge_body: "काम धीमा पड़े तो वजह अक्सर माल या पैसा होती है। दोनों के लिए यहाँ पन्ना है।",
+  supply_nudge_days: "{days} दिन शांत",
+  supply_nudge_since: "आख़िरी बार {date} को दर्ज",
+  supply_nudge_since_never: "करीगरी पर अभी तक कुछ दर्ज नहीं",
+  supply_nudge_browse_suppliers: "सप्लायर देखें",
+  supply_nudge_schemes: "ऋण योजनाएँ देखें",
+  supply_nudge_snooze: "बाद में याद दिलाएँ",
+  supply_nudge_snooze_failed: "यह सहेजा नहीं जा सका। अपना इंटरनेट देखें और फिर कोशिश करें।",
+  supply_nudge_dismiss: "हटाएँ",
 };
 
 export default dict;

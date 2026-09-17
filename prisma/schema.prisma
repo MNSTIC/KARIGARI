@@ -71,6 +71,9 @@ model User {
   /// V12. Learning items the artisan marked started or done. The skill stage is
   /// never stored — it is derived from the production record on every read.
   learningProgress         LearningProgress[]
+  /// V12. When this artisan was last nudged about restocking, and whether they
+  /// asked to be left alone for a week.
+  supplyReminderState      SupplyReminderState?
 
   // Admin fields
   patchBankBalance Int @default(5000)
@@ -1104,4 +1107,31 @@ model LearningProgress {
 
   @@unique([artisanId, moduleKey])
   @@index([artisanId])
+}
+
+/// When an artisan was last nudged about restocking, and when they last asked
+/// to be left alone.
+///
+/// A row per artisan, created on first evaluation. Kept out of ArtisanProfile
+/// because it is scheduler bookkeeping rather than anything about the artisan,
+/// and because a "remind me later" must not touch a profile row that scheme
+/// eligibility reads.
+///
+/// There is no cron in this app. The check runs lazily on a request the artisan
+/// is already making (the dashboard), and `lastRemindedAt` is what makes it
+/// idempotent: the reminder is claimed with a conditional updateMany on this
+/// row before the Notification is written, so ten dashboard loads in a minute
+/// produce one alert.
+///
+/// Written only by src/lib/supplyReminder.ts.
+model SupplyReminderState {
+  id             String    @id @default(uuid())
+  artisanId      String    @unique
+  artisan        User      @relation(fields: [artisanId], references: [id])
+  lastRemindedAt DateTime?
+  /// Set by "remind me later"; no reminder is written while this is in the
+  /// future. Presence, not a boolean, so the snooze expires by itself.
+  snoozedUntil   DateTime?
+  remindCount    Int       @default(0)
+  updatedAt      DateTime  @updatedAt
 }

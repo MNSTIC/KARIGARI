@@ -1922,6 +1922,18 @@ const dict: Record<string, string> = {
   learn_cat_digital_online_listing: "Writing a listing that tells your craft's story",
   learn_cat_digital_online_listing_why: "Buyers online pay more when they know who made a piece and how.",
   learn_cat_digital_online_listing_q: "how to write a product description for handmade products",
+  notif_supply_title: "No new listing in {days} days",
+  notif_supply_body: "Nothing new has been catalogued in {days} days. Browse verified raw material, or see the credit schemes you qualify for.",
+  supply_nudge_title: "It has been {days} days since your last piece",
+  supply_nudge_body: "When work slows down, it is usually material or money. Both have a page here.",
+  supply_nudge_days: "{days} days quiet",
+  supply_nudge_since: "Last recorded on {date}",
+  supply_nudge_since_never: "Nothing recorded on Karigari yet",
+  supply_nudge_browse_suppliers: "Browse suppliers",
+  supply_nudge_schemes: "See credit schemes",
+  supply_nudge_snooze: "Remind me later",
+  supply_nudge_snooze_failed: "Could not save that. Check your connection and try again.",
+  supply_nudge_dismiss: "Dismiss",
 };
 
 export default dict;

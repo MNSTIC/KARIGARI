@@ -1884,6 +1884,18 @@ const dict: Record<string, string> = {
   learn_cat_digital_online_listing: "ଆପଣଙ୍କ କଳାର କାହାଣୀ କହୁଥିବା ଲିଷ୍ଟିଂ ଲେଖିବା",
   learn_cat_digital_online_listing_why: "ସାମଗ୍ରୀ କିଏ ଓ କିପରି ତିଆରି କଲେ ଜାଣିଲେ ଅନଲାଇନ୍ କ୍ରେତା ଅଧିକ ଦିଅନ୍ତି।",
   learn_cat_digital_online_listing_q: "ହସ୍ତତିଆରି ସାମଗ୍ରୀର ବିବରଣୀ କିପରି ଲେଖିବେ",
+  notif_supply_title: "{days} ଦିନ ହେଲା କୌଣସି ନୂଆ ଲିଷ୍ଟିଂ ନାହିଁ",
+  notif_supply_body: "{days} ଦିନ ହେଲା କିଛି ନୂଆ ଲେଖା ହୋଇନାହିଁ। ଯାଞ୍ଚ ହୋଇଥିବା କଞ୍ଚାମାଲ ଦେଖନ୍ତୁ, କିମ୍ବା ଆପଣ ଯୋଗ୍ୟ ଥିବା ଋଣ ଯୋଜନା ଦେଖନ୍ତୁ।",
+  supply_nudge_title: "ଆପଣଙ୍କ ଶେଷ ସାମଗ୍ରୀକୁ {days} ଦିନ ହେଲାଣି",
+  supply_nudge_body: "କାମ ମନ୍ଥର ହେଲେ ସାଧାରଣତଃ କାରଣ ହୁଏ ମାଲ କିମ୍ବା ଟଙ୍କା। ଦୁହେଁଙ୍କ ପାଇଁ ଏଠାରେ ପୃଷ୍ଠା ଅଛି।",
+  supply_nudge_days: "{days} ଦିନ ଶାନ୍ତ",
+  supply_nudge_since: "ଶେଷ ଥର {date}ରେ ଲେଖା ହୋଇଥିଲା",
+  supply_nudge_since_never: "କାରିଗରୀରେ ଏପର୍ଯ୍ୟନ୍ତ କିଛି ଲେଖା ହୋଇନାହିଁ",
+  supply_nudge_browse_suppliers: "ଯୋଗାଣକାରୀ ଦେଖନ୍ତୁ",
+  supply_nudge_schemes: "ଋଣ ଯୋଜନା ଦେଖନ୍ତୁ",
+  supply_nudge_snooze: "ପରେ ମନେ ପକାନ୍ତୁ",
+  supply_nudge_snooze_failed: "ଏହା ସେଭ୍ ହୋଇପାରିଲା ନାହିଁ। ଆପଣଙ୍କ ଇଣ୍ଟରନେଟ୍ ଦେଖି ପୁଣି ଚେଷ୍ଟା କରନ୍ତୁ।",
+  supply_nudge_dismiss: "ହଟାନ୍ତୁ",
 };
 
 export default dict;

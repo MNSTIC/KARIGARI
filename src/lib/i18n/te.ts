@@ -1887,6 +1887,18 @@ const dict: Record<string, string> = {
   learn_cat_digital_online_listing: "మీ కళ కథను చెప్పే లిస్టింగ్ రాయడం",
   learn_cat_digital_online_listing_why: "వస్తువును ఎవరు, ఎలా తయారు చేశారో తెలిస్తే ఆన్‌లైన్ కొనుగోలుదారులు ఎక్కువ చెల్లిస్తారు.",
   learn_cat_digital_online_listing_q: "చేతితో చేసిన వస్తువుల వివరణ ఎలా రాయాలి",
+  notif_supply_title: "{days} రోజులుగా కొత్త లిస్టింగ్ లేదు",
+  notif_supply_body: "{days} రోజులుగా కొత్తగా ఏదీ నమోదు కాలేదు. ధృవీకరించిన ముడిసరుకు చూడండి, లేదా మీరు అర్హత ఉన్న రుణ పథకాలు చూడండి.",
+  supply_nudge_title: "మీ చివరి వస్తువు నుంచి {days} రోజులైంది",
+  supply_nudge_body: "పని మందగించినప్పుడు కారణం సాధారణంగా ముడిసరుకు లేదా డబ్బే. రెంటికీ ఇక్కడ పేజీ ఉంది.",
+  supply_nudge_days: "{days} రోజులు నిశ్శబ్దం",
+  supply_nudge_since: "చివరిగా {date}న నమోదైంది",
+  supply_nudge_since_never: "కారిగరిలో ఇంకా ఏదీ నమోదు కాలేదు",
+  supply_nudge_browse_suppliers: "సరఫరాదారులను చూడండి",
+  supply_nudge_schemes: "రుణ పథకాలు చూడండి",
+  supply_nudge_snooze: "తర్వాత గుర్తు చేయండి",
+  supply_nudge_snooze_failed: "ఇది సేవ్ కాలేదు. మీ ఇంటర్నెట్ చూసి మళ్లీ ప్రయత్నించండి.",
+  supply_nudge_dismiss: "తీసివేయండి",
 };
 
 export default dict;

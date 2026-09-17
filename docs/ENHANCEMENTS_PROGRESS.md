@@ -13,8 +13,8 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 | 2 | Buyer Intelligence ("My Buyers" CRM) | DONE | f96d433 | 2026-09-17 | Marketplace search + search log, `/api/artisan/buyers`, My buyers tab. 15 unit checks, 28 live API checks, browser checks in four languages at 360 px. |
 | 3 | Production Credit Score + bank share link | DONE | 6e91809 | 2026-09-17 | `creditScore.ts` (pure, 33 unit checks), frozen share snapshots, public `/credit/[token]` record that prints to one A4 page. 67 live API checks (one confirmed on a production build), browser checks in four languages at 360 px. |
 | 4 | Buyer Discovery Page (QR passport + product page) | DONE | 11eddd0 | 2026-09-17 | Shared passport (story, timeline, 3-layer trust, similar request, more from artisan, gallery) on `/verify/[patchId]` and the product page. Fixes a PII leak on the QR page. 21 unit checks, 65 page checks on dev and on a key-less production build, browser checks in four languages at 360 px. |
-| 5 | AI Learning Pathways (skill stages, offline cache) | DONE | (this commit) | 2026-09-18 | `skillStage.ts` (pure, derived, never stored), three learning tracks from AI with a curated catalogue underneath, YouTube *search* links only, and an on-phone copy so the page opens offline. 26 unit checks, 71 live API checks on dev and again on a key-less production build, browser checks in four languages at 360 px. |
-| 6 | Proactive Supply Intelligence (20-day reminder) | PENDING | — | — | — |
+| 5 | AI Learning Pathways (skill stages, offline cache) | DONE | 2fbcae9 | 2026-09-18 | `skillStage.ts` (pure, derived, never stored), three learning tracks from AI with a curated catalogue underneath, YouTube *search* links only, and an on-phone copy so the page opens offline. 26 unit checks, 71 live API checks on dev and again on a key-less production build, browser checks in four languages at 360 px. |
+| 6 | Proactive Supply Intelligence (20-day reminder) | DONE | (this commit) | 2026-09-18 | Lazy, idempotent 20-day restock nudge on the dashboard request — no cron added. Offline sales and demand orders count as activity. In-app alert stored in English and rendered in the artisan's language with the real day count, plus an inline card, a 7-day snooze and a per-device dismiss. 15 unit checks, 31 live API checks, browser checks in four languages at 360 px. |
 | 7 | Sync Status Indicator ("Synced 2 min ago") | PENDING | — | — | — |
 | 8 | Workshop Resources (rename + repair + tool schemes) | PENDING | — | — | — |
 | 9 | Recognition & Anonymous Cluster Benchmarks | PENDING | — | — | — |
@@ -25,6 +25,51 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 
 A commit cannot contain its own hash, so the newest row reads `(this commit)`;
 each phase backfills the previous row's short sha when it updates this file.
+
+## Phase 6 detail
+- Status: **DONE** (2026-09-18)
+- Schema: `SupplyReminderState` model (`artisanId` `@unique`, `lastRemindedAt`, `snoozedUntil`, `remindCount`) and `User.supplyReminderState`. Additive; pushed with `db push --url $DIRECT_URL`. Single writer: `src/lib/supplyReminder.ts`.
+- Files created: `src/lib/supplyReminderRules.ts` (pure: thresholds, `decideReminder`, the stored English title and its parser) · `src/lib/supplyReminder.ts` (server: one `Promise.all` of five reads, the conditional claim, the write) · `src/lib/supplyNotice.ts` (client: renders a stored alert in the artisan's language) · `src/components/SupplyNudgeCard.tsx` · `src/app/api/artisan/supply-reminder/route.ts` · `src/lib/__tests__/supplyReminder.test.mjs`
+- Files modified: `prisma/schema.prisma`, `package.json` (`test:supply` in `test:all`), `src/app/api/artisan/dashboard/route.ts` (fire-and-forget check + `supplyStatus` in the payload), `src/app/artisan/dashboard/page.tsx` (the nudge card above the portfolio list), `src/components/NotificationsBell.tsx`, `src/app/artisan/notifications/page.tsx`, `src/lib/i18n/{en,hi,or,te}.ts`
+- i18n keys added: 12 × 4 dictionaries (the 9 in §6.6 plus `supply_nudge_since`, `supply_nudge_since_never` and `supply_nudge_snooze_failed`). Coverage script: 0 missing, 0 extra, placeholders identical, none left identical to English.
+- Gates: tsc PASS | lint 112 / 45 source (baseline), 0 files worse | build PASS, baseline warnings only | `test:all` PASS (+ supplyReminder 15 checks)
+- Verification — live API (31/31 against `next dev`):
+  - ✓ Unauthenticated GET/POST → 401; an ADMIN token → 403
+  - ✓ Ghulam (newest of his items, offline sales and demand orders is 21 days old): GET reports CREATED with idleDays 21, equal to a hand-written `GREATEST(max(CraftItem.createdAt), max(OfflineSale.soldAt), max(ArtisanOrder.createdAt))` query
+  - ✓ The GET writes nothing: no alert row, no state row, after it answers
+  - ✓ Lakshmi (active 12 days ago) reads ACTIVE; a 7-day-old account reads TOO_NEW
+  - ✓ **Ten concurrent dashboard loads → exactly one notification row**, `remindCount` 1, all ten responses 200 and carrying the same `supplyStatus`
+  - ✓ The alert is `IN_APP`, stored in English, titled "No new listing in 21 days", and the number in the title equals the computed idle days
+  - ✓ An eleventh load writes nothing; the artisan then reads COOLDOWN
+  - ✓ POST without an action, or with an unknown one → 400. Snooze → 200 with the date it runs to; the artisan reads SNOOZED and the dashboard payload says so
+  - ✓ An expired snooze stops silencing it (back to COOLDOWN); past the 14-day cooldown it reads CREATED again
+  - ✓ **One offline sale makes an idle artisan ACTIVE again** (idleDays 0) and the dashboard nudge disappears with it; no alert was written; deleting the test sale returns them to CREATED
+  - ✓ A 7-day-old account and an actively working artisan were never nudged, however many times their dashboard loaded
+- Verification — timing (sequential, same server, after a warm-up):
+  - ✓ The dashboard call whose check writes the alert: **676 ms**; the next five calls for the same artisan: 725–840 ms (median 772 ms); an active artisan: median 1040 ms. The writing call is not the slow one, which is what "fire-and-forget" has to mean.
+  - ✓ `GET /api/artisan/supply-reminder` alone: median 232 ms. Inside the dashboard its five reads join the existing `Promise.all`, so they add no serial step.
+- Verification — browser (Browser pane, signed in as lakshmi@karigari.com):
+  - ✓ With her two newest activity rows temporarily backdated 15 days (originals saved and restored afterwards): the card reads "24 DAYS QUIET / It has been 24 days since your last piece / Last recorded on 24 Aug 2026", with links to `/artisan/materials` and `/artisan/schemes`, "Remind me later" and a dismiss
+  - ✓ The bell row and the notifications page row both render the translated sentence with the real count and the same three actions
+  - ✓ en / hi / or / te: card and bell row translated, day count 24 in all four, no raw keys; at 360 px the card has no overflowing element and every action is a 40 px tap target
+  - ✓ "Remind me later" from the notifications page: the row disappears, the account reads SNOOZED, and the dashboard card is gone on the next load
+  - ✓ "Dismiss": the card goes, stays gone across a reload, and returns once the artisan has been idle a week longer (the stored value is the idle-day count, not a timestamp)
+  - ✓ Console on a fresh dashboard load with the card rendered: no errors, no React warnings
+  - ✓ Cleanup: the backdated timestamps restored exactly (Lakshmi's newest piece is 12 days old again), every `SUPPLY_REMINDER` row and every `SupplyReminderState` row written by the checks deleted, the test offline sale deleted
+- Decisions and deviations:
+  1. **No cron, as instructed.** The check rides on the dashboard request, the same lazy pattern `notifyArtisanOfFestival()` uses on `/api/artisan/insights`.
+  2. **Idempotency is enforced by the database, not by a read-then-write.** Before writing, the reminder is claimed with a conditional `updateMany` on `SupplyReminderState` (`lastRemindedAt` null or older than the cooldown); only the winner writes the alert. The festival path's dedupe `findFirst` is kept as a second guard for rows written before this table existed. Ten simultaneous loads were tested, not assumed.
+  3. **The GET is read-only.** A page asking "am I idle?" must not be able to create an alert as a side effect.
+  4. **An artisan who has never catalogued anything is idle since they joined**, so a three-month-old empty account is nudged once it passes the 21-day age gate. The account-age gate is what keeps a new artisan quiet.
+  5. **Activity is activity.** The idle clock reads the newest of a catalogue entry, an offline sale (Phase 1) and a demand order, so a weaver selling at haats every week is never told they have stopped working.
+  6. **Two different ways to quiet it.** "Remind me later" writes a 7-day snooze on the account; "Dismiss" only hides the card on that phone (localStorage), and it returns after another week of idleness. The dismissal stores the idle-day count it was made at, so it expires against the artisan's own record rather than a clock.
+  7. **The day count travels in the English title** ("No new listing in 23 days") because `Notification` has no params column; the clients parse it back out and render the sentence from the dictionary. A row that does not parse renders as the English it was stored as, and that fallback is covered by a test.
+  8. **The bell's actions are spans with `role="button"`**, not links: each notification row is itself a `<button>`, and nesting interactive elements would be invalid HTML. The demand expander in that file already uses this pattern, keyboard handling included. The notifications page, whose rows are plain `<div>`s, uses real links and a real button.
+  9. **Dates inside the card use `en-IN` with `Asia/Kolkata`** (the house format), so "24 Aug 2026" keeps its English month abbreviation in all four languages, exactly as the credit record and passport dates do.
+- Known follow-ups:
+  - `NO_PROFILE` (registration abandoned before the profile row exists) is covered by a unit test only: every artisan in the database has a profile, and deleting one to prove it would have meant mutating a seeded account.
+  - The reminder is in-app only. `src/lib/sms.ts` exists and is allow-listed, but no artisan's number is on the allow-list, so sending this over SMS was neither wired nor tested.
+  - The nudge links to `/artisan/materials`. Phase 8 renames that surface to `/artisan/workshop`; the link will need to follow it (or the rename needs a redirect).
 
 ## Phase 5 detail
 - Status: **DONE** (2026-09-18)

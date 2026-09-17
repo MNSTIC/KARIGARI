@@ -7,9 +7,11 @@ import {
   BellRing,
   CalendarDays,
   CheckCheck,
+  Landmark,
   Loader2,
   Megaphone,
   Package,
+  PackageSearch,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
@@ -19,6 +21,7 @@ import { useLanguage } from "@/lib/translations";
 import { formatRupees } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 import { DemandRequestCard } from "@/components/ui/DemandRequestCard";
+import { supplyNoticeText } from "@/lib/supplyNotice";
 
 /**
  * The artisan's notifications view.
@@ -79,6 +82,8 @@ export default function NotificationsPage() {
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  /** True while a "remind me later" is in flight, so the button cannot double-fire. */
+  const [snoozing, setSnoozing] = useState(false);
 
   const load = useCallback(async () => {
     setFailed(false);
@@ -106,6 +111,32 @@ export default function NotificationsPage() {
     const kickoff = setTimeout(load, 0);
     return () => clearTimeout(kickoff);
   }, [load]);
+
+  /**
+   * "Remind me later" on a restock reminder: quiet on the account for a week,
+   * and the alert itself is marked read and dropped from this list.
+   */
+  const snoozeSupply = async (id: string) => {
+    setSnoozing(true);
+    try {
+      await fetch("/api/artisan/supply-reminder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "snooze" }),
+      });
+      await fetch("/api/artisan/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+      setUnread((u) => Math.max(0, u - 1));
+    } catch (error) {
+      console.warn("Could not snooze the restock reminder:", (error as Error)?.message);
+    } finally {
+      setSnoozing(false);
+    }
+  };
 
   const markAllRead = async () => {
     try {
@@ -288,7 +319,11 @@ export default function NotificationsPage() {
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {notifications.map((note) => (
+                  {notifications.map((note) => {
+                    // Restock reminders are stored in English and rendered in
+                    // the artisan's language here; anything else shows as stored.
+                    const supply = supplyNoticeText(note, t);
+                    return (
                     <div
                       key={note.id}
                       className={cn(
@@ -304,18 +339,43 @@ export default function NotificationsPage() {
                             : "bg-[var(--color-mint)] text-primary"
                         )}
                       >
-                        <BellRing size={16} />
+                        {supply ? <PackageSearch size={16} /> : <BellRing size={16} />}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-bold text-primary">{note.title}</p>
+                          <p className="text-sm font-bold text-primary">{supply?.title ?? note.title}</p>
                           <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                             {note.channel}
                           </span>
                         </div>
                         <p className="text-sm text-gray-600 leading-relaxed mt-1">
-                          {note.message}
+                          {supply?.message ?? note.message}
                         </p>
+
+                        {supply && (
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <Link
+                              href="/artisan/materials"
+                              className="kg-press inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-primary px-3.5 text-[13px] font-semibold text-white hover:bg-primary-dark"
+                            >
+                              <PackageSearch size={14} aria-hidden /> {t("supply_nudge_browse_suppliers")}
+                            </Link>
+                            <Link
+                              href="/artisan/schemes"
+                              className="kg-press inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-gray-300 bg-card px-3.5 text-[13px] font-semibold text-gray-800 hover:bg-gray-50"
+                            >
+                              <Landmark size={14} aria-hidden /> {t("supply_nudge_schemes")}
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => void snoozeSupply(note.id)}
+                              disabled={snoozing}
+                              className="kg-press inline-flex min-h-[40px] items-center rounded-lg px-3 text-[13px] font-medium text-gray-600 underline underline-offset-2 disabled:opacity-60"
+                            >
+                              {t("supply_nudge_snooze")}
+                            </button>
+                          </div>
+                        )}
 
                         {/* The buyer's own words and reference photo, so the
                             decision to take the job is an informed one. */}
@@ -327,7 +387,8 @@ export default function NotificationsPage() {
                         )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>

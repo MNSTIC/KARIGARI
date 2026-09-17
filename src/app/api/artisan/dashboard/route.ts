@@ -8,6 +8,7 @@ import {
   HEALTH_PENALTY_GUILTY,
   HEALTH_REWARD_VERIFIED,
 } from '@/lib/artisanHealth';
+import { checkSupplyReminder, readSupplyStatus } from '@/lib/supplyReminder';
 
 export const dynamic = 'force-dynamic';
 
@@ -261,6 +262,7 @@ export async function GET(req: Request) {
       offlineAgg,
       pastWeekOfflineAgg,
       offlineSeries,
+      supplyStatus,
     ] = await Promise.all([
       prisma.craftItem.findMany({
         where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] }, createdAt: { gte: twoWeeksAgo, lt: oneWeekAgo } },
@@ -287,7 +289,19 @@ export async function GET(req: Request) {
         where: { artisanId, soldAt: { gte: seriesStart } },
         select: { amount: true, soldAt: true },
       }),
+      // How long they have been quiet, for the inline restock nudge. Read-only:
+      // the write half runs fire-and-forget below, so it can never delay or
+      // fail this response.
+      readSupplyStatus(artisanId),
     ]);
+
+    // The 20-day restock reminder. No cron exists in this app, so the check
+    // rides on a request the artisan is already making — the same lazy pattern
+    // notifyArtisanOfFestival() uses on /api/artisan/insights. Deliberately not
+    // awaited: a notification is never worth a slower dashboard.
+    void checkSupplyReminder(artisanId).catch((error) => {
+      console.warn('[supplyReminder] check failed:', (error as Error)?.message);
+    });
     const prevWeekEarnings =
       prevWeekAdvancedItems.reduce((sum, item) => sum + (item.advancePaid || 0), 0) +
       (prevWeekQueued._sum.finalPayoutQueued || 0) +
@@ -460,6 +474,12 @@ export async function GET(req: Request) {
          */
         offlineEarnings,
         offlineSalesCount: offlineAgg._count._all,
+        /**
+         * Idle-days for the restock nudge, computed by the same rules the
+         * notification uses (src/lib/supplyReminderRules.ts) so the card and the
+         * alert can never disagree.
+         */
+        supplyStatus,
         pastWeekOfflineEarnings: pastWeekOfflineAgg._sum.amount ?? 0,
         healthScore: user?.artisanProfile?.healthScore ?? 100,
         /** The bounds the Trust card reads, so it never hard-codes "/100". */
