@@ -31,6 +31,14 @@ export const MIN_BUYERS_FOR_REPEAT_RATE = 3;
 /** Demand purchase types that make a buyer a business buyer. */
 export const B2B_PURCHASE_TYPES: readonly string[] = ['BULK', 'WHOLESALE'];
 
+/**
+ * A storefront piece counts as sold once a buyer paid for it or it reached one
+ * of these statuses through the escrow ledger. SOLD_OFFLINE is deliberately
+ * absent: those pieces belong to the offline ledger, and counting them here too
+ * would count one sale twice. Shared by My Buyers and the production record.
+ */
+export const STOREFRONT_SOLD_STATUSES: string[] = ['SOLD_FINAL', 'SOLD_MIDDLEMAN', 'PAYOUT_COMPLETED'];
+
 /** How far back "what buyers are looking for" reads. */
 export const SIGNAL_WINDOW_DAYS = 30;
 

@@ -6,6 +6,7 @@ import {
   looksLikeUpi,
   slugifyHandle,
 } from '@/lib/creators';
+import { publicOrigin } from '@/lib/publicOrigin';
 
 /**
  * Creator self-registration.
@@ -16,16 +17,6 @@ import {
  * paid, exactly as with the artisan settlement.
  */
 export const dynamic = 'force-dynamic';
-
-function origin(req: Request): string {
-  const configured = (
-    process.env.NEXT_PUBLIC_BASE_URL ||
-    process.env.PUBLIC_BASE_URL ||
-    ''
-  ).trim();
-  if (configured) return configured.replace(/\/+$/, '');
-  return new URL(req.url).origin;
-}
 
 export async function POST(req: Request) {
   try {
@@ -101,8 +92,8 @@ export async function POST(req: Request) {
       success: true,
       creatorId: creator.id,
       handle: creator.handle,
-      affiliateUrl: affiliateUrl(origin(req), creator.handle),
-      affiliateUrlTemplate: affiliateUrl(origin(req), creator.handle),
+      affiliateUrl: affiliateUrl(publicOrigin(req), creator.handle),
+      affiliateUrlTemplate: affiliateUrl(publicOrigin(req), creator.handle),
     });
   } catch (error) {
     console.error('Creator register error:', error);

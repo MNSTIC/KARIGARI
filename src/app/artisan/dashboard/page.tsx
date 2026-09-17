@@ -24,6 +24,7 @@ import { ESCROW_HELD, STAGE1_ADVANCE_PAID_40, STAGE2_SETTLED_89 } from "@/lib/es
 import { setArtisanIdentity } from "@/lib/artisanIdentity";
 import { cn } from "@/lib/utils";
 import { NotificationTicker } from "@/components/NotificationTicker";
+import { CreditProfileCard } from "@/components/CreditProfileCard";
 
 /**
  * Modals are code-split out of the first paint.
@@ -344,6 +345,9 @@ export default function ArtisanDashboard() {
 
       {/* ===================================== Trust & buyer reports */}
       <TrustAndReportsCard data={dashboardData} t={t} />
+
+      {/* ===================================== Production record (credit score) */}
+      <CreditProfileCard variant="compact" />
 
       {listNotice && (
         <div

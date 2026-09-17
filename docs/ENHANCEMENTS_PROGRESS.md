@@ -10,8 +10,8 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 |:--|:--|:--|:--|:--|:--|
 | 0 | Baseline & ledger | DONE | e12da52 | 2026-09-16 | No feature code. Baseline gate numbers below. |
 | 1 | Hybrid Income Tracker (offline sale ledger) | DONE | 6ea6a6d + 8b28a0e | 2026-09-17 | Code in 6ea6a6d; browser page checks and three fixes they found in 8b28a0e. One sub-check verified at API level only: the "Real local sales" line inside the capture modal's price step (see detail). |
-| 2 | Buyer Intelligence ("My Buyers" CRM) | DONE | (this commit) | 2026-09-17 | Marketplace search + search log, `/api/artisan/buyers`, My buyers tab. 15 unit checks, 28 live API checks, browser checks in four languages at 360 px. |
-| 3 | Production Credit Score + bank share link | PENDING | — | — | — |
+| 2 | Buyer Intelligence ("My Buyers" CRM) | DONE | f96d433 | 2026-09-17 | Marketplace search + search log, `/api/artisan/buyers`, My buyers tab. 15 unit checks, 28 live API checks, browser checks in four languages at 360 px. |
+| 3 | Production Credit Score + bank share link | DONE | (this commit) | 2026-09-17 | `creditScore.ts` (pure, 33 unit checks), frozen share snapshots, public `/credit/[token]` record that prints to one A4 page. 67 live API checks (one confirmed on a production build), browser checks in four languages at 360 px. |
 | 4 | Buyer Discovery Page (QR passport + product page) | PENDING | — | — | — |
 | 5 | AI Learning Pathways (skill stages, offline cache) | PENDING | — | — | — |
 | 6 | Proactive Supply Intelligence (20-day reminder) | PENDING | — | — | — |
@@ -25,6 +25,50 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 
 A commit cannot contain its own hash, so the newest row reads `(this commit)`;
 each phase backfills the previous row's short sha when it updates this file.
+
+## Phase 3 detail
+- Status: **DONE** (2026-09-17)
+- Schema: `CreditProfileShare` model (token `@unique`, frozen `snapshot Json`, `version`, `sharedWith`, `viewCount`, `lastViewedAt`, `expiresAt`, `revokedAt`) and `User.creditShares`. Additive; pushed with `db push --url $DIRECT_URL`. Single writer: POST/DELETE `/api/artisan/credit-profile`; view counters written only by `openCreditShare()` in `src/lib/creditRecord.ts`.
+- Files created: `src/lib/creditScore.ts` (pure: `computeCreditProfile`, every weight exported, `readCreditSnapshot` allow-list, `wholeMonthsBetween`) · `src/lib/creditShare.ts` (token, day limits, 5-link cap, `cleanSharedWith`) · `src/lib/creditRecord.ts` (`gatherCreditInputs` — one `Promise.all` of counts/sums plus one `COUNT(DISTINCT month)`; `listActiveShares`; `openCreditShare`) · `src/lib/publicOrigin.ts` · `src/app/api/artisan/credit-profile/route.ts` · `src/app/api/credit/[token]/route.ts` · `src/app/credit/[token]/page.tsx` + `CreditRecordClient.tsx` · `src/components/CreditProfileCard.tsx` · `src/components/CreditRecordParts.tsx` (gauge, bars, formula, counts table, disclaimer — shared by the card and the public page) · `src/lib/__tests__/creditScore.test.mjs`
+- Files modified: `prisma/schema.prisma`, `package.json` (`test:credit`, added to `test:all`), `src/lib/buyers.ts` (exports `STOREFRONT_SOLD_STATUSES`), `src/app/api/artisan/buyers/route.ts` (uses it), `src/app/api/creators/register/route.ts` (inline origin helper replaced by `publicOrigin()`, same logic), `src/app/artisan/earnings/page.tsx` (Credit record tab), `src/app/artisan/dashboard/page.tsx` (compact card under Trust & Reports), `src/lib/i18n/{en,hi,or,te}.ts`
+- i18n keys added: 103 × 4 dictionaries (all 29 in §3.6 plus 74 for the formula, basis lines, counts table, share list and public page). Coverage script: 0 missing, 0 extra, placeholders identical, none left identical to English. Telugu ZWNJ inserted by script.
+- Gates: tsc PASS | lint 115 / 64 source (baseline), 0 files worse | build PASS, baseline warnings only | `test:all` PASS (orderStage, offlineSaleParse, buyers, creditScore 33 checks incl. monotonicity sweeps over 10 inputs)
+- Verification — live API against `next dev` (66/66) plus one check on `next start`:
+  - ✓ Unauthenticated GET/POST → 401
+  - ✓ Lakshmi: all 15 inputs equal independent hand queries; escrow ₹74,397 / demand / offline reconcile with the Money tab; recomputing from the hand inputs gives the identical profile — 585 FAIR (production 82.5, income 111.6, fulfilment 0 insufficient with 1 order, consistency 33.3, trust 57.6)
+  - ✓ Brand-new artisan (adi@): ineligible, `score: null`, `band: null`; POST → 409 NOT_ELIGIBLE
+  - ✓ Create → 201, `/credit/<64 hex>`, who-for text cleaned (NUL and extra spaces removed), expiry 30 days, stored snapshot equals the live profile, token unrelated to the artisan id; 91 days / "abc" → 400; empty body → default 30 days; two creates in the same instant → distinct tokens
+  - ✓ Public GET → 200 with `noindex, nofollow` and `no-store`; top-level and artisan keys exactly the allow-list; no PII field names and no PII values (mobile, UPI, bank account, email, buyer names) in the JSON or the page HTML; page carries the robots meta; view count 2 after one API read and one page read
+  - ✓ Frozen: an offline sale logged after sharing moves the live profile (+1, +₹900) and not the shared one; the test sale undone
+  - ✓ 4 active → 5th 201, 6th 409 SHARE_LIMIT; DELETE without id 400; another artisan's DELETE 404 and the link still opens; revoke 200, again 404; revoked link → 410 `{error}` only; revoked page shows no score, name or craft; a revoked open is not counted; expired → 410; revoked and expired leave the active list and free a slot
+  - ✓ Garbage, well-formed-unknown and traversal tokens → 404. The garbage-token page on `next start` (port 3100, stopped afterwards) has no stack trace; `next dev` inlines Next's dev-only error template, which is why this one was checked on the production build
+- Verification — browser (Browser pane, signed in as lakshmi@karigari.com):
+  - ✓ `/artisan/earnings?tab=credit`: gauge 585 / FAIR, five bars with real basis lines, fulfilment explains its grey bar, honesty line visible; "How this is calculated" prints each formula with the real inputs, ending `Score = 300 + 82.5 + 111.6 + 0 + 33.3 + 57.6 = 585`
+  - ✓ Share with a bank → "SBI Rourkela branch", 7 days → link, copy button, QR and active-list row; opened in a second tab → frozen record, prepared-for line, IST dates; view count shown on the row; two-tap revoke (the arm lapses after 4 s) → "Link revoked" and the link opens the gone page
+  - ✓ Dashboard: compact card under Trust & Reports with gauge, honesty line and link to the tab
+  - ✓ Other accounts' real API responses replayed into the page (the agent cannot sign in as them; rows written for capture were removed): 0 events → ineligible panel naming the four event kinds, no gauge, share button disabled with its reason; 2 offline sales → "3 more needed"; 5 offline sales, ₹10,000 → 374 BUILDING, income 7.5 with the half-weight note; 5 active links → limit message instead of the create button
+  - ✓ Print: Chromium PDF of the public page is one A4 page in en / hi / or / te (record heights 919 / 906 / 894 / 944 px of 1054)
+  - ✓ en / hi / or / te at 360 px — credit tab (form open, link panel open, formula open), dashboard card, public record, gone page: scroll width 360, no overflowing element, no raw keys
+  - ✓ Console in a fresh tab: no errors or warnings on the credit tab, tab switching, dashboard, public record and gone page
+  - ✓ Page checks found and fixed: share row cramped at 360 px (buttons now stack), English "Opened 1 times" → "Views: {n}", screen-reader labels doubled on the record dates, "rounded to 585" when nothing was rounded, Telugu print label wrapping, print overflowing to a second page (formula moved into the right column)
+  - ✓ No AI service or outside network call anywhere in the scoring, share or public-page code (grep); the public page needs only the database
+  - ✓ Cleanup: all share rows created by the checks deleted (0 left); all test offline sales undone (0 left for lakshmi@ and adi@)
+- Decisions and deviations:
+  1. `ArtisanOrder` has no `deliveredAt`. Delivered = `settledAt` set (the buyer confirmed delivery) or status DELIVERED / COMPLETED. On time = no deadline, or `settledAt <= deadline` (a Prisma field reference, still one count). A delivered order with a deadline but no settlement cannot be shown to be on time and is not counted as on time.
+  2. `CreditInputs` gains `soldCount` and `offlineSalesCount`: the spec's `eventCount` formula needs them. `soldCount` uses My Buyers' storefront definition, now shared as `STOREFRONT_SOLD_STATUSES`.
+  3. `realisedEarnings` uses the Money tab's `onlineEarnings` basis so the record reconciles with what the artisan already sees.
+  4. Active month = any IST month with a piece catalogued, a piece paid for, an offline sale, or a demand order accepted or settled.
+  5. `accountAgeMonths` is shown for context and not scored: the spec's weight table gives it no weight.
+  6. Component points are kept to one decimal and the score is rounded once, so the printed sum is exact. `insufficient`: production 0 verified, income 0, fulfilment < 3 orders, consistency 0 months. Trust is never `insufficient`: the health record always exists.
+  7. A stored snapshot is read back through `readCreditSnapshot`, an allow-list down to each component's basis keys, so a stray field can never reach the public page.
+  8. An App Router page cannot send 410, so a revoked or expired link renders the gone page with 200; the API returns 410. A token that never existed is a real 404.
+  9. Views are counted by a conditional `updateMany` (live links only) on each page render or API read. Link previews and bots opening the link count too, and in `next dev` HMR rebuilds re-render and add views.
+  10. Print uses `zoom: 0.64` inside `@media print`; Chromium paginates on the zoomed layout. No PDF library.
+  11. The share-limit check is count-then-create. Two creates racing at 4 active links could both succeed.
+- Known follow-ups:
+  - Seed data gives Lakshmi pieces dated before her account was created (5 active months, 3 months on Karigari). This is a seed artefact, not a scoring bug.
+  - The formula panel prints today's constants. A snapshot from an older `CREDIT_ALGO_VERSION` shows the version caveat, but not the old weights.
+  - The Trust & Reports card above the new dashboard card still has hard-coded English labels and raw hex colours from before V12.
 
 ## Phase 2 detail
 - Status: **DONE** (2026-09-17)

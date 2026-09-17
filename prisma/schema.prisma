@@ -65,6 +65,9 @@ model User {
   /// A separate stream from escrow income and demand credits — never summed
   /// into either.
   offlineSales             OfflineSale[]
+  /// V12. Frozen production-record snapshots the artisan chose to hand to a
+  /// lender. Read-only once written; revoking sets a timestamp, never deletes.
+  creditShares             CreditProfileShare[]
 
   // Admin fields
   patchBankBalance Int @default(5000)
@@ -1021,4 +1024,47 @@ model MarketplaceSearch {
 
   @@index([term])
   @@index([createdAt])
+}
+
+/// A shareable, read-only snapshot of one artisan's production record.
+///
+/// The snapshot is FROZEN at creation: a loan officer who opens the link a week
+/// later must see the figures the artisan showed them, not a silently changed
+/// set. `token` is the capability — the public page has no session and no other
+/// identifier, so the token is two `crypto.randomUUID()` values concatenated
+/// (hyphens removed, 64 hex characters) and is never derived from the artisan's
+/// id.
+///
+/// Karigari is not a credit bureau and this is not a credit rating: the record
+/// counts what happened on the platform, and every page that renders it says
+/// so.
+///
+/// Written by POST /api/artisan/credit-profile. Revoked by DELETE on the same
+/// route. `viewCount` / `lastViewedAt` are written only by the public read in
+/// src/lib/creditRecord.ts. Nothing else writes this table.
+model CreditProfileShare {
+  id           String    @id @default(uuid())
+  artisanId    String
+  artisan      User      @relation(fields: [artisanId], references: [id])
+  token        String    @unique
+  /// The whole computed profile at share time, including the score, every
+  /// component, the counts behind them and the algorithm version. Counts only:
+  /// no buyer names, contact details or bank fields are ever put in here.
+  snapshot     Json
+  /// `CREDIT_ALGO_VERSION` at share time. Bumped whenever the scoring formula
+  /// changes, so an old snapshot can be rendered with the caveat that the method
+  /// has moved on.
+  version      Int       @default(1)
+  /// Who it was made for, in the artisan's words ("SBI Rourkela branch").
+  sharedWith   String?
+  viewCount    Int       @default(0)
+  lastViewedAt DateTime?
+  /// Set at creation, 1 to 90 days out. An expired link reads as gone.
+  expiresAt    DateTime
+  /// Presence is the revocation. The row is kept so the artisan's history of
+  /// who they shared with stays intact.
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([artisanId])
 }

@@ -26,6 +26,7 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { StatTile } from "@/components/ui/StatTile";
 import { PillTabs } from "@/components/ui/SegmentedToggle";
 import { MyBuyers } from "@/components/MyBuyers";
+import { CreditProfileCard } from "@/components/CreditProfileCard";
 import { useUrlTab } from "@/lib/urlTab";
 import dynamic from "next/dynamic";
 import type { MonthlyEarning } from "@/components/EarningsAnalytics";
@@ -114,7 +115,7 @@ interface TopProduct {
 }
 
 /** `?tab=` values. Money stays the default, so every existing link lands where it did. */
-const EARNINGS_TABS = ["money", "buyers"] as const;
+const EARNINGS_TABS = ["money", "buyers", "credit"] as const;
 type EarningsTab = (typeof EARNINGS_TABS)[number];
 
 /** How a settlement row reads in the activity list. */
@@ -241,6 +242,7 @@ export default function EarningsPage() {
         options={[
           { value: "money", label: t("money_tab") },
           { value: "buyers", label: t("buyers_tab") },
+          { value: "credit", label: t("credit_tab") },
         ]}
       />
     </>
@@ -251,6 +253,15 @@ export default function EarningsPage() {
       <Shell>
         {header}
         <MyBuyers />
+      </Shell>
+    );
+  }
+
+  if (tab === "credit") {
+    return (
+      <Shell>
+        {header}
+        <CreditProfileCard variant="full" />
       </Shell>
     );
   }

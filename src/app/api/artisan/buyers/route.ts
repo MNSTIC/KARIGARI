@@ -8,6 +8,7 @@ import {
   MIN_SEARCHES_FOR_SIGNAL,
   MIN_TERM_SEARCHES,
   SIGNAL_WINDOW_DAYS,
+  STOREFRONT_SOLD_STATUSES,
   UNMET_SHARE_THRESHOLD,
   aggregateBuyers,
   buildDemandSignals,
@@ -35,9 +36,6 @@ export const dynamic = 'force-dynamic';
  * recorded, so the totals here reconcile with the Money tab.
  */
 
-/** Pieces sold through the storefront or the escrow ledger. SOLD_OFFLINE is the offline source's. */
-const STOREFRONT_SOLD = ['SOLD_FINAL', 'SOLD_MIDDLEMAN', 'PAYOUT_COMPLETED'];
-
 export async function GET() {
   const auth = await requireArtisan();
   if (!auth.ok) return auth.response;
@@ -51,7 +49,7 @@ export async function GET() {
         prisma.craftItem.findMany({
           where: {
             artisanId,
-            OR: [{ paidAt: { not: null } }, { status: { in: STOREFRONT_SOLD } }],
+            OR: [{ paidAt: { not: null } }, { status: { in: STOREFRONT_SOLD_STATUSES } }],
           },
           select: {
             id: true,
