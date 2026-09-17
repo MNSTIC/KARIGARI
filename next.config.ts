@@ -72,6 +72,16 @@ const withPWA = withPWAInit({
     exclude: [/\/_next\/static\/.*(?<!\.p)\.woff2/, /\.map$/, /^manifest.*\.js$/, /ort-wasm.*\.wasm$/],
     runtimeCaching: [
       {
+        // The learn page keeps its own saved copy of this answer in IndexedDB
+        // (src/lib/learningCache.ts) and tells the artisan when it is showing
+        // it. If the worker answered from its cache too, a stale response would
+        // look fresh and the page could never say so — so this one route always
+        // goes to the network, and fails honestly when there is none.
+        urlPattern: ({ url, sameOrigin }: { url: URL; sameOrigin: boolean }) =>
+          sameOrigin && url.pathname === "/api/artisan/learning-recommendations",
+        handler: "NetworkOnly",
+      },
+      {
         // App shell / navigations. NetworkFirst with a short timeout: on a weak
         // 2G connection waiting 10s for a document the cache already holds is
         // indistinguishable from being broken.

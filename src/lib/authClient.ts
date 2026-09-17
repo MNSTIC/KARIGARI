@@ -1,6 +1,7 @@
 "use client";
 
 import type { useRouter } from "next/navigation";
+import { clearLearningCache } from "@/lib/learningCache";
 
 /**
  * Sign the current session out, from anywhere in the app.
@@ -19,6 +20,9 @@ export async function logout(router: ReturnType<typeof useRouter>): Promise<void
   } catch {
     /* Log out locally even if the request never reached the server. */
   }
+  // The learn page's saved copy carries this artisan's stage and earnings; a
+  // shared phone must not show them to whoever signs in next. Never throws.
+  await clearLearningCache();
   router.replace("/login");
   router.refresh();
 }

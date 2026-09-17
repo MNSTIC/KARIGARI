@@ -20,7 +20,11 @@ import { Card } from "@/components/ui/Card";
 import { Shell } from "@/components/ui/AppShell";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { SectionEyebrow, SectionHeading } from "@/components/ui/SectionEyebrow";
+import { SkillStageCard } from "@/components/learn/SkillStageCard";
+import { LearningTracks } from "@/components/learn/LearningTracks";
+import { fill } from "@/components/buyer/passportFormat";
 import { useArtisanIdentity } from "@/lib/artisanIdentity";
+import { useLearningPlan } from "@/lib/useLearningPlan";
 import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 
@@ -41,65 +45,58 @@ import { cn } from "@/lib/utils";
  *    finish, patches to attach, profile fields that are gating scheme
  *    eligibility. The app has no coursework model, and a list of fabricated
  *    homework would be worse than useless to someone deciding what to do next.
+ *    Only the profile assignment has a bar: four fields, some filled, is a real
+ *    fraction. The others are counts, and a bar on a count would be invented.
+ *
+ * V12 adds, between the two:
+ *
+ *  - **The skill stage** (src/lib/skillStage.ts), derived from the artisan's
+ *    record on every load and never stored, with the real have/need behind it.
+ *  - **Three learning tracks** — business, design, digital — each card a
+ *    YouTube *search*, from the AI when it answers and from the curated
+ *    catalogue when it does not (src/lib/learningCatalog.ts). The last answer is
+ *    saved on the phone (src/lib/learningCache.ts), so the page opens offline.
  */
 
 /** Technique prompts, phrased for the artisan's own craft at render time. */
-const MASTERCLASSES: { id: string; label: string; title: string; ask: string; icon: React.ReactNode }[] = [
-  {
-    id: "finish",
-    label: "Technique",
-    title: "A sharper, more even finish",
-    ask: "Show me a tutorial on getting a sharper, more even finish on my {craft}.",
-    icon: <Palette size={18} strokeWidth={1.6} />,
-  },
-  {
-    id: "pattern",
-    label: "Design",
-    title: "Advanced pattern and motif work",
-    ask: "Teach me a more advanced pattern or design technique used in {craft}.",
-    icon: <Sparkles size={18} strokeWidth={1.6} />,
-  },
-  {
-    id: "material",
-    label: "Materials",
-    title: "Preparing and handling raw material",
-    ask: "How should I prepare and handle my raw materials for {craft} so less is wasted?",
-    icon: <Boxes size={18} strokeWidth={1.6} />,
-  },
-  {
-    id: "pricing",
-    label: "Business",
-    title: "Pricing your craft fairly",
-    ask: "Explain how I should price my craft so I am paid fairly for my time and materials.",
-    icon: <IndianRupee size={18} strokeWidth={1.6} />,
-  },
-  {
-    id: "selling",
-    label: "Digital Skills",
-    title: "Selling beyond your district",
-    ask: "What do I need to know to sell my craft online to buyers outside my district?",
-    icon: <TrendingUp size={18} strokeWidth={1.6} />,
-  },
+const MASTERCLASSES: { id: string; labelKey: string; tone: "rust" | "maroon"; icon: React.ReactNode }[] = [
+  { id: "finish", labelKey: "learn_mc_label_technique", tone: "maroon", icon: <Palette size={18} strokeWidth={1.6} /> },
+  { id: "pattern", labelKey: "learn_mc_label_design", tone: "maroon", icon: <Sparkles size={18} strokeWidth={1.6} /> },
+  { id: "material", labelKey: "learn_mc_label_materials", tone: "maroon", icon: <Boxes size={18} strokeWidth={1.6} /> },
+  { id: "pricing", labelKey: "learn_mc_label_business", tone: "rust", icon: <IndianRupee size={18} strokeWidth={1.6} /> },
+  { id: "selling", labelKey: "learn_mc_label_digital", tone: "maroon", icon: <TrendingUp size={18} strokeWidth={1.6} /> },
 ];
+
+/** The profile fields the scheme engine checks, as i18n keys. */
+const PROFILE_FIELD_KEYS = {
+  socialCategory: "learn_field_social_category",
+  annualIncome: "learn_field_annual_income",
+  aadhaar: "learn_field_aadhaar",
+  upi: "learn_field_upi",
+} as const;
+const PROFILE_FIELDS_CHECKED = Object.keys(PROFILE_FIELD_KEYS).length;
 
 interface Assignment {
   id: string;
   title: string;
   meta: string;
-  progress: number;
+  /** 0–100, only where a real fraction exists. */
+  progress: number | null;
   cta: string;
   href: string;
   icon: React.ReactNode;
 }
 
 export default function LearnPage() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const identity = useArtisanIdentity();
   const craft = identity.craftType || t("your_craft");
 
   const [seed, setSeed] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  const plan = useLearningPlan(language, identity.craftType);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,7 +107,9 @@ export default function LearnPage() {
         const data = await res.json();
         if (!cancelled && data?.success) setDashboard(data.data);
       } catch (error) {
-        console.error("Failed to load your outstanding work:", error);
+        // Offline is an expected state on this page; the assignments card says
+        // so by staying empty rather than by logging an error.
+        console.warn("Could not load your outstanding work:", (error as Error)?.message);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -122,8 +121,13 @@ export default function LearnPage() {
   }, []);
 
   const masterclasses = useMemo(
-    () => MASTERCLASSES.map((entry) => ({ ...entry, ask: entry.ask.replace("{craft}", craft) })),
-    [craft]
+    () =>
+      MASTERCLASSES.map((entry) => ({
+        ...entry,
+        title: t(`learn_mc_${entry.id}_title`),
+        ask: fill(t(`learn_mc_${entry.id}_ask`), { craft }),
+      })),
+    [craft, t]
   );
 
   /** Real outstanding work, in the order it is worth doing. */
@@ -136,10 +140,10 @@ export default function LearnPage() {
     if (drafts.length > 0) {
       list.push({
         id: "drafts",
-        title: "Finish your voice drafts",
-        meta: `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} captured by phone, waiting for photos and a price`,
-        progress: 35,
-        cta: "Complete",
+        title: t("learn_assign_drafts_title"),
+        meta: fill(t("learn_assign_drafts_meta"), { n: drafts.length }),
+        progress: null,
+        cta: t("learn_assign_drafts_cta"),
         href: "/artisan/dashboard",
         icon: <Camera size={18} strokeWidth={1.6} />,
       });
@@ -151,10 +155,10 @@ export default function LearnPage() {
     if (awaitingPatch.length > 0) {
       list.push({
         id: "patch",
-        title: "Attach your printed patches",
-        meta: `${awaitingPatch.length} verified ${awaitingPatch.length === 1 ? "piece needs" : "pieces need"} a re-photograph before they can be listed`,
-        progress: 70,
-        cta: "Upload",
+        title: t("learn_assign_patch_title"),
+        meta: fill(t("learn_assign_patch_meta"), { n: awaitingPatch.length }),
+        progress: null,
+        cta: t("learn_assign_patch_cta"),
         href: "/artisan/dashboard",
         icon: <QrCode size={18} strokeWidth={1.6} />,
       });
@@ -162,18 +166,18 @@ export default function LearnPage() {
 
     const profile = dashboard.artisanProfile ?? {};
     const missing = [
-      !profile.socialCategory && "social category",
-      profile.annualIncome === null || profile.annualIncome === undefined ? "annual income" : null,
-      !profile.aadhaarLast4 && "Aadhaar",
-      !profile.upiId && "UPI ID",
+      !profile.socialCategory && PROFILE_FIELD_KEYS.socialCategory,
+      profile.annualIncome === null || profile.annualIncome === undefined ? PROFILE_FIELD_KEYS.annualIncome : null,
+      !profile.aadhaarLast4 && PROFILE_FIELD_KEYS.aadhaar,
+      !profile.upiId && PROFILE_FIELD_KEYS.upi,
     ].filter(Boolean) as string[];
     if (missing.length > 0) {
       list.push({
         id: "profile",
-        title: "Complete your eligibility profile",
-        meta: `Missing ${missing.join(", ")} — these are what the scheme engine checks`,
-        progress: Math.round(((4 - missing.length) / 4) * 100),
-        cta: "Update",
+        title: t("learn_assign_profile_title"),
+        meta: fill(t("learn_assign_profile_meta"), { fields: missing.map((key) => t(key)).join(", ") }),
+        progress: Math.round(((PROFILE_FIELDS_CHECKED - missing.length) / PROFILE_FIELDS_CHECKED) * 100),
+        cta: t("learn_assign_profile_cta"),
         href: "/artisan/dashboard?edit=profile",
         icon: <UserCog size={18} strokeWidth={1.6} />,
       });
@@ -185,17 +189,17 @@ export default function LearnPage() {
     if (unlisted.length > 0) {
       list.push({
         id: "listing",
-        title: "Publish your sellable pieces",
-        meta: `${unlisted.length} ${unlisted.length === 1 ? "piece is" : "pieces are"} verified and ready to go on the marketplace`,
-        progress: 85,
-        cta: "List",
+        title: t("learn_assign_listing_title"),
+        meta: fill(t("learn_assign_listing_meta"), { n: unlisted.length }),
+        progress: null,
+        cta: t("learn_assign_listing_cta"),
         href: "/artisan/dashboard",
         icon: <TrendingUp size={18} strokeWidth={1.6} />,
       });
     }
 
     return list;
-  }, [dashboard]);
+  }, [dashboard, t]);
 
   return (
     <Shell>
@@ -219,20 +223,29 @@ export default function LearnPage() {
 
             <div className="max-w-lg p-8 sm:p-10">
               <h1 className="kg-display text-[36px] leading-[1.05] text-white sm:text-[46px]">
-                Elevate Your Craft with AI
+                {t("learn_hero_title")}
               </h1>
               <p className="mt-4 text-[15px] leading-relaxed text-white/75">
-                Blend ancestral technique with modern insight. Explore new patterns, understand
-                what the market is paying, and sharpen the skills behind your {craft}.
+                {fill(t("learn_hero_body"), { craft })}
               </p>
               <button
                 onClick={() => setSeed("")}
                 className="kg-press kg-label mt-8 inline-flex min-h-[48px] items-center gap-2 rounded-xl bg-white px-6 font-medium text-gray-900 hover:bg-gray-100"
               >
-                Start learning <ArrowRight size={14} />
+                {t("learn_start")} <ArrowRight size={14} />
               </button>
             </div>
           </section>
+
+          {/* ---------------------------------------------- Skill stage */}
+          <div className="mt-5">
+            <SkillStageCard
+              stage={plan.stage}
+              inputs={plan.inputs}
+              earnings={plan.earnings}
+              loading={plan.origin === null}
+            />
+          </div>
 
           {/* ------------------------------------------ Masterclasses */}
           <section className="mt-14">
@@ -240,7 +253,7 @@ export default function LearnPage() {
                 and the link used to point at the AI Hub, which no longer
                 exists. A CTA to a destination that does not exist is worse
                 than no CTA. */}
-            <SectionHeading>Masterclasses</SectionHeading>
+            <SectionHeading>{t("learn_masterclasses")}</SectionHeading>
 
             <div className="kg-stagger grid gap-5 sm:grid-cols-2">
               {masterclasses.map((entry) => (
@@ -257,20 +270,18 @@ export default function LearnPage() {
                       <Play size={18} className="ml-0.5" />
                     </span>
                     <span className="kg-label absolute bottom-3 right-3 rounded-md bg-white/85 px-2 py-1 font-medium text-gray-600">
-                      Live lesson
+                      {t("learn_live_lesson")}
                     </span>
                   </div>
 
                   <div className="p-5">
-                    <SectionEyebrow tone={entry.label === "Business" ? "rust" : "maroon"}>
-                      {entry.label}
-                    </SectionEyebrow>
+                    <SectionEyebrow tone={entry.tone}>{t(entry.labelKey)}</SectionEyebrow>
                     <h3 className="kg-display mt-2 text-[19px] leading-snug text-gray-900">
                       {entry.title}
                     </h3>
                     <p className="mt-2 flex items-center gap-2 text-[13px] text-gray-500">
                       <span className="text-gray-400">{entry.icon}</span>
-                      Asks the assistant about your {craft}
+                      {fill(t("learn_asks_assistant"), { craft })}
                     </p>
                   </div>
                 </button>
@@ -278,9 +289,28 @@ export default function LearnPage() {
             </div>
           </section>
 
+          {/* ---------------------------------------- Learning tracks */}
+          <LearningTracks
+            tracks={plan.tracks}
+            completed={plan.completed}
+            pendingKey={plan.pendingKey}
+            source={plan.source}
+            mixed={plan.mixed}
+            origin={plan.origin}
+            generatedAt={plan.generatedAt}
+            showingSaved={plan.showingSaved}
+            // The route reports an unset craft as null; the header identity
+            // only stands in when there is no answer to read it from.
+            craftType={plan.origin === "fallback" ? identity.craftType : plan.craftType ?? ""}
+            saveError={plan.saveError}
+            onStart={plan.markStarted}
+            onToggle={plan.toggleDone}
+            onDismissError={plan.dismissError}
+          />
+
           {/* --------------------------------------- Active assignments */}
           <section className="mt-14">
-            <SectionHeading>Active Assignments</SectionHeading>
+            <SectionHeading>{t("learn_assignments")}</SectionHeading>
 
             {loading ? (
               <div className="space-y-4">
@@ -290,9 +320,7 @@ export default function LearnPage() {
               </div>
             ) : assignments.length === 0 ? (
               <Card tone="muted" pad="lg" className="text-[14px] leading-relaxed text-gray-600">
-                Nothing is outstanding — every draft is finished, every verified piece carries its
-                patch, and your eligibility profile is complete. Capture something new when you are
-                ready.
+                {t("learn_assignments_empty")}
               </Card>
             ) : (
               <ul className="kg-stagger space-y-4">
@@ -314,13 +342,15 @@ export default function LearnPage() {
                       </p>
                     </div>
 
-                    <div className="flex w-full items-center gap-4 sm:w-auto">
-                      <ProgressBar
-                        value={assignment.progress}
-                        size="sm"
-                        label={assignment.title}
-                        className="min-w-[100px] flex-1 sm:w-32 sm:flex-none"
-                      />
+                    <div className="flex w-full items-center justify-end gap-4 sm:w-auto">
+                      {assignment.progress !== null && (
+                        <ProgressBar
+                          value={assignment.progress}
+                          size="sm"
+                          label={assignment.title}
+                          className="min-w-[100px] flex-1 sm:w-32 sm:flex-none"
+                        />
+                      )}
                       <Link
                         href={assignment.href}
                         className={cn(

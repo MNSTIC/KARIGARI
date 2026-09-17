@@ -12,8 +12,8 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 | 1 | Hybrid Income Tracker (offline sale ledger) | DONE | 6ea6a6d + 8b28a0e | 2026-09-17 | Code in 6ea6a6d; browser page checks and three fixes they found in 8b28a0e. One sub-check verified at API level only: the "Real local sales" line inside the capture modal's price step (see detail). |
 | 2 | Buyer Intelligence ("My Buyers" CRM) | DONE | f96d433 | 2026-09-17 | Marketplace search + search log, `/api/artisan/buyers`, My buyers tab. 15 unit checks, 28 live API checks, browser checks in four languages at 360 px. |
 | 3 | Production Credit Score + bank share link | DONE | 6e91809 | 2026-09-17 | `creditScore.ts` (pure, 33 unit checks), frozen share snapshots, public `/credit/[token]` record that prints to one A4 page. 67 live API checks (one confirmed on a production build), browser checks in four languages at 360 px. |
-| 4 | Buyer Discovery Page (QR passport + product page) | DONE | (this commit) | 2026-09-17 | Shared passport (story, timeline, 3-layer trust, similar request, more from artisan, gallery) on `/verify/[patchId]` and the product page. Fixes a PII leak on the QR page. 21 unit checks, 65 page checks on dev and on a key-less production build, browser checks in four languages at 360 px. |
-| 5 | AI Learning Pathways (skill stages, offline cache) | PENDING | — | — | — |
+| 4 | Buyer Discovery Page (QR passport + product page) | DONE | 11eddd0 | 2026-09-17 | Shared passport (story, timeline, 3-layer trust, similar request, more from artisan, gallery) on `/verify/[patchId]` and the product page. Fixes a PII leak on the QR page. 21 unit checks, 65 page checks on dev and on a key-less production build, browser checks in four languages at 360 px. |
+| 5 | AI Learning Pathways (skill stages, offline cache) | DONE | (this commit) | 2026-09-18 | `skillStage.ts` (pure, derived, never stored), three learning tracks from AI with a curated catalogue underneath, YouTube *search* links only, and an on-phone copy so the page opens offline. 26 unit checks, 71 live API checks on dev and again on a key-less production build, browser checks in four languages at 360 px. |
 | 6 | Proactive Supply Intelligence (20-day reminder) | PENDING | — | — | — |
 | 7 | Sync Status Indicator ("Synced 2 min ago") | PENDING | — | — | — |
 | 8 | Workshop Resources (rename + repair + tool schemes) | PENDING | — | — | — |
@@ -25,6 +25,57 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 
 A commit cannot contain its own hash, so the newest row reads `(this commit)`;
 each phase backfills the previous row's short sha when it updates this file.
+
+## Phase 5 detail
+- Status: **DONE** (2026-09-18)
+- Schema: `LearningProgress` model (`moduleKey` `track:slug`, `status` STARTED | COMPLETED, `@@unique([artisanId, moduleKey])`) and `User.learningProgress`. Additive; pushed with `db push --url $DIRECT_URL`. Single writer: POST `/api/artisan/learning-progress`. The skill stage is deliberately NOT stored — it is derived from the production record on every read, so it cannot drift from the sales and listings it summarises.
+- Files created: `src/lib/skillStage.ts` (pure: `resolveSkillStage`, `requirementsFor`, `progressToward`, every threshold exported) · `src/lib/skillStageRecord.ts` (server: reuses `gatherCreditInputs` so "verified listings" and "sales" mean what they mean on the Credit record tab) · `src/lib/learningCatalog.ts` (23 hand-written lessons, family- and gap-aware selection, client-safe) · `src/lib/learningPlan.ts` (AI sanitising, track assembly, `youtubeSearchUrl`, module-key rules) · `src/lib/learningCache.ts` (IndexedDB `karigari-learning` v1) · `src/lib/useLearningPlan.ts` (saved copy → network → catalogue) · `src/lib/craftFamilies.ts` (`familiesForCraft` moved out of `suppliers.ts`; re-exported there) · `src/components/learn/{SkillStageCard,LearningTracks}.tsx` · `src/app/api/artisan/{learning-recommendations,learning-progress}/route.ts` · `src/lib/__tests__/skillStage.test.mjs`
+- Files modified: `prisma/schema.prisma`, `package.json` (`test:skill-stage` in `test:all`), `next.config.ts` (one NetworkOnly service-worker rule for the recommendations route), `src/lib/suppliers.ts` (re-export), `src/lib/authClient.ts` (logout clears the learning cache), `src/app/artisan/learn/page.tsx`, `src/lib/i18n/{en,hi,or,te}.ts`
+- i18n keys added: 148 × 4 dictionaries (all 22 in §5.7, 69 catalogue keys — title, "why this helps" and search phrase per lesson — and 57 for the stage card, track cards, footnotes and the page's own copy, which was English-only before this phase). Coverage script: 0 missing, 0 extra, placeholders identical; only `learn_field_upi` ("UPI ID") is the same string in every language.
+- Gates: tsc PASS | lint 112 / 45 source (baseline), 0 files worse | build PASS, baseline warnings only | `test:all` PASS (+ skillStage 26 checks)
+- Verification — live API (71/71 against `next dev`, and 71/71 again against a production build started with `GEMINI_API_KEY`, `GOOGLE_API_KEY` and `GROQ_API_KEY` blank):
+  - ✓ Unauthenticated GET/POST → 401; an ADMIN token → 403
+  - ✓ Lakshmi: stage, all five inputs and all three money streams equal independent hand-written SQL counts (11 verified listings, 5 sales, ₹74,397, 0 lessons) — INTERMEDIATE, progress to PRO 0, gaps listed as 11/20, 5/10, 0/3 with the money criterion already met
+  - ✓ Adi with no craft set: BEGINNER, `craftType: null`, every input 0, both Intermediate gaps listed, catalogue falls back to the generic craft family (profile restored afterwards)
+  - ✓ Cards: three tracks, 3–4 each, valid module keys, and no card carries any field beyond title / reason / search — no video id, channel, duration, view count or thumbnail exists in the response shape
+  - ✓ AI cards contain no link or youtu.be/youtube.com text and no search over 120 characters; Hindi request returns Hindi titles
+  - ✓ A repeat request reuses the cached AI answer (same `generatedAt`, 310 ms vs 5.0 s); unknown `lang` falls back to `en`; `Cache-Control: private, no-store`
+  - ✓ Progress writes: seven malformed bodies (missing action, unknown action, unknown track, a title as a key, an over-long key, malformed JSON) → 400; start → STARTED; complete → COMPLETED and progress to PRO 1/3; start after complete does not downgrade; complete twice → one row; six concurrent completes ("two tabs") → one row, all 200; undo → STARTED with the row kept; undo twice is a no-op; undo on a lesson never started writes nothing
+  - ✓ Three lessons done: the lesson criterion disappears from the gaps and progress becomes the next weakest (sales 5/10 = 0.5)
+  - ✓ Another artisan sees none of Lakshmi's rows; after the writes the live figures still equal a fresh hand count
+  - ✓ Key-less build: every track is the curated catalogue, `source: 'CURATED'`, and the route answers in ~230 ms because no model is called
+- Verification — browser (Browser pane, signed in as lakshmi@karigari.com, 360 × 800):
+  - ✓ Stage chip "Intermediate"; tapping it opens the real have/need — 11 of 20, 5 of 10, 2 of 3 — each with its own bar (55 %, 50 %, 67 %) and the headline bar at 50 %, the weakest of them
+  - ✓ "Mark as done" → the card shows Done, the lesson gap disappears from the disclosure, the row is COMPLETED in the database, and it survives a reload
+  - ✓ Nine cards, every "Watch on YouTube" a `https://www.youtube.com/results?search_query=…` link with `rel="noopener noreferrer"`; no image, iframe, duration or view-count text anywhere in the tracks
+  - ✓ en / hi / or / te: headings, chip, cards and footnotes translated, no raw keys, page scroll width 360 with no overflow (cards sit in a horizontal rail), every tap target ≥ 40 px
+  - ✓ The Odia answer came back thin (one usable AI card), so the tracks were padded from the catalogue and the footnote said so — the mixed state, seen live rather than only in tests
+  - ✓ Server stopped mid-session: the page keeps its cards and shows "Saved on this phone · generated 17 Sept 2026, 11:39 pm IST" in a polite live region; switching language offline shows the copy saved in that language
+  - ✓ Mark as done with the server down: "That could not be saved. Check your connection and try again." in a `role="alert"`, and the card reverts to not-done
+  - ✓ No saved copy and no answer at all: the twelve curated lessons render with "You are offline, so these are the standard suggestions built into the app", and the stage card says the stage needs a connection instead of inventing one
+  - ✓ Console on a fresh tab: no errors from this feature. Two messages are app-wide and pre-existing in this pane — the service worker cannot register here ("unknown error occurred when fetching the script"), and Next's CSS preload warning; both appear identically on the dashboard
+  - ✓ Cleanup: every `LearningProgress` row written by the checks deleted (0 left); Adi's craft type restored
+- Decisions and deviations:
+  1. **Stage counts are the credit record's counts.** `gatherStageRecord` calls `gatherCreditInputs`, so "verified listings" (`qrVerified`) and "sales" cannot mean one thing on the Credit record tab and another here.
+  2. **`itemsSold` and `realisedEarnings` include the offline ledger.** Phase 1 exists because cash sales at a haat are real income; excluding them would make the stage unreachable for an artisan who sells locally. The three streams are never merged in the text: the money requirement always prints "Karigari sales · demand orders · offline sales you logged" with each figure.
+  3. **Progress is the weakest criterion**, not an average, and the card says so in words. At the boundary it is exactly 1.0 (covered by a test), so 5 listings + 1 sale reads as Intermediate and not 99 %.
+  4. **A beginner sees the whole ladder.** `nextRequirements` holds only the next stage's gaps, per the spec; the card additionally lists the unmet Pro criteria underneath, so a new artisan sees all four.
+  5. **`ordersDelivered` is carried but gates nothing** — it is in the spec's `StageInputs` and Phase 9 will want it.
+  6. **No video is ever named.** Cards link to a YouTube *search* built here; the AI is forbidden video ids, links, channels, durations, view counts and thumbnails, and any link-like text is stripped from its title, reason and search before it reaches the phone. The card art is a lucide icon on a token block.
+  7. **Curated lessons are i18n keys** (title, reason and search phrase), so a Hindi artisan searches in Hindi. `{craft}` in a search phrase is filled with their own craft, or the word for handicraft when they have not set one.
+  8. **"Done" is the artisan's own word.** Nothing checks that a video was watched, so every surface says "lessons you marked done". Keys are format-checked and capped at 300 rows per artisan.
+  9. **Server-side AI cache is per artisan, language and inputs**, 24 h for an answer and 10 min for a failure, in process memory. A gap counts as "open or not", so selling one more piece does not buy a fresh model call.
+  10. **The service worker must not cache the recommendations route.** Its default `/api/` rule would have returned a day-old answer that looked fresh, which would have made the "saved on this phone" note a lie. One NetworkOnly rule now precedes it.
+  11. **Logging out clears the on-phone copy**, since it carries that artisan's stage and earnings and the handset may be shared.
+  12. **`familiesForCraft` moved to `src/lib/craftFamilies.ts`** so the offline catalogue can match a craft without bundling the supplier directory into the page; `suppliers.ts` re-exports it, so no call site changed.
+  13. **Two changes to the existing page**, which the spec asked to leave alone: every string is now an i18n key (it was English-only, and this phase is checked in four languages), and the invented 35 % / 70 % / 85 % bars on the assignment rows are gone. Only the profile assignment keeps a bar, because "2 of 4 fields filled" is a real fraction; the others show their real count. The two documented design decisions — masterclasses pre-fetch no videos, assignments are real outstanding work — are untouched.
+  14. **The prompt was tightened after reading its first answers**: an early version let one open gap ("pieces need their QR patch photographed") colour every track, producing lessons about packaging a QR patch. Each gap may now seed at most one lesson, in the track it belongs to.
+- Known follow-ups:
+  - No artisan in the database meets the PRO thresholds, and no seeded artisan has an unset craft type, so the PRO card and the beginner two-list layout were verified from payloads and unit tests rather than rendered. The same applies to the BEGINNER stage chip: the checks ran as Lakshmi (INTERMEDIATE).
+  - The service worker does not register inside the Browser pane, so the cold offline *relaunch* (worker serves the page shell) was not observed; the page's own offline behaviour was exercised by stopping the server with the page open.
+  - Switching language while offline falls back to English UI chrome, because the Hindi/Odia/Telugu dictionaries are lazily imported and that chunk cannot be fetched. Pre-existing, app-wide.
+  - An AI lesson's module key is a hash of its search phrase, so a lesson marked done keeps its row but may not show as done after the AI rewrites that suggestion in another language. The completed count is unaffected.
+  - Marking a lesson done needs a connection; there is no outbox for it (the capture and offline-sale queues are for money and stock).
 
 ## Phase 4 detail
 - Status: **DONE** (2026-09-17)
