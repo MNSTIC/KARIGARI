@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowUpDown, CheckCircle2, Info, ShieldCheck, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { ArrowUpDown, CheckCircle2, Info, Search, ShieldCheck, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import { LanguageSwitcher } from "@/components/ui/LanguageSwitcher";
 import { FilterTabs, Pill } from "@/components/ui/FilterTabs";
 import { PageLede, PageTitle } from "@/components/ui/SectionEyebrow";
@@ -29,6 +29,26 @@ type SortKey = "newest" | "price-asc" | "price-desc";
 
 const PAGE_SIZE = 8;
 
+/** A search is logged only once the shopper has stopped typing for this long. */
+const SEARCH_LOG_DELAY_MS = 900;
+
+/** The same shape the search-log route stores: lower-cased, whitespace collapsed. */
+function foldQuery(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Every word of the query must appear somewhere in what a shopper can see of
+ * the piece: its name, its tags, its craft family, or the artisan's name.
+ */
+function matchesQuery(item: MarketItem, words: string[]): boolean {
+  const haystack = [item.craftType, ...(item.tags ?? []), categoryFor(item), item.aiSuggestedCategory, item.artisan?.name]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return words.every((word) => haystack.includes(word));
+}
+
 export default function MarketplacePage() {
   const { t } = useLanguage();
   const [items, setItems] = useState<MarketItem[]>([]);
@@ -42,6 +62,12 @@ export default function MarketplacePage() {
   const [sort, setSort] = useState<SortKey>("newest");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [visible, setVisible] = useState(PAGE_SIZE);
+  /** Free-text search, mirrored into `?q=` so a search can be shared or reloaded. */
+  const [query, setQuery] = useState("");
+  /** Set once `?q=` has been read, so the URL writer cannot erase it first. */
+  const queryReadRef = useRef(false);
+  /** The last term sent to the search log from this page view. */
+  const loggedTermRef = useRef("");
 
   const load = useCallback(async () => {
     setLoadFailed(false);
@@ -100,6 +126,56 @@ export default function MarketplacePage() {
     return () => clearTimeout(kickoff);
   }, []);
 
+  // `?q=` in, then back out. Read in a deferred effect like `?payment=` above,
+  // so no useSearchParams and no Suspense boundary.
+  useEffect(() => {
+    const kickoff = setTimeout(() => {
+      const q = new URLSearchParams(window.location.search).get("q");
+      if (q) setQuery(q.slice(0, 200));
+      queryReadRef.current = true;
+    }, 0);
+    return () => clearTimeout(kickoff);
+  }, []);
+
+  useEffect(() => {
+    if (!queryReadRef.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const trimmed = query.trim();
+    if (trimmed) params.set("q", trimmed);
+    else params.delete("q");
+    const next = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (next ? `?${next}` : ""));
+  }, [query]);
+
+  const queryWords = useMemo(() => foldQuery(query).split(" ").filter(Boolean), [query]);
+
+  /** The search applied to everything listed, before category and sort. */
+  const searchMatches = useMemo(
+    () => (queryWords.length ? items.filter((item) => matchesQuery(item, queryWords)) : items),
+    [items, queryWords]
+  );
+
+  // Log the search once it has settled: never per keystroke, never blocking the
+  // filter (which is local and instant), and never able to surface an error.
+  // The count is over every listed piece, so a category filter never makes a
+  // term look like unmet demand.
+  useEffect(() => {
+    if (loading || loadFailed) return;
+    const term = foldQuery(query);
+    if (term.length < 3 || term === loggedTermRef.current) return;
+    const resultCount = searchMatches.length;
+    const timer = setTimeout(() => {
+      loggedTermRef.current = term;
+      fetch("/api/market/search-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ term, resultCount }),
+        keepalive: true,
+      }).catch(() => {});
+    }, SEARCH_LOG_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [query, searchMatches, loading, loadFailed]);
+
   /** Only categories that have something in them. */
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -116,7 +192,7 @@ export default function MarketplacePage() {
   }, [items]);
 
   const shown = useMemo(() => {
-    let list = items;
+    let list = searchMatches;
     if (category !== "all") list = list.filter((item) => categoryFor(item) === category);
     if (verifiedOnly) list = list.filter((item) => item.verified);
 
@@ -135,13 +211,13 @@ export default function MarketplacePage() {
       sorted.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
     }
     return sorted;
-  }, [items, category, verifiedOnly, sort]);
+  }, [searchMatches, category, verifiedOnly, sort]);
 
   // A narrower filter must not leave the grid stuck on a page that no longer
   // exists, so the window resets whenever the result set changes shape.
   useEffect(() => {
     setVisible(PAGE_SIZE);
-  }, [category, verifiedOnly, sort]);
+  }, [category, verifiedOnly, sort, query]);
 
   return (
     <div className="min-h-screen bg-[var(--color-background)] font-sans">
@@ -208,11 +284,49 @@ export default function MarketplacePage() {
             <PageLede>{t("marketplace_subtitle")}</PageLede>
           </div>
 
-          <div className="flex shrink-0 flex-wrap gap-3">
+          <div className="flex w-full flex-wrap gap-3 lg:w-auto lg:shrink-0">
+            <div role="search" className="relative w-full sm:w-72">
+              <label htmlFor="mp-search" className="sr-only">
+                {t("mp_search_label")}
+              </label>
+              <Search
+                size={17}
+                strokeWidth={1.7}
+                aria-hidden
+                className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
+              />
+              <input
+                id="mp-search"
+                type="text"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="off"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("mp_search_placeholder")}
+                className="h-[42px] w-full rounded-full border border-transparent bg-[var(--color-pill)] pl-11 pr-11 text-[14px] text-gray-900 placeholder:text-gray-500 focus:border-gray-300 focus:bg-white focus:outline-none"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label={t("mp_search_clear")}
+                  className="kg-press absolute right-1 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-gray-500 hover:text-gray-900"
+                >
+                  <X size={15} />
+                </button>
+              )}
+            </div>
             <FilterMenu verifiedOnly={verifiedOnly} onChange={setVerifiedOnly} />
             <SortMenu sort={sort} onChange={setSort} />
           </div>
         </div>
+
+        {queryWords.length > 0 && !loading && !loadFailed && (
+          <p role="status" aria-live="polite" className="mt-5 text-[13px] text-gray-500">
+            {t("mp_search_results").replace("{n}", String(shown.length)).replace("{term}", query.trim())}
+          </p>
+        )}
 
         {/* --------------------------------------------------- Category rail */}
         {categories.length > 1 && (
@@ -250,9 +364,24 @@ export default function MarketplacePage() {
             </EmptyState>
           ) : shown.length === 0 ? (
             <EmptyState>
-              {items.length === 0
-                ? t("mp_empty")
-                : "Nothing in this category yet. Try another craft family."}
+              {items.length === 0 ? (
+                t("mp_empty")
+              ) : queryWords.length > 0 ? (
+                <>
+                  {t("mp_search_no_results").replace("{term}", query.trim())}
+                  <span className="mt-5 block">
+                    <button
+                      type="button"
+                      onClick={() => setQuery("")}
+                      className="kg-press inline-flex min-h-[44px] items-center rounded-xl bg-primary px-6 text-[13px] font-semibold text-white hover:bg-primary-dark"
+                    >
+                      {t("mp_search_clear")}
+                    </button>
+                  </span>
+                </>
+              ) : (
+                "Nothing in this category yet. Try another craft family."
+              )}
             </EmptyState>
           ) : (
             <>

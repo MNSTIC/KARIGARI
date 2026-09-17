@@ -9,8 +9,8 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 | Phase | Feature | Status | Commit | Date | Notes |
 |:--|:--|:--|:--|:--|:--|
 | 0 | Baseline & ledger | DONE | e12da52 | 2026-09-16 | No feature code. Baseline gate numbers below. |
-| 1 | Hybrid Income Tracker (offline sale ledger) | DONE | 6ea6a6d + (this commit) | 2026-09-17 | Code in 6ea6a6d; browser page checks and three fixes they found in this commit. One sub-check verified at API level only: the "Real local sales" line inside the capture modal's price step (see detail). |
-| 2 | Buyer Intelligence ("My Buyers" CRM) | PENDING | — | — | — |
+| 1 | Hybrid Income Tracker (offline sale ledger) | DONE | 6ea6a6d + 8b28a0e | 2026-09-17 | Code in 6ea6a6d; browser page checks and three fixes they found in 8b28a0e. One sub-check verified at API level only: the "Real local sales" line inside the capture modal's price step (see detail). |
+| 2 | Buyer Intelligence ("My Buyers" CRM) | DONE | (this commit) | 2026-09-17 | Marketplace search + search log, `/api/artisan/buyers`, My buyers tab. 15 unit checks, 28 live API checks, browser checks in four languages at 360 px. |
 | 3 | Production Credit Score + bank share link | PENDING | — | — | — |
 | 4 | Buyer Discovery Page (QR passport + product page) | PENDING | — | — | — |
 | 5 | AI Learning Pathways (skill stages, offline cache) | PENDING | — | — | — |
@@ -25,6 +25,46 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 
 A commit cannot contain its own hash, so the newest row reads `(this commit)`;
 each phase backfills the previous row's short sha when it updates this file.
+
+## Phase 2 detail
+- Status: **DONE** (2026-09-17)
+- Schema: `MarketplaceSearch` model (additive; pushed with `db push --url $DIRECT_URL`). Single writer: `POST /api/market/search-log`. Single reader: `GET /api/artisan/buyers`.
+- Files created: `src/lib/searchLog.ts` (`saltedIpHash`, `clientIp`, `normaliseSearchTerm`, the 3 / 80 / 10-minute constants) · `src/lib/buyers.ts` (pure: `aggregateBuyers`, `buildDemandSignals`, `normaliseBuyerKey`, thresholds) · `src/app/api/market/search-log/route.ts` · `src/app/api/artisan/buyers/route.ts` · `src/components/MyBuyers.tsx` · `src/components/BuyersMonthlyChart.tsx` · `src/lib/__tests__/buyers.test.mjs`
+- Files modified: `prisma/schema.prisma`, `package.json` (`test:buyers`, added to `test:all`), `src/app/api/creators/track/route.ts` (its inline IP hash replaced by `saltedIpHash()`, byte-for-byte the same digest), `src/app/marketplace/page.tsx` (search box, `?q=` sync, debounced log), `src/app/artisan/earnings/page.tsx` (Money / My buyers tabs through `useUrlTab`), `src/lib/i18n/{en,hi,or,te}.ts`
+- i18n keys added: 49 × 4 dictionaries (all 28 in §2.4 plus 21 the UI needed, incl. the marketplace search strings). Coverage script: 0 missing in any language, placeholders identical to English.
+- Gates: tsc PASS | lint 115 / 178, 0 files worse than baseline (the marketplace page keeps its one baseline `set-state-in-effect` error, on the existing `setVisible` effect) | build PASS, baseline warnings only | `test:all` PASS (orderStage, offlineSaleParse, buyers 15 checks)
+- Verification — live API against `next dev` (28/28):
+  - ✓ Lakshmi: "Biswajeet" and "Biswajeet Sahoo" stay two buyers; 3 unnamed storefront sales counted in revenue, not listed; repeat rate hidden below 3 buyers
+  - ✓ Received reconciles with the Money tab per stream: storefront 74,397 = `onlineEarnings`, demand 0 = `demandEarnings`, offline = `offlineEarnings`
+  - ✓ Search log: always 204 with no body; same term from the same visitor within 10 min → one row; six visitors → six rows stored normalised; "ab" → nothing stored; a 500-character term with control characters → clamped to 80, control characters removed, non-numeric count → 0; empty body → 204
+  - ✓ With ≥5 matching searches: source SEARCHES, basis 8, "sambalpuri dupatta" ×6 share 0, "sambalpuri jacket" ×2 share 1 (unmet). The same searches do not count for a Pattachitra artisan, whose open Pattachitra request gives source DEMANDS
+  - ✓ Offline sales "Meena Das" / "meena   das" / "  MEENA DAS " → one buyer, 3 purchases, ₹1,500, latest spelling shown; "राधा" and "Radha" stay separate; unnamed offline sale counted but not listed; 5 buyers → repeat rate 20%
+  - ✓ Unauthenticated `GET /api/artisan/buyers` → 401
+- Verification — browser (Browser pane, signed in as lakshmi@karigari.com):
+  - ✓ `/artisan/earnings?tab=buyers` deep-links, survives reload, "Earnings" stays highlighted in the rail; switching tabs rewrites `?tab=`
+  - ✓ Tiles: 5 buyers · 1 repeat ("20% came back") · 0 B2B · Received ₹76,697 = Storefront ₹74,397 + Demand ₹0 + Offline ₹2,300; the Money tab's TOTAL INCOME reads ₹76,697 too
+  - ✓ MEENA DAS expands to her three ₹500 purchases with first-bought date; Offline and Repeat badges; filters All 5 / Repeat 1 / B2B 0 ("No buyers in this view yet.") / Offline 3
+  - ✓ Footnote "Sales with no buyer name recorded: 4…"; "Buyers by month" stacked chart with legend, September tooltip "New 4 · Came back 1"
+  - ✓ "What buyers are looking for": source line names searches and window; "sambalpuri jacket" carries the maroon marker and "Nobody is listing this"
+  - ✓ Empty states, from real API responses of other accounts replayed into the page (the agent cannot sign in as them): a brand-new artisan (adi@) shows "No buyers yet… Nothing to show yet.", ₹0 tiles, the repeat-rate threshold and the no-signal line naming its thresholds; Raghunath (unnamed sales only) shows the footnote and the open-request source
+  - ✓ 120-buyer response: 50 rows, "Show 50 more" → 100, "Show 20 more" → 120, button gone
+  - ✓ `/marketplace`: typing "pattachitra" filters to 2 pieces, status "Matching “pattachitra”: 2", URL `?q=pattachitra`, exactly one log request after typing stopped (row stored with count 2); "kalamkari lamp" → "Nothing matches…" with Clear search, logged with count 0; `?q=` survives reload; Clear resets the grid and the URL
+  - ✓ `/artisan/earnings?tab=buyers` and `/marketplace?q=…` in en / hi / or / te at 360 px: scroll width 360, no overflowing element, no raw keys
+  - ✓ Console: no React warnings and no errors from these pages. The only errors in the tab were the HMR socket from a server restart and two pre-existing Leaflet dev errors on the landing page `/`, which the pane opens at start
+  - ✓ Cleanup: all 6 test offline sales undone through the app; 11 test search rows deleted by exact test term and test-IP hash within the test window; 0 left
+- Decisions and deviations:
+  1. "This artisan's craft" for demand signals is the profile craft **and** up to 20 of their catalogue craft types, each through `craftMatchScore()`. The profile alone ("Sambalpuri Ikat Silk Saree") would miss what the artisan also sells ("…Dupatta").
+  2. SEARCHES is used only when ≥5 matching searches exist **and** at least one term reaches 2 searches; otherwise it falls back to open requests. This avoids a "from N searches" line above an empty list.
+  3. `MIN_BUYERS_FOR_REPEAT_RATE = 3`: below it `repeatRatePct` is null and the tile names the threshold.
+  4. `revenueByChannel` counts every purchase, named or not, so it reconciles with the Money tab; `summary.unnamed` gives per-channel counts for the footnote.
+  5. The storefront source excludes `SOLD_OFFLINE` pieces; those belong to the offline source, and counting them twice would inflate buyers and money.
+  6. Buyer keys and search terms are NFC-normalised as well as lower-cased and whitespace-collapsed. That changes composition only; no letters are stripped.
+  7. A storefront purchase made against a BULK/WHOLESALE demand (`relatedDemandId`) also makes the buyer B2B.
+  8. `resultCount` is counted over every listed piece, before the category and verified filters, so narrowing a category never makes a term look like unmet demand.
+  9. The search box sits in the marketplace masthead's control row (full width on phones) in TopBar's input style, as `type="text"` with `inputMode="search"` so the browser's own clear control does not duplicate ours.
+- Known follow-ups:
+  - `x-forwarded-for` is trusted as-is, exactly as affiliate clicks already trust it; on Vercel the platform sets it, but a client could spoof it against a self-hosted server.
+  - Pre-existing and out of scope: several marketplace labels ("Filter", "Sort", "Load more artifacts", "Marketplace"…) are hard-coded English.
 
 ## Phase 1 detail
 - Status: **DONE** (2026-09-17). Code landed in `6ea6a6d` as PARTIAL; the page checks were then run in the Browser pane after the owner signed in, and the three defects they found are fixed in the follow-up commit. One §1.8 sub-check is verified at API level only — see "Verified at API level only" below.

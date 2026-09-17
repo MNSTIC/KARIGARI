@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { slugifyHandle } from '@/lib/creators';
+import { saltedIpHash } from '@/lib/searchLog';
 
 /**
  * Record one visit that arrived through a creator's `?ref=` link.
@@ -11,22 +11,6 @@ import { slugifyHandle } from '@/lib/creators';
  * storefront — a 404 here would break the shop over an analytics row.
  */
 export const dynamic = 'force-dynamic';
-
-/**
- * Salted digest of the caller's IP.
- *
- * The only question this column answers is "was this the same visitor twice",
- * and a raw address would be collecting far more than that needs. Salted with
- * `JWT_SECRET` so the digests are not reversible with a rainbow table of the
- * IPv4 space.
- */
-function hashIp(req: Request): string | null {
-  const forwarded = req.headers.get('x-forwarded-for') || '';
-  const ip = forwarded.split(',')[0].trim() || req.headers.get('x-real-ip') || '';
-  if (!ip) return null;
-  const salt = process.env.JWT_SECRET || 'karigari-affiliate';
-  return crypto.createHash('sha256').update(`${salt}:${ip}`).digest('hex').slice(0, 32);
-}
 
 export async function POST(req: Request) {
   try {
@@ -51,7 +35,7 @@ export async function POST(req: Request) {
     // number nobody can audit.
     await prisma.$transaction([
       prisma.affiliateClick.create({
-        data: { creatorId: creator.id, craftItemId, ipHash: hashIp(req) },
+        data: { creatorId: creator.id, craftItemId, ipHash: saltedIpHash(req) },
       }),
       prisma.creator.update({
         where: { id: creator.id },

@@ -24,6 +24,9 @@ import { SectionLabel } from "@/components/ui/SectionLabel";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { StatTile } from "@/components/ui/StatTile";
+import { PillTabs } from "@/components/ui/SegmentedToggle";
+import { MyBuyers } from "@/components/MyBuyers";
+import { useUrlTab } from "@/lib/urlTab";
 import dynamic from "next/dynamic";
 import type { MonthlyEarning } from "@/components/EarningsAnalytics";
 
@@ -110,6 +113,10 @@ interface TopProduct {
   grossSales: number;
 }
 
+/** `?tab=` values. Money stays the default, so every existing link lands where it did. */
+const EARNINGS_TABS = ["money", "buyers"] as const;
+type EarningsTab = (typeof EARNINGS_TABS)[number];
+
 /** How a settlement row reads in the activity list. */
 function activityChip(item: Capture): { label: string; variant: BadgeVariant; icon: React.ReactNode } {
   // A marketplace sale's escrow says where its money actually is, and it must be
@@ -140,6 +147,7 @@ function activityChip(item: Capture): { label: string; variant: BadgeVariant; ic
 
 export default function EarningsPage() {
   const { t } = useLanguage();
+  const [tab, setTab] = useUrlTab<EarningsTab>("money", EARNINGS_TABS);
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -219,12 +227,37 @@ export default function EarningsPage() {
     .replace("{demand}", formatRupees(demandIncome))
     .replace("{offline}", formatRupees(offlineIncome));
 
-  return (
-    <Shell>
-      <div className="mb-9">
+  const header = (
+    <>
+      <div className="mb-6">
         <PageTitle>{t("page_earnings_title")}</PageTitle>
         <PageLede>Every rupee that has reached you, and the escrow tranches still on their way.</PageLede>
       </div>
+      <PillTabs<EarningsTab>
+        ariaLabel={t("page_earnings_title")}
+        value={tab}
+        onChange={setTab}
+        className="mb-9"
+        options={[
+          { value: "money", label: t("money_tab") },
+          { value: "buyers", label: t("buyers_tab") },
+        ]}
+      />
+    </>
+  );
+
+  if (tab === "buyers") {
+    return (
+      <Shell>
+        {header}
+        <MyBuyers />
+      </Shell>
+    );
+  }
+
+  return (
+    <Shell>
+      {header}
 
       {/* Total income, and the three streams it is made of */}
       <Card

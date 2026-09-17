@@ -996,3 +996,29 @@ model OfflineSale {
   @@index([artisanId, soldAt])
   @@index([craftTypeLabel])
 }
+
+/// One marketplace search, recorded so demand signals are measured rather than
+/// assumed.
+///
+/// There is no buyer account, so there is no searcher identity here and none is
+/// wanted: the only question this table answers is "what are people looking for
+/// this month". `ipHash` is a salted digest — the same reasoning, and the same
+/// `saltedIpHash()` in src/lib/searchLog.ts, as `AffiliateClick.ipHash` — used
+/// solely to keep one person refreshing a page from registering as a trend.
+///
+/// Written only by POST /api/market/search-log. Read only by
+/// GET /api/artisan/buyers, for "What buyers are looking for".
+model MarketplaceSearch {
+  id          String   @id @default(uuid())
+  /// Lower-cased, trimmed, collapsed whitespace, at most 80 characters. Raw
+  /// input is never stored.
+  term        String
+  /// How many listed items the search returned. A term with zero results is the
+  /// most valuable row in this table: it is unmet demand.
+  resultCount Int
+  ipHash      String?
+  createdAt   DateTime @default(now())
+
+  @@index([term])
+  @@index([createdAt])
+}
