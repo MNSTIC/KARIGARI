@@ -14,11 +14,13 @@ import {
   MessageCircle,
   PackageSearch,
   TrendingUp,
+  Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/translations";
 import { DemandRequestCard } from "@/components/ui/DemandRequestCard";
 import { supplyNoticeText } from "@/lib/supplyNotice";
+import { badgeNoticeText } from "@/lib/badgeNotice";
 import { markSynced } from "@/lib/offlineQueueStore";
 
 /**
@@ -48,7 +50,10 @@ export interface LocalAlert {
   message: string;
 }
 
-function iconFor(type: string) {
+function iconFor(type: string, isBadge = false) {
+  // A badge alert is stored as SYSTEM, so the badge itself is what decides the
+  // icon rather than the row's type.
+  if (isBadge) return <Trophy size={14} />;
   if (type === "DEMAND_ALERT") return <TrendingUp size={14} />;
   if (type === "FESTIVAL") return <CalendarDays size={14} />;
   if (type === "SCHEME") return <MessageCircle size={14} />;
@@ -292,6 +297,7 @@ export function NotificationsBell({
               // Stored English, rendered in the artisan's language when it is
               // one of ours; the raw row is the fallback.
               const supply = supplyNoticeText(n, t);
+              const badge = badgeNoticeText(n, t);
               return (
               <button
                 key={n.id}
@@ -305,14 +311,16 @@ export function NotificationsBell({
                   <span
                     className={cn(
                       "w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5",
-                      n.type === "DEMAND_ALERT"
+                      badge
+                        ? "bg-amber-50 text-amber-600"
+                        : n.type === "DEMAND_ALERT"
                         ? "bg-green-100 text-green-700"
                         : n.type === "FESTIVAL"
                           ? "bg-orange-50 text-orange-600"
                           : "bg-gray-100 text-gray-500"
                     )}
                   >
-                    {iconFor(n.type)}
+                    {iconFor(n.type, Boolean(badge))}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
@@ -325,13 +333,13 @@ export function NotificationsBell({
                           n.read ? "font-medium text-gray-700" : "font-bold text-gray-900"
                         )}
                       >
-                        {supply?.title ?? n.title}
+                        {supply?.title ?? badge?.title ?? n.title}
                       </p>
                       <span className="shrink-0 text-[10px] text-gray-400">
                         {relativeTime(n.createdAt, t)}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-600 leading-relaxed mt-0.5">{supply?.message ?? n.message}</p>
+                    <p className="text-xs text-gray-600 leading-relaxed mt-0.5">{supply?.message ?? badge?.message ?? n.message}</p>
                     {supply && (
                       <SupplyActions
                         t={t}

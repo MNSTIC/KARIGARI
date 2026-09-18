@@ -5,6 +5,7 @@ import { requireArtisan } from '@/lib/artisanAuth';
 import { logCraftItemEvent } from '@/lib/auditLogger';
 import { SOLD_STATUSES } from '@/lib/storefrontSale';
 import { SHOPIFY_CONFIGURED, withdrawSoldPiece } from '@/lib/shopify';
+import { awardBadges } from '@/lib/badgeRecord';
 import {
   MAX_BUYER_NAME_LENGTH,
   MAX_CRAFT_LABEL_LENGTH,
@@ -353,8 +354,16 @@ export async function POST(req: Request) {
       voiceLanguage,
     };
 
+    // An offline sale is still a sale they made, so it can earn FIRST_SALE or
+    // TEN_SALES. Fire-and-forget on both write paths below.
+    const awardAfterSale = () =>
+      void awardBadges(artisanId).catch((error) => {
+        console.warn('[badges] award after offline sale failed:', (error as Error)?.message);
+      });
+
     if (!craftItemId) {
       const sale = await prisma.offlineSale.create({ data });
+      awardAfterSale();
       return NextResponse.json({ success: true, sale }, { status: 201 });
     }
 
@@ -422,6 +431,8 @@ export async function POST(req: Request) {
     // Off the artisan's Shopify shop too. Best effort and after the response:
     // a Shopify failure is recorded on the piece and never fails the log.
     if (SHOPIFY_CONFIGURED && shopifyLive) after(() => withdrawSoldPiece(sale.craftItemId as string, 'OFFLINE'));
+
+    awardAfterSale();
 
     return NextResponse.json({ success: true, sale }, { status: 201 });
   } catch (error) {

@@ -10,13 +10,15 @@ import { cn } from "@/lib/utils";
  * that runs past its track.
  */
 
-export type ProgressTone = "primary" | "success" | "warning" | "danger";
+export type ProgressTone = "primary" | "success" | "warning" | "danger" | "neutral";
 
 const FILLS: Record<ProgressTone, string> = {
   primary: "bg-primary",
   success: "bg-[var(--color-stat-teal)]",
   warning: "bg-[var(--color-stat-brown)]",
   danger: "bg-[var(--color-stat-orange)]",
+  // A figure that is not the reader's own — the cohort median beside "you".
+  neutral: "bg-gray-400",
 };
 
 export function ProgressBar({

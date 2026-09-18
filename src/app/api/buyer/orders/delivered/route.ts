@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { buyerNotificationCopy, createBuyerNotification } from '@/lib/buyerNotify';
 import { advanceDemandStatus, advanceOrderStatus } from '@/lib/orderStage';
+import { awardBadges } from '@/lib/badgeRecord';
 
 /**
  * Buyer confirms a demand's goods reached them.
@@ -225,6 +226,14 @@ export async function POST(req: Request) {
       } catch (notifyError) {
         console.error('Delivery notification failed:', notifyError);
       }
+    }
+
+    // Same evaluation as the storefront path: only artisans actually credited
+    // on THIS call are re-checked, so a second click awards nothing new.
+    for (const credit of results.perOrder) {
+      void awardBadges(credit.artisanId).catch((error) => {
+        console.warn('[badges] award after demand delivery failed:', (error as Error)?.message);
+      });
     }
 
     await createBuyerNotification({

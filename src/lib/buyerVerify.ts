@@ -3,6 +3,7 @@ import { generateContentWithFallback } from '@/lib/gemini';
 import { HEALTH_REWARD_VERIFIED, healthAfterVerified } from '@/lib/artisanHealth';
 import { dataUrlBytes, MAX_UPLOAD_BYTES } from '@/lib/fileToDataUrl';
 import { describeSaving, prepareForVision } from '@/lib/imagePrep';
+import { awardBadges } from '@/lib/badgeRecord';
 
 /**
  * The buyer's post-delivery authenticity check — the ONE implementation.
@@ -360,6 +361,14 @@ export async function verifyBuyerImage(
         rewardError
       );
     }
+  }
+
+  // VERIFIED_TEN counts exactly this: successful authenticity scans. Checked
+  // here so the tenth one tells the artisan straight away.
+  if (genuine) {
+    void awardBadges(item.artisanId).catch((error) => {
+      console.warn('[badges] award after verification failed:', (error as Error)?.message);
+    });
   }
 
   return {

@@ -74,6 +74,10 @@ model User {
   /// V12. When this artisan was last nudged about restocking, and whether they
   /// asked to be left alone for a week.
   supplyReminderState      SupplyReminderState?
+  /// V12. Recognition badges this artisan earned from their own record.
+  /// Written only by evaluateBadges() in src/lib/badgeRecord.ts; never by an
+  /// admin and never manually.
+  badges                   ArtisanBadge[]
 
   // Admin fields
   patchBankBalance Int @default(5000)
@@ -1134,4 +1138,31 @@ model SupplyReminderState {
   snoozedUntil   DateTime?
   remindCount    Int       @default(0)
   updatedAt      DateTime  @updatedAt
+}
+
+/// One earned recognition badge.
+///
+/// Awarded by `awardBadges()` in src/lib/badgeRecord.ts from the artisan's own
+/// real record — never by an admin, never manually, never for logging in. That
+/// function is the single writer of every column here.
+///
+/// The @@unique is the whole idempotency story: the evaluator runs on every
+/// dashboard load and at every moment a badge could newly be earned, and simply
+/// cannot double-award. A badge is never deleted either: it records that
+/// something was true, so a later price experiment or a late delivery does not
+/// take back what the artisan already did.
+model ArtisanBadge {
+  id         String   @id @default(uuid())
+  artisanId  String
+  artisan    User     @relation(fields: [artisanId], references: [id])
+  /// Stable key from src/lib/badges.ts (FIRST_SALE, TEN_SALES, …). Titles are
+  /// i18n keys resolved at render, never stored.
+  key        String
+  /// The real figures that earned it, frozen at award time — so a badge can
+  /// always explain itself even after the underlying rows change.
+  basis      Json
+  awardedAt  DateTime @default(now())
+
+  @@unique([artisanId, key])
+  @@index([artisanId])
 }

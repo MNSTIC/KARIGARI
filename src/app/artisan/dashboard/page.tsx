@@ -18,6 +18,7 @@ import { Badge, PatchIdChip, statusBadge } from "@/components/ui/Badge";
 import { MonthlyOverview } from "@/components/dashboard/MonthlyOverview";
 import { StatTile } from "@/components/ui/StatTile";
 import { SupplyNudgeCard } from "@/components/SupplyNudgeCard";
+import { RecognitionPanel } from "@/components/RecognitionPanel";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
 import { BandMarker, ProgressBar } from "@/components/ui/ProgressBar";
 import { Shell } from "@/components/ui/AppShell";
@@ -486,6 +487,12 @@ export default function ArtisanDashboard() {
             onSnoozed={() => setSupplySnoozed(true)}
           />
         )}
+
+        {/* ------------------------------------------- Where I stand
+            Skill stage, earned badges and an anonymous comparison with the
+            artisans around them. Fetches its own data after paint; the
+            comparison is withheld entirely below the k-anonymity threshold. */}
+        <RecognitionPanel />
 
         {/* -------------------------------------------- Recent portfolio */}
         <Card as="section" pad="lg" className="kg-enter min-w-0" radius="3xl">

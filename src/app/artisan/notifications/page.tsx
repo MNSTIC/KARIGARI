@@ -14,6 +14,7 @@ import {
   PackageSearch,
   Sparkles,
   TrendingUp,
+  Trophy,
 } from "lucide-react";
 import { Shell } from "@/components/ui/AppShell";
 import { PageLede, PageTitle } from "@/components/ui/SectionEyebrow";
@@ -22,6 +23,7 @@ import { formatRupees } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 import { DemandRequestCard } from "@/components/ui/DemandRequestCard";
 import { supplyNoticeText } from "@/lib/supplyNotice";
+import { badgeNoticeText } from "@/lib/badgeNotice";
 
 /**
  * The artisan's notifications view.
@@ -323,6 +325,7 @@ export default function NotificationsPage() {
                     // Restock reminders are stored in English and rendered in
                     // the artisan's language here; anything else shows as stored.
                     const supply = supplyNoticeText(note, t);
+                    const badge = badgeNoticeText(note, t);
                     return (
                     <div
                       key={note.id}
@@ -339,17 +342,17 @@ export default function NotificationsPage() {
                             : "bg-[var(--color-mint)] text-primary"
                         )}
                       >
-                        {supply ? <PackageSearch size={16} /> : <BellRing size={16} />}
+                        {supply ? <PackageSearch size={16} /> : badge ? <Trophy size={16} /> : <BellRing size={16} />}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-bold text-primary">{supply?.title ?? note.title}</p>
+                          <p className="text-sm font-bold text-primary">{supply?.title ?? badge?.title ?? note.title}</p>
                           <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                             {note.channel}
                           </span>
                         </div>
                         <p className="text-sm text-gray-600 leading-relaxed mt-1">
-                          {supply?.message ?? note.message}
+                          {supply?.message ?? badge?.message ?? note.message}
                         </p>
 
                         {supply && (

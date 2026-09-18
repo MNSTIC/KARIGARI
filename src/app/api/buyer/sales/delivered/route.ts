@@ -5,6 +5,7 @@ import { logCraftItemEvent } from '@/lib/auditLogger';
 import { STAGE1_ADVANCE_PAID_40 } from '@/lib/escrow';
 import { settleEscrow } from '@/lib/escrowSettle';
 import { contactsMatch } from '@/lib/storefrontSale';
+import { awardBadges } from '@/lib/badgeRecord';
 
 /**
  * The buyer confirms a storefront piece arrived. Releases the final settlement.
@@ -189,6 +190,14 @@ export async function POST(req: Request) {
     } catch (notifyError) {
       console.error('[buyer/sales/delivered] artisan notification failed:', notifyError);
     }
+
+    // A settled sale can complete a badge (the first one, the tenth, a repeat
+    // buyer). Evaluated here as well as on the dashboard so the bell tells the
+    // artisan at the moment it happened; deliberately not awaited, because a
+    // badge is never worth delaying a buyer's confirmation.
+    void awardBadges(item.artisanId).catch((error) => {
+      console.warn('[badges] award after delivery failed:', (error as Error)?.message);
+    });
 
     return NextResponse.json({
       success: true,
