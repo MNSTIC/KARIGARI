@@ -18,13 +18,71 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 | 7 | Sync Status Indicator ("Synced 2 min ago") | DONE | d7b3b53 | 2026-09-18 | Header chip reporting the last confirmed round-trip, with a hydration-safe relative time from i18n keys. No new polling. Also fixes a pre-existing 360 px header overflow and translates the offline badge and sync toast. 17 unit checks, browser checks on dev and a production build in four languages at 360 px. |
 | 8 | Workshop Resources (rename + repair + tool schemes) | DONE | 68d8342 | 2026-09-18 | `/artisan/materials` → `/artisan/workshop` (308 redirect) with three tabs: materials unchanged, cluster-sourced repair help whose AI brief is stripped of any contact detail, and equipment schemes that cite the page every figure was read from. PMEGP and MUDRA added from official sources; SFURTI withheld because its source could not be reached. 11 unit checks, 89 scheme assertions, 23 live API checks, browser checks in four languages at 360 px. |
 | 9 | Recognition & Anonymous Cluster Benchmarks | DONE | 0bf43db | 2026-09-18 | Badges awarded only by `evaluateBadges()` from the artisan's own rows — never by an admin, never for signing in — with the frozen figures that earned each one, and a k-anonymous cluster comparison that shows medians only when at least 5 other artisans are active and otherwise returns no figure at all, in the UI or the JSON. 42 unit checks, 45 live API checks, browser checks in four languages at 360 px. |
-| 10 | Design Lab (AI concept + SVG motif composer) | DONE | (this commit) | 2026-09-18 | The model returns a pattern *grammar*, never a picture; a pure deterministic renderer draws it as one tiled `<pattern>`, so the same spec is byte-identical every time and a 16×16 grid emits the same markup as a 2×2. Safe by construction — no prompt text, script, foreignObject or external reference can reach the SVG. A concept is a sketch: it can never become a `CraftItem` photograph, and "Start a listing" carries words only. 30 unit checks, 51 live API checks, browser checks in four languages at 360 px. |
-| 11 | Digital Craft IP Registry (motif fingerprint + licensing) | PENDING | — | — | — |
+| 10 | Design Lab (AI concept + SVG motif composer) | DONE | 19f24ab | 2026-09-18 | The model returns a pattern *grammar*, never a picture; a pure deterministic renderer draws it as one tiled `<pattern>`, so the same spec is byte-identical every time and a 16×16 grid emits the same markup as a 2×2. Safe by construction — no prompt text, script, foreignObject or external reference can reach the SVG. A concept is a sketch: it can never become a `CraftItem` photograph, and "Start a listing" carries words only. 30 unit checks, 51 live API checks, browser checks in four languages at 360 px. |
+| 11 | Digital Craft IP Registry (motif fingerprint + licensing) | DONE | (this commit) | 2026-09-18 | A 64-bit perceptual fingerprint computed in the artisan's own browser, registered to the CLUSTER rather than to whoever photographed it first, reviewed by a human before it is public, and licensable with a fee the village names. Every surface carries the disclaimer that this is a timestamped registration and **not** a GI or a legal right — a unit test fails the build if any motif string claims otherwise. 36 unit checks, 47 live API checks, browser checks in four languages at 360 px. |
 | 12 | Scrap-to-Wealth (circular economy module) | PENDING | — | — | — |
 | 13 | Influencer commission model — artisan-funded 5% opt-in | PENDING | — | — | — |
 
 A commit cannot contain its own hash, so the newest row reads `(this commit)`;
 each phase backfills the previous row's short sha when it updates this file.
+
+## Phase 11 detail
+- Status: **DONE** (2026-09-18)
+- Schema: `model MotifRegistration` (cluster-owned fingerprint, `status`, `duplicateOfId`/`duplicateDistance`, `descriptors`, `referenceImageUrl`) · `model MotifLicence` (+ `ipHash` for the rate limit and `decisionNote`, both added during the build when the spec's shape turned out to be a field short) · `model MotifPayoutShare` (`@@unique([licenceId, artisanId])`) · `User.motifRegistrations`, `User.motifPayoutShares`, `CraftItem.motifRegistrations`. Pushed with `prisma db push --url "$DIRECT_URL"`, client regenerated, dev restarted.
+- Files created: `src/lib/motifHash.ts` (the dHash, the two thresholds, `hammingDistance`, the client canvas path and the colour histogram) · `src/lib/motifLicence.ts` (pure: `splitFee`, the transitions, the claim guard, the public allow-list) · `src/lib/motifRecord.ts` (cluster reads, the trust ledger) · `src/app/api/motif/{register,registry,licence,describe}/route.ts` · `src/app/api/artisan/{motifs,motif-licence}/route.ts` · `src/app/api/admin/{motif-review,motif-licence-payout}/route.ts` · `src/app/artisan/motifs/{page,loading}.tsx` · `src/app/motif/[id]/{page,MotifRecordClient}.tsx` · `src/components/MotifDisclaimer.tsx` · `src/components/motif/MotifCard.tsx` · `src/components/admin/MotifReviews.tsx` · `src/lib/__tests__/{motifHash,motifLicence}.test.mjs`
+- Files modified: `prisma/schema.prisma`, `src/components/ui/Sidebar.tsx` (`nav_motifs`, Fingerprint icon, in My Workshop), `src/app/admin/facilitator/page.tsx` (a fourth tab, not a new admin page), `package.json`, `src/lib/i18n/{en,hi,or,te}.ts`
+- i18n keys added: 74 × 4 dictionaries — every key §11.7 lists, with `motif_licence_status_*` expanded to its five real values and the copy the screens actually needed (the four filing states, the two flagged explanations, the reviewer's strings, the trust ledger's four lines, and the public form's six).
+- Gates: tsc PASS | lint 112 / 44 source, 0 files worse than baseline | build PASS (eight `ƒ` motif routes, `○ /artisan/motifs`, `ƒ /motif/[id]`), same four Node warnings as the baseline build | `test:all` PASS (+ motifHash 16, motifLicence 22) | `verify:schemes` 89 passed, 0 failed
+- Verification — live API (47/47 against `next dev`):
+  - ✓ 401 unauthenticated and 403 for the wrong role on every artisan and admin route
+  - ✓ a malformed fingerprint and a name claiming a legal status are both refused before anything is written
+  - ✓ **§11.8 case 1** — the same photograph again: distance 0, refused as already registered with a pointer to the existing record, and no second row
+  - ✓ **§11.8 case 2** — a re-cropped version: distance 4, same refusal
+  - ✓ **§11.8 case 3** — a genuinely different pattern: distance 30, accepted, PENDING
+  - ✓ **§11.8 case 4** — the same motif from ANOTHER cluster: FLAGGED_DUPLICATE with distance 2, both records in the admin queue, and a scan of the review payload for "stole / copied / infringe / original" finds none
+  - ✓ a GI claim inside the model's description was dropped from the stored row; a non-hex "indigo" was dropped and `#1f3a68` kept
+  - ✓ the record is keyed on `auto:bargarh, odisha` — the cluster — with the submitter recorded separately
+  - ✓ the public register needs no session, shows only CONFIRMED records (1 of 3 filed), and **no artisan id, email, mobile or UPI appears anywhere in it**; the cluster reads "Bargarh, Odisha", never `auto:…`
+  - ✓ `/motif/[id]` renders with no session, carries the disclaimer in its HTML, is `noindex`, and a flagged record 404s
+  - ✓ a public enquiry is accepted and notifies the cluster; an enquiry against an unconfirmed record is refused
+  - ✓ **the rate limit** — the sixth enquiry from one address inside an hour is refused, and a different address is not caught by it
+  - ✓ an artisan of another cluster cannot answer; accepting without a real fee is refused; a second decision is refused
+  - ✓ **§11.8 case 6** — ₹1,000 across three artisans is 334 / 333 / 333, summing to exactly 1,000, every share `SIMULATED` with a `SIM_` ref
+  - ✓ **§11.8 case 8** — a second payout click returns ALREADY_PAID and writes nothing
+  - ✓ **§11.8 case 9** — an ACCEPTED licence with no agreed fee is refused with NO_FEE
+  - ✓ the trust ledger reports ₹1,000 to the cluster, ₹334 to this artisan, ₹1,000 simulated and **₹0 real**
+- Verification — browser (Browser pane, signed in as lakshmi@karigari.com, `next dev`):
+  - ✓ **The fingerprint is computed in the browser**: picking a real piece produced `f575 6160 656c 54d4` from its own photograph, and the same piece gave the same value on a later page load
+  - ✓ Registering filed a PENDING record with that fingerprint, a 28.5 KB reference crop and an AI reading (confidence 0.9, three palette colours, a symmetry and a repeat-unit sentence)
+  - ✓ The record renders with its status chip, its fingerprint in the mono face, and the "AI reading" badge; the earlier run rendered "Read from the colours" when the model did not answer
+  - ✓ The disclaimer is on the artisan page, the public page (twice) and the admin review, in all four languages
+  - ✓ The public page shows no price and says why: the cluster names it
+  - ✓ en / hi / or / te at 360 px on both pages: page scroll width 360, nothing overflowing outside the piece rail, no raw keys, no unfilled placeholders
+  - ✓ Console on a fresh tab: no errors, no React warnings
+  - ✓ Cleanup: every registration, licence, share and notification deleted; the two artisans temporarily moved into another cluster restored to their own location and SHG link
+- Decisions and deviations:
+  1. **The cluster owns it, not the filer.** `clusterKey` is the owning column and `submittedById` is only credit and contact; every payout splits across the cluster's confirmed registrants. Attributing a village's motif to whoever photographed it first is the exact appropriation this feature exists to resist.
+  2. **A hash is a reason to look, never a verdict.** Nothing reaches the public register without a human confirming it, a flagged pair is shown as two records and a distance with no "original" and no "copy", and the copy on both sides says a review is not an accusation. Two villages genuinely can carry the same tradition and this platform has no standing to rule on which came first.
+  3. **Same cluster → refused; another cluster → flagged.** Re-registering your own motif points at the record you already have rather than making a second row; the cross-cluster case is the one a person looks at.
+  4. **The fingerprint is computed client-side** (§11.3) and the server validates only its FORMAT. Decoding several full-size data URLs server-side would exhaust memory on this deployment, and it is acceptable because a fingerprint is a discovery aid a human reviews, not an authorisation.
+  5. **A description says where it came from.** `source` is AI or HEURISTIC on every record and on screen, and a confidence figure survives only on the AI path — a colour histogram has no confidence to report, so inventing one would be a number nobody computed.
+  6. **No claim this app cannot grant survives.** `claimsLegalStatus` drops any sentence mentioning a GI, a trademark, a patent, copyright, legal protection, authentication, certification or a blockchain — from the model's prose AND from a motif name an artisan types. A unit test walks every `motif_*` string in all four dictionaries and fails on any of those words outside the three strings whose job is to deny them, and a second test asserts all three motif surfaces render `<MotifDisclaimer />`.
+  7. **No rupee rounds away.** `splitFee` gives the remainder to the earliest registrants one rupee at a time and throws if the shares do not sum to the fee — before anything is written, because a caller that has already set `paidAt` cannot recover from a bad split. 104 fee/cluster-size combinations are asserted in the unit tests.
+  8. **The admin surface is a fourth tab on the facilitator console**, not a new page, exactly as §11.6 asks.
+  9. **`decisionNote` and `ipHash` were added to `MotifLicence`.** §11.5 asks the cluster to "decline with a reason" and to rate-limit by `ipHash`, and §11.2's model had a column for neither; writing the reason into `intendedUse` or rate-limiting on nothing would both have been worse than one column each.
+  10. **Constants that a route would have exported live in `motifLicence.ts`.** A Next.js route module may only export its handlers and route config — the same wall Phase 10 hit with a thumbnail cap, and the build caught it here too.
+- Bugs and gaps found while verifying, and fixed:
+  1. **The Write tool turned `\u202a` escapes into literal bidi characters** in the licence route's sanitiser — the provenance hook caught it. Rewritten as numeric code-point checks, which is also the version a reader can actually check.
+  2. **The reference crop was the full thumbnail** (262 KB), not the ≤320 px crop §11.2 describes, and the vision call timed out against it at a 12 s budget. Added `downscaleReference()`: the crop is now 28.5 KB, the reading arrives, and the fingerprint is unaffected because dHash draws to a 9×8 grid whatever the source size.
+  3. **The first verification run overwrote two artisans' `location`** and restored only their SHG links. Caught by a post-run sweep, restored by hand, and the script now saves and restores both.
+  4. **Three Next `<Image>` aspect-ratio warnings** from CSS-resizing width/height images. All three now use `fill` inside a sized box.
+  5. **A 16 px tap target** on the "Open the public record" link, raised to 40 px.
+- Known follow-ups:
+  - Every seeded artisan is alone in their own cluster, so the cross-cluster flag and the three-way split were both proved by temporarily moving artisans between clusters and then restoring them. Nothing in the seed exercises a real multi-member cluster — the same gap Phases 8 and 9 recorded.
+  - `payableArtisanIds` pays the artisans who FILED a confirmed record in the cluster, not every artisan in it. That is the narrower reading of §11.2's "artisans who have a registered, non-duplicate motif in that cluster"; a cluster where one person files for everybody would concentrate the fee on them, and the fix is a cluster-membership payout rather than a registration-based one.
+  - The register compares a candidate against **every** row, which is right at this size and is a full scan at a larger one. The hashes are 16 characters and indexed, so the natural next step is a coarse bucket on the first nibble before the distance loop.
+  - The AI reading is not cached: two registrations of the same crop are two vision calls.
+  - `LanguageSwitcher` renders a 36 px tap target on the public page. It is shared with the creators, credit and marketplace pages and predates this phase, so it was left alone.
 
 ## Phase 10 detail
 - Status: **DONE** (2026-09-18)

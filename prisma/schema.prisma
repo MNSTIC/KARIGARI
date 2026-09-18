@@ -82,6 +82,12 @@ model User {
   /// committing silk to them. Sketches, never product photographs — nothing
   /// here is ever read by a provenance or authenticity comparison.
   designConcepts           DesignConcept[]
+  /// V12. Motif fingerprints this artisan SUBMITTED. Submitting is not owning:
+  /// a registration belongs to the cluster, and this column only records who
+  /// filed it so the cluster has someone to ask.
+  motifRegistrations       MotifRegistration[]
+  /// V12. This artisan's frozen share of each licence fee the cluster was paid.
+  motifPayoutShares        MotifPayoutShare[]
 
   // Admin fields
   patchBankBalance Int @default(5000)
@@ -427,6 +433,9 @@ model CraftItem {
   relatedDemandId     String?
 
   auditLogs           AuditLog[]
+  /// V12. Motif registrations whose reference crop came from this piece.
+  motifRegistrations  MotifRegistration[]
+
   reviews             Review[]
   tickets             Ticket[]
   /// Demand commitments this piece was bound to at ready-check time. A list
@@ -1210,4 +1219,138 @@ model DesignConcept {
   createdAt      DateTime @default(now())
 
   @@index([artisanId, createdAt])
+}
+
+/// A registered motif fingerprint, owned by the CLUSTER rather than by one
+/// artisan.
+///
+/// A tradition belongs to the village that carries it, and attributing it to
+/// whoever happened to photograph it first would be the exact appropriation
+/// this feature exists to resist. `submittedById` therefore records who filed
+/// the record, never who owns it; every payout splits across the cluster.
+///
+/// What this row IS: a timestamped registration on Karigari. What it is NOT: a
+/// Geographical Indication, a legal intellectual-property right, or anything a
+/// registry outside this app has granted. No surface may say otherwise — see
+/// src/components/MotifDisclaimer.tsx, which is rendered on every motif screen.
+///
+/// `hash` is a 64-bit perceptual hash (src/lib/motifHash.ts) as 16 hex chars.
+/// Perceptual, not cryptographic, on purpose: two photographs of the same saree
+/// MUST collide, which is the whole point, and SHA-256 never would.
+///
+/// Written by POST /api/motif/register. `status` is moved only by an admin.
+model MotifRegistration {
+  id            String     @id @default(uuid())
+  /// Resolved cluster key — shgGroupLink or `auto:<location>`, per the app-wide rule.
+  clusterKey    String
+  /// The artisan who submitted it, for credit and contact. NOT the owner.
+  submittedById String
+  submittedBy   User       @relation(fields: [submittedById], references: [id])
+  craftItemId   String?
+  craftItem     CraftItem? @relation(fields: [craftItemId], references: [id])
+  /// Human name the cluster gave the motif.
+  name          String
+  /// 16 hex chars. Deliberately NOT unique: a legitimate re-registration of a
+  /// variant is normal, and a unique constraint would be enforced on a value
+  /// that is meant to collide. Duplicates are surfaced for human review instead.
+  hash          String
+  /// `{ motifs, symmetry, repeatUnit, palette, confidence, source }` — the
+  /// structured description. `source` is AI or HEURISTIC and is always shown,
+  /// so a colour histogram is never presented as a model's reading.
+  descriptors   Json
+  /// Downscaled crop the hash was computed from, for human review. The hash is
+  /// computed in the BROWSER from this image; the server validates its format
+  /// and trusts the value, which is acceptable because a fingerprint here is a
+  /// discovery aid a human reviews, never an authorisation.
+  referenceImageUrl String?
+  /// PENDING | REGISTERED | FLAGGED_DUPLICATE | REJECTED
+  status        String     @default("PENDING")
+  /// Set when review found an existing near-identical registration elsewhere.
+  duplicateOfId String?
+  /// Hamming distance to `duplicateOfId`, so a reviewer sees how close it is
+  /// rather than being told "duplicate" and having to trust it.
+  duplicateDistance Int?
+  adminNote     String?
+  reviewedById  String?
+  reviewedAt    DateTime?
+  /// Whether the cluster is open to licensing enquiries for this motif.
+  licensable    Boolean    @default(true)
+  registeredAt  DateTime   @default(now())
+
+  licences      MotifLicence[]
+
+  @@index([clusterKey])
+  @@index([hash])
+  @@index([status])
+}
+
+/// A brand's request to use a registered motif, and the fee recorded against it.
+///
+/// Nothing is auto-approved: a human acting for the cluster accepts or declines,
+/// and a fee exists only once somebody agreed one.
+///
+/// Money follows the platform's existing honesty convention — `payoutMode` is
+/// RAZORPAYX only when a real payout ran and SIMULATED otherwise, and a
+/// SIMULATED row is never described as paid.
+model MotifLicence {
+  id              String            @id @default(uuid())
+  motifId         String
+  motif           MotifRegistration @relation(fields: [motifId], references: [id])
+  /// Free-text enquirer identity — the public page has no accounts, the same
+  /// convention as `Demand.buyerName`.
+  licenseeName    String
+  licenseeContact String
+  /// What they want to use it for, in their words.
+  intendedUse     String
+  /// Units or volume they described. Unparsed free text, deliberately: a number
+  /// this app invented from prose would read as a term somebody agreed.
+  scope           String?
+  /// Fee the cluster asked for, in whole rupees. Null until a figure is agreed.
+  feeAmount       Int?
+  /// REQUESTED | ACCEPTED | DECLINED | PAID | WITHDRAWN
+  status          String            @default("REQUESTED")
+  /// RAZORPAYX | SIMULATED — never null once status is PAID.
+  payoutMode      String?
+  payoutRef       String?
+  /// What the cluster said when they accepted or declined, in their own
+  /// words. Stored so a brand can be told WHY, rather than only that the
+  /// answer was no.
+  decisionNote    String?
+  decidedById     String?
+  decidedAt       DateTime?
+  /// Salted digest of the enquirer's address — the same one-way hash
+  /// `MarketplaceSearch` and `AffiliateClick` already store. It answers one
+  /// question, "was this the same visitor in the last hour", which is what the
+  /// rate limit needs; a raw address would collect far more than that.
+  ipHash          String?
+  /// Presence is the idempotency guard: a second "pay out" cannot split twice.
+  paidAt          DateTime?
+  createdAt       DateTime          @default(now())
+
+  distributions   MotifPayoutShare[]
+
+  @@index([motifId])
+  @@index([status])
+}
+
+/// How one licence fee was split across the cluster's artisans.
+///
+/// Equal shares among artisans holding a registered, non-duplicate motif in that
+/// cluster, computed at payout time and FROZEN: a later joiner must not
+/// retroactively dilute a distribution that was already settled. The remainder
+/// is distributed rupee by rupee to the earliest registrants, so the shares sum
+/// to exactly the fee and no money rounds away.
+model MotifPayoutShare {
+  id         String       @id @default(uuid())
+  licenceId  String
+  licence    MotifLicence @relation(fields: [licenceId], references: [id])
+  artisanId  String
+  artisan    User         @relation(fields: [artisanId], references: [id])
+  amount     Int
+  payoutMode String
+  payoutRef  String?
+  createdAt  DateTime     @default(now())
+
+  @@unique([licenceId, artisanId])
+  @@index([artisanId])
 }

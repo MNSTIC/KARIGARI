@@ -20,6 +20,7 @@ import {
   Loader2,
   Search,
   PackageCheck,
+  Fingerprint,
 } from "lucide-react";
 import { StatCard } from "@/components/ui/StatCard";
 import { AdminShell, TabBar, LiveBadge } from "@/components/AdminShell";
@@ -37,6 +38,7 @@ import { useLanguage } from "@/lib/translations";
 import { cn } from "@/lib/utils";
 
 import { TicketsReports } from "@/components/admin/TicketsReports";
+import { MotifReviews } from "@/components/admin/MotifReviews";
 import { ADMIN_POLL_MS } from "@/lib/pollingIntervals";
 
 const POLL_MS = ADMIN_POLL_MS;
@@ -153,10 +155,12 @@ export default function FacilitatorDashboard() {
   const router = useRouter();
   const { t } = useLanguage();
   // The sidebar deep links into a tab, so the tab lives in the URL.
-  const [tab, setTab] = useUrlTab<"qa" | "cluster" | "tickets">(
+  const [tab, setTab] = useUrlTab<"qa" | "cluster" | "tickets" | "motifs">(
     "qa",
-    ["qa", "cluster", "tickets"] as const
+    ["qa", "cluster", "tickets", "motifs"] as const
   );
+  /** Live count of motif records still waiting for a human, for the badge. */
+  const [openMotifs, setOpenMotifs] = useState(0);
   /** Live open-report count, reported up by the tickets console for the badge. */
   const [openTickets, setOpenTickets] = useState(0);
   const [queue, setQueue] = useState<QueuePayload | null>(null);
@@ -327,7 +331,7 @@ export default function FacilitatorDashboard() {
 
       <TabBar
         active={tab}
-        onChange={(k) => setTab(k as "qa" | "cluster" | "tickets")}
+        onChange={(k) => setTab(k as "qa" | "cluster" | "tickets" | "motifs")}
         tabs={[
           {
             key: "qa",
@@ -342,10 +346,18 @@ export default function FacilitatorDashboard() {
             icon: <ShieldAlert size={16} />,
             badge: openTickets,
           },
+          {
+            key: "motifs",
+            label: t("motif_review_tab"),
+            icon: <Fingerprint size={16} />,
+            badge: openMotifs,
+          },
         ]}
       />
 
-      {tab === "tickets" ? (
+      {tab === "motifs" ? (
+        <MotifReviews onOpenCount={setOpenMotifs} />
+      ) : tab === "tickets" ? (
         <TicketsReports onOpenCount={setOpenTickets} />
       ) : !queue ? (
         <LoadingPanel label="Loading your field queue…" />

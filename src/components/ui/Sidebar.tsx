@@ -25,6 +25,7 @@ import {
   Palette,
   Users,
   X,
+  Fingerprint,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useArtisanIdentity } from "@/lib/artisanIdentity";
@@ -92,6 +93,7 @@ const ARTISAN_GROUPS: NavGroup[] = [
       { href: "/artisan/orders", label: "nav_orders", icon: <ClipboardList size={19} strokeWidth={1.6} /> },
       { href: "/artisan/cluster", label: "nav_cluster", icon: <Users size={19} strokeWidth={1.6} /> },
       { href: "/artisan/design-lab", label: "nav_design_lab", icon: <Palette size={19} strokeWidth={1.6} /> },
+      { href: "/artisan/motifs", label: "nav_motifs", icon: <Fingerprint size={19} strokeWidth={1.6} /> },
       { href: "/artisan/earnings", label: "nav_earnings", icon: <Banknote size={19} strokeWidth={1.6} /> },
       { href: "/artisan/log-sale", label: "nav_log_sale", icon: <ReceiptIndianRupee size={19} strokeWidth={1.6} /> },
       { href: "/artisan/marketing", label: "nav_influencer_marketing", icon: <Megaphone size={19} strokeWidth={1.6} /> },
