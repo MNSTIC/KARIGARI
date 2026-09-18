@@ -24,6 +24,17 @@ import type { OfflinePriceSignal } from "@/lib/offlineSales";
 interface CaptureModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /**
+   * Words the artisan already wrote, from a Design Lab concept.
+   *
+   * WORDS ONLY, and deliberately so: it lands in the same box the artisan types
+   * into, so the normal parse runs over it unchanged. A concept's drawing is a
+   * sketch and never becomes a photograph of a piece — nothing here touches
+   * `images`, which stays empty until the camera fills it.
+   */
+  seedText?: string | null;
+  /** Fired once, with the real id, when the capture actually created an item. */
+  onItemCreated?: (itemId: string) => void;
   /** The signed-in artisan, so their own bubble shows their own avatar. */
   artisanName?: string | null;
   artisanPhotoUrl?: string | null;
@@ -77,7 +88,7 @@ const SPEECH_LANGS: Record<string, string> = {
   or: "or-IN",
 };
 
-export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: CaptureModalProps) {
+export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl, seedText, onItemCreated }: CaptureModalProps) {
   const { t, language } = useLanguage();
   const [step, setStep] = useState(1);
   const [isListening, setIsListening] = useState(false);
@@ -102,6 +113,39 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
   
   // Chat History
   const [messages, setMessages] = useState<Message[]>([]);
+
+  /**
+   * A Design Lab concept's words, dropped into the box the artisan types into.
+   *
+   * Once per open, and only while the box is still empty, so it can never
+   * overwrite something the artisan has already said. It is plain text on the
+   * normal path — the same parse runs over it — and it touches nothing else:
+   * `images` stays empty until the camera fills it, because a pattern sketch
+   * is not a photograph of a piece.
+   */
+  /**
+   * The guard holds the seed that was actually written, and is set INSIDE the
+   * deferred callback rather than before it.
+   *
+   * Setting a boolean up front looked equivalent and was not: React runs an
+   * effect, cleans it up and runs it again on mount in development, so the
+   * cleanup cleared the pending timeout while the flag stayed true, and the
+   * words silently never arrived. Recording the seed itself also makes the
+   * "only once" rule honest — a second, different concept can still seed.
+   */
+  const seededRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const seed = (seedText ?? "").trim();
+    if (!seed || seededRef.current === seed) return;
+    // Deferred by a macrotask so the effect body performs no synchronous
+    // setState — the same pattern the rest of this app uses for a kickoff.
+    const kickoff = setTimeout(() => {
+      seededRef.current = seed;
+      setInputText((prev) => (prev.trim() ? prev : seed));
+    }, 0);
+    return () => clearTimeout(kickoff);
+  }, [isOpen, seedText]);
 
   useEffect(() => {
     if (isOpen) {
@@ -791,6 +835,7 @@ export function CaptureModal({ isOpen, onClose, artisanName, artisanPhotoUrl }: 
       const data = await res.json();
       if (res.ok && data.item?.id) {
         setCreatedItemId(data.item.id);
+        onItemCreated?.(data.item.id);
         setStep(4); // Use step 4 as the success screen
       } else {
         // A rejection the server actually reasoned about (bad math, expired

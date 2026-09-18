@@ -22,6 +22,7 @@ import {
   Sparkles,
   Store,
   TrendingUp,
+  Palette,
   Users,
   X,
 } from "lucide-react";
@@ -90,6 +91,7 @@ const ARTISAN_GROUPS: NavGroup[] = [
     items: [
       { href: "/artisan/orders", label: "nav_orders", icon: <ClipboardList size={19} strokeWidth={1.6} /> },
       { href: "/artisan/cluster", label: "nav_cluster", icon: <Users size={19} strokeWidth={1.6} /> },
+      { href: "/artisan/design-lab", label: "nav_design_lab", icon: <Palette size={19} strokeWidth={1.6} /> },
       { href: "/artisan/earnings", label: "nav_earnings", icon: <Banknote size={19} strokeWidth={1.6} /> },
       { href: "/artisan/log-sale", label: "nav_log_sale", icon: <ReceiptIndianRupee size={19} strokeWidth={1.6} /> },
       { href: "/artisan/marketing", label: "nav_influencer_marketing", icon: <Megaphone size={19} strokeWidth={1.6} /> },

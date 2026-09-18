@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
@@ -19,6 +19,7 @@ import { MonthlyOverview } from "@/components/dashboard/MonthlyOverview";
 import { StatTile } from "@/components/ui/StatTile";
 import { SupplyNudgeCard } from "@/components/SupplyNudgeCard";
 import { RecognitionPanel } from "@/components/RecognitionPanel";
+import { useUrlParam } from "@/lib/urlTab";
 import { ProgressStepper } from "@/components/ui/ProgressStepper";
 import { BandMarker, ProgressBar } from "@/components/ui/ProgressBar";
 import { Shell } from "@/components/ui/AppShell";
@@ -104,6 +105,51 @@ export default function ArtisanDashboard() {
   const [dashboardData, setDashboardData] = useState<any>(null);
   /** Set when "remind me later" succeeds, so the card leaves without a refetch. */
   const [supplySnoozed, setSupplySnoozed] = useState(false);
+
+  /**
+   * Arriving from the Design Lab: /artisan/dashboard?concept=<id>.
+   *
+   * The concept hands over WORDS — the artisan's own description — and nothing
+   * else. Its drawing is a sketch and is deliberately left behind: a listing's
+   * photographs are of the real piece or there are none, so `images` stays
+   * empty until the camera fills it.
+   */
+  const conceptId = useUrlParam("concept");
+  const [conceptSeed, setConceptSeed] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!conceptId) return;
+    let alive = true;
+    const kickoff = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/artisan/design-lab?id=${encodeURIComponent(conceptId)}`, { cache: "no-store" });
+        const data = await res.json();
+        if (!alive || !res.ok || !data?.success) return;
+        const words = [data.concept.title, data.concept.prompt].filter(Boolean).join(". ");
+        if (words) setConceptSeed(words);
+        setIsModalOpen(true);
+      } catch (error) {
+        console.warn("[dashboard] concept hand-off failed:", (error as Error)?.message);
+      }
+    }, 0);
+    return () => {
+      alive = false;
+      clearTimeout(kickoff);
+    };
+  }, [conceptId]);
+
+  /** Record that the lab led to a real listing. Best effort; never blocks. */
+  const onItemFromConcept = useCallback(
+    (itemId: string) => {
+      if (!conceptId) return;
+      void fetch("/api/artisan/design-lab", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: conceptId, usedForItemId: itemId }),
+      }).catch(() => {});
+    },
+    [conceptId]
+  );
   const [selectedItem, setSelectedItem] = useState<any>(null);
   /* The dispute and agent-handoff flows are opened from elsewhere in the app;
      the dashboard only owns the closing side of them. */
@@ -553,6 +599,8 @@ export default function ArtisanDashboard() {
           onClose={handleModalClose}
           artisanName={dashboardData?.artisanName}
           artisanPhotoUrl={dashboardData?.artisanProfile?.photoUrl}
+          seedText={conceptSeed}
+          onItemCreated={onItemFromConcept}
         />
       )}
 

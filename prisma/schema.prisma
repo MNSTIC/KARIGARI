@@ -78,6 +78,10 @@ model User {
   /// Written only by evaluateBadges() in src/lib/badgeRecord.ts; never by an
   /// admin and never manually.
   badges                   ArtisanBadge[]
+  /// V12. Pattern concepts the artisan explored in the Design Lab before
+  /// committing silk to them. Sketches, never product photographs — nothing
+  /// here is ever read by a provenance or authenticity comparison.
+  designConcepts           DesignConcept[]
 
   // Admin fields
   patchBankBalance Int @default(5000)
@@ -1165,4 +1169,45 @@ model ArtisanBadge {
 
   @@unique([artisanId, key])
   @@index([artisanId])
+}
+
+/// One design concept an artisan explored before committing material.
+///
+/// `spec` is the pattern grammar (src/lib/motifSpec.ts) and is the source of
+/// truth: the SVG is a pure function of it, so a saved concept re-renders
+/// identically without storing a large string. `svgThumb` is cached only so the
+/// concept rail can show a thumbnail without re-running the renderer.
+///
+/// Explicitly NOT a product photograph. No row here is ever written into
+/// `CraftItem.images`, `originalImageUrl` or anything `verifyLook()` and the
+/// buyer's authenticity comparison read — a drawing must never be able to stand
+/// in for a photograph of the real piece.
+///
+/// Written only by /api/artisan/design-lab.
+model DesignConcept {
+  id             String   @id @default(uuid())
+  artisanId      String
+  artisan        User     @relation(fields: [artisanId], references: [id])
+  /// What the artisan asked for, in their own words.
+  prompt         String
+  /// The language they said it in, so a saved concept can be reread in it.
+  promptLanguage String?
+  title          String
+  /// MotifSpec — grid, motif, repeat, palette, stroke, border. Every field is
+  /// clamped by `validateSpec()` before it is written, so a stored spec can
+  /// never render something the composer would refuse to draw.
+  spec           Json
+  /// AI | FALLBACK — whether a model produced the spec or the rule-based
+  /// composer did, so the UI never over-claims which one the artisan is seeing.
+  source         String   @default("AI")
+  /// The rendered thumbnail, produced server-side by our own renderer and
+  /// capped at 40 KB. Null when it could not be produced.
+  svgThumb       String?
+  /// Set when the artisan started a listing from this concept, so "did the lab
+  /// lead to real work" has an answer. The listing takes WORDS from the concept
+  /// and never the drawing.
+  usedForItemId  String?
+  createdAt      DateTime @default(now())
+
+  @@index([artisanId, createdAt])
 }
