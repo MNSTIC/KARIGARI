@@ -91,7 +91,7 @@ function SupplyActions({
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
       <span
-        {...act(() => onNavigate("/artisan/materials"))}
+        {...act(() => onNavigate("/artisan/workshop"))}
         className="kg-press inline-flex min-h-[32px] cursor-pointer items-center gap-1 rounded-lg bg-primary px-2.5 text-[11px] font-bold text-white"
       >
         <PackageSearch size={12} /> {t("supply_nudge_browse_suppliers")}

@@ -73,7 +73,7 @@ const ARTISAN_GROUPS: NavGroup[] = [
     items: [
       { href: "/artisan/dashboard", label: "nav_dashboard", icon: <LayoutGrid size={19} strokeWidth={1.6} /> },
       { href: "/artisan/market", label: "nav_marketplace", icon: <Store size={19} strokeWidth={1.6} /> },
-      { href: "/artisan/materials", label: "nav_raw_materials", icon: <Boxes size={19} strokeWidth={1.6} /> },
+      { href: "/artisan/workshop", label: "nav_workshop_resources", icon: <Boxes size={19} strokeWidth={1.6} /> },
       { href: "/artisan/insights", label: "nav_market_insights", icon: <TrendingUp size={19} strokeWidth={1.6} /> },
       { href: "/artisan/schemes", label: "nav_schemes", icon: <ScanFace size={19} strokeWidth={1.6} /> },
       { href: "/artisan/learn", label: "nav_ai_learning", icon: <Sparkles size={19} strokeWidth={1.6} /> },

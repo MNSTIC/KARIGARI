@@ -16,7 +16,10 @@ export type SchemeKey =
   | 'nbcfdc'
   | 'gem_seller'
   | 'ahvy'
-  | 'ondc';
+  | 'ondc'
+  | 'pmegp'
+  | 'mudra'
+  | 'sfurti';
 
 export type ApplicationStatus =
   | 'ELIGIBLE'
@@ -104,6 +107,19 @@ export interface Scheme {
   formPath?: string;
   /** Extra caveat shown on the card (e.g. GST rules we cannot verify). */
   note?: string;
+  /** True when this scheme's primary use is buying, repairing or replacing equipment. */
+  equipmentFunding?: boolean;
+  /**
+   * The official page the figures in `benefit`/`note` were read from.
+   * Required for any scheme that states an amount — see `isSchemeCited`.
+   */
+  sourceUrl?: string;
+  /**
+   * ISO date the figures were last checked against `sourceUrl`, or null when
+   * they could not be confirmed. A scheme that names an amount without both of
+   * these is withheld from the artisan entirely rather than shown unverified.
+   */
+  verifiedOn?: string | null;
   rules: Rule[];
 }
 
@@ -116,6 +132,9 @@ export interface PublicScheme {
   applyMode: ApplyMode;
   formPath?: string;
   note?: string;
+  equipmentFunding?: boolean;
+  sourceUrl?: string;
+  verifiedOn?: string | null;
   rules: PublicRule[];
 }
 
@@ -377,10 +396,16 @@ export const SCHEMES: Scheme[] = [
     name: 'PM Vishwakarma Yojana',
     description:
       'Central scheme for traditional artisans and craftspeople working with their hands and tools, delivered through CSC-assisted registration.',
-    benefit: '₹15,000 toolkit e-voucher • collateral-free loan up to ₹3 lakh at 5% • ₹500/day training stipend',
+    benefit:
+      '₹15,000 toolkit grant • collateral-free loan ₹1 lakh, then ₹2 lakh, at 5% • ₹500/day training stipend • ₹1 per digital transaction, up to 100 a month',
     officialUrl: 'https://pmvishwakarma.gov.in/',
     applyMode: 'DIRECT',
     note: 'Registration is completed at a Common Service Centre (CSC) with biometric Aadhaar authentication.',
+    // The toolkit grant is what makes this an equipment route for an artisan
+    // whose loom or wheel has failed.
+    equipmentFunding: true,
+    sourceUrl: 'https://pmvishwakarma.gov.in/',
+    verifiedOn: '2026-09-18',
     rules: [
       {
         id: 'notified_trade',
@@ -501,7 +526,10 @@ export const SCHEMES: Scheme[] = [
     name: 'AHVY — Ambedkar Hastshilp Vikas Yojana',
     description:
       'Cluster-based handicraft development under the National Handicraft Development Programme, run by the Office of the Development Commissioner (Handicrafts).',
-    benefit: 'Toolkits (~₹5,000) • margin money (~₹4,000 per artisan) • Common Facility Centres • marketing and exposure visits',
+    // No amounts: the toolkit and margin-money figures this line used to carry
+    // were approximations, and handicrafts.nic.in could not be reached to
+    // confirm them. What the scheme funds is still true and still useful.
+    benefit: 'Toolkits • margin money per artisan • Common Facility Centres • marketing and exposure visits',
     officialUrl: 'https://handicrafts.nic.in/',
     applyMode: 'DOWNLOAD_FORM',
     note: 'Applied through a registered producer group, SHG or cooperative in which at least 50% of members are cluster artisans.',
@@ -574,6 +602,139 @@ export const SCHEMES: Scheme[] = [
       },
     ],
   },
+
+  {
+    key: 'pmegp',
+    name: 'PMEGP — Prime Minister\u2019s Employment Generation Programme',
+    description:
+      'Credit-linked subsidy for setting up a NEW micro-enterprise: a bank term loan for equipment and working capital, with part of the project cost met by a government margin-money subsidy.',
+    // Deliberately no subsidy percentage and no manufacturing ceiling: the
+    // official FAQ read on the date below states the business/trading ceiling
+    // and the education thresholds, and the subsidy table could not be
+    // confirmed from a current source. An out-of-date percentage in front of an
+    // artisan is worse than no percentage.
+    benefit:
+      'Margin-money subsidy on a new micro-enterprise project, with the balance financed by a bank • project cost up to ₹20 lakh for business/trading activities',
+    officialUrl: 'https://pmegp.msme.gov.in/',
+    applyMode: 'DIRECT',
+    note: 'Only new units qualify — an existing workshop cannot be funded. Applications are filed on the PMEGP e-portal and appraised by KVIC/KVIB/DIC and your bank. Check the current project-cost ceiling and subsidy rate on the portal before applying.',
+    equipmentFunding: true,
+    sourceUrl: 'https://pmegp.msme.gov.in/Home/FAQ',
+    verifiedOn: '2026-09-18',
+    rules: [
+      {
+        id: 'new_unit_only',
+        label: 'This is for a NEW unit — my existing workshop cannot be funded under PMEGP',
+        verifiable: false,
+      },
+      {
+        id: 'age_18',
+        label: 'I am 18 years of age or older',
+        verifiable: false,
+      },
+      {
+        id: 'class_viii_for_large_projects',
+        label:
+          'If my project costs more than ₹10 lakh (manufacturing) or ₹5 lakh (service), I have passed at least class VIII',
+        verifiable: false,
+      },
+      {
+        id: 'one_per_family',
+        label: 'Only one person from my family (self, spouse, unmarried children) is applying',
+        verifiable: false,
+      },
+      {
+        id: 'is_handicraft_craft',
+        label: 'Practises a craft the unit would be built around',
+        verifiable: true,
+        evaluate: (ctx) =>
+          isHandicraftOrHandloomCraft(ctx.craftType)
+            ? { pass: true, actual: ctx.craftType ?? undefined }
+            : {
+                pass: false,
+                needed: 'A recorded craft',
+                actual: ctx.craftType?.trim() || 'No craft recorded',
+              },
+      },
+    ],
+  },
+
+  {
+    key: 'mudra',
+    name: 'PM MUDRA Yojana',
+    description:
+      'Collateral-free loans for a non-corporate, non-farm micro enterprise — equipment, raw material or working capital — from banks, small finance banks, NBFCs and MFIs.',
+    benefit:
+      'Collateral-free loan: Shishu up to ₹50,000 • Kishore above ₹50,000 to ₹5 lakh • Tarun above ₹5 lakh to ₹10 lakh • Tarun Plus ₹10 lakh to ₹20 lakh after a repaid Tarun loan',
+    officialUrl: 'https://www.mudra.org.in/',
+    applyMode: 'DIRECT',
+    note: 'Applied at any member lending institution — a bank branch, small finance bank, NBFC or MFI. Tarun Plus is open only to borrowers who have repaid a Tarun loan.',
+    equipmentFunding: true,
+    sourceUrl:
+      'https://static.pib.gov.in/WriteReadData/specificdocs/documents/2024/oct/doc20241029426401.pdf',
+    verifiedOn: '2026-09-18',
+    rules: [
+      {
+        id: 'non_farm_micro',
+        label: 'Runs a non-corporate, non-farm micro enterprise (craft production, trading or services)',
+        verifiable: true,
+        evaluate: (ctx) =>
+          ctx.craftType?.trim()
+            ? { pass: true, actual: ctx.craftType }
+            : { pass: false, needed: 'A recorded craft or trade', actual: 'No craft recorded' },
+      },
+      {
+        id: 'income_generating',
+        label: 'The loan is for an income-generating activity, not personal use',
+        verifiable: false,
+      },
+      {
+        id: 'bank_account',
+        label: 'I have a bank account in my own name to receive the loan',
+        verifiable: false,
+      },
+      {
+        id: 'no_default',
+        label: 'I am not a defaulter with any bank or financial institution',
+        verifiable: false,
+      },
+    ],
+  },
+
+  {
+    key: 'sfurti',
+    name: 'SFURTI — Scheme of Fund for Regeneration of Traditional Industries',
+    description:
+      'Cluster-level support for traditional industries: a Common Facility Centre with shared machinery, tools, training and market linkage. Applied for by an implementing agency on behalf of a cluster, not by an individual artisan.',
+    // No amounts: sfurti.msme.gov.in and the MSME guidelines PDF could not be
+    // reached from this environment, so nothing here states a figure, and
+    // verifiedOn null keeps the scheme out of the artisan-facing list entirely
+    // (see isSchemeCited / evaluateAllSchemes below).
+    benefit: 'Shared machinery and a Common Facility Centre for the cluster, with training and market linkage',
+    officialUrl: 'https://sfurti.msme.gov.in/',
+    applyMode: 'DOWNLOAD_FORM',
+    note: 'Applied through an implementing agency (an NGO, institution or state agency) for a whole cluster of artisans, and sanctioned by the Ministry of MSME.',
+    equipmentFunding: true,
+    verifiedOn: null,
+    rules: [
+      {
+        id: 'in_cluster',
+        label: 'Belongs to a registered cluster or cooperative',
+        verifiable: true,
+        evaluate: (ctx) => {
+          const where = ctx.clusterName?.trim() || ctx.cooperativeId?.trim();
+          return where
+            ? { pass: true, actual: where }
+            : { pass: false, needed: 'Join a registered cooperative/cluster to qualify' };
+        },
+      },
+      {
+        id: 'through_implementing_agency',
+        label: 'My cluster has an implementing agency willing to apply on its behalf',
+        verifiable: false,
+      },
+    ],
+  },
 ];
 
 export const SCHEME_BY_KEY: Record<SchemeKey, Scheme> = SCHEMES.reduce(
@@ -609,6 +770,9 @@ export function toPublicScheme(scheme: Scheme): PublicScheme {
     applyMode: scheme.applyMode,
     formPath: scheme.formPath,
     note: scheme.note,
+    equipmentFunding: scheme.equipmentFunding,
+    sourceUrl: scheme.sourceUrl,
+    verifiedOn: scheme.verifiedOn ?? null,
     rules: scheme.rules.map(toPublicRule),
   };
 }
@@ -673,8 +837,62 @@ export interface EvaluatedScheme extends PublicScheme {
   verdict: SchemeVerdict;
 }
 
+/**
+ * Does this scheme put a number in front of the artisan?
+ *
+ * Rupee amounts, lakh/crore quantities and percentages are all figures someone
+ * could act on, so they are what the citation rule applies to.
+ */
+export function statesAnAmount(scheme: Pick<Scheme, 'benefit' | 'note'>): boolean {
+  const text = `${scheme.benefit} ${scheme.note ?? ''}`;
+  if (/₹|\b\d+(?:\.\d+)?\s*(lakh|crore)\b/i.test(text)) return true;
+
+  // A percentage counts only when it is a percentage OF MONEY. AHVY requires
+  // "at least 50% of members are cluster artisans" — an eligibility ratio, not
+  // a figure anyone can bank, and demanding a price citation for it would have
+  // withheld a scheme that states no amount at all.
+  const MONEY_WORDS = /₹|loan|subsidy|interest|stipend|margin money|lakh|crore|rupee/i;
+  for (const match of text.matchAll(/\d\s*%/g)) {
+    const at = match.index ?? 0;
+    if (MONEY_WORDS.test(text.slice(Math.max(0, at - 40), at + 40))) return true;
+  }
+  return false;
+}
+
+/**
+ * A scheme may state an amount only if it carries the page that amount was read
+ * from and the date it was checked.
+ *
+ * This is a guard, not a convention: `evaluateAllSchemes` withholds anything
+ * that fails it, so an unverified figure cannot reach a screen even by
+ * accident, and `npm run verify:schemes` fails the same case in CI.
+ */
+export function isSchemeCited(scheme: Scheme): boolean {
+  // An explicit null is the author saying "I went to the source and could not
+  // confirm this". That scheme is withheld even when it names no figure: the
+  // rest of its description came from the same unconfirmed reading.
+  if (scheme.verifiedOn === null) return false;
+  if (!statesAnAmount(scheme)) return true;
+  return Boolean(scheme.sourceUrl) && Boolean(scheme.verifiedOn);
+}
+
+/** The schemes an artisan may be shown: everything whose figures are cited. */
+export function citedSchemes(): Scheme[] {
+  return SCHEMES.filter(isSchemeCited);
+}
+
+/**
+ * Schemes held back because their source could not be confirmed.
+ *
+ * Returned so the funding screen can say plainly that something is missing,
+ * rather than silently showing a shorter list.
+ */
+export function withheldSchemes(): Scheme[] {
+  return SCHEMES.filter((scheme) => !isSchemeCited(scheme));
+}
+
 export function evaluateAllSchemes(ctx: EligibilityContext): EvaluatedScheme[] {
-  return SCHEMES.map((scheme) => ({
+  return citedSchemes().map((scheme) => ({
     ...toPublicScheme(scheme),
     verdict: evaluateScheme(scheme, ctx),
   }));
@@ -726,6 +944,15 @@ const LEGACY_NAME_ALIASES: Record<string, SchemeKey> = {
   nbcfdc: 'nbcfdc',
   'gem seller registration': 'gem_seller',
   'ondc seller onboarding': 'ondc',
+  pmegp: 'pmegp',
+  "prime minister's employment generation programme": 'pmegp',
+  'prime minister employment generation programme': 'pmegp',
+  mudra: 'mudra',
+  'mudra loan': 'mudra',
+  'pradhan mantri mudra yojana': 'mudra',
+  'pm mudra yojana': 'mudra',
+  sfurti: 'sfurti',
+  'scheme of fund for regeneration of traditional industries': 'sfurti',
 };
 
 export function resolveLegacySchemeKey(schemeName?: string | null): SchemeKey | null {

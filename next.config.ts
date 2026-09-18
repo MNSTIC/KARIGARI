@@ -150,6 +150,16 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
+  /**
+   * V12: Raw Materials became Workshop Resources (materials + repair + equipment
+   * funding). Permanent, because the old path is in artisans' bookmarks, in the
+   * voice assistant's route table and on printed material.
+   */
+  async redirects() {
+    return [
+      { source: '/artisan/materials', destination: '/artisan/workshop', permanent: true },
+    ];
+  },
   turbopack: {},
   /**
    * The server background-removal route loads a native ONNX runtime and a

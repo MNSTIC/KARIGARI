@@ -66,7 +66,7 @@ const NAV_PATHS: Record<string, string> = {
   earnings: '/artisan/earnings',
   learn: '/artisan/learn',
   insights: '/artisan/insights',
-  materials: '/artisan/materials',
+  materials: '/artisan/workshop',
   marketing: '/artisan/marketing',
   notifications: '/artisan/notifications',
   market: '/artisan/market',

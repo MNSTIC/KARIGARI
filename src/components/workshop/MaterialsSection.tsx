@@ -14,15 +14,15 @@ import {
   BookOpen,
 } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
-import { Shell } from "@/components/ui/AppShell";
-import { PageLede, PageTitle } from "@/components/ui/SectionEyebrow";
 import { Card } from "@/components/ui/Card";
 import { SectionLabel } from "@/components/ui/SectionLabel";
 import { Badge } from "@/components/ui/Badge";
 import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
+import { fill } from "@/components/buyer/passportFormat";
 
 /**
- * The raw-material hub.
+ * The raw-material tab of Workshop Resources — the page that used to live at
+ * /artisan/materials, moved here unchanged in behaviour.
  *
  * Rows come from `/api/artisan/generate-materials`, which merges a curated
  * directory of the material families this craft actually buys with whatever the
@@ -57,12 +57,11 @@ interface Material {
 
 type Mode = "restock" | "bulk";
 
-export default function MaterialsPage() {
+export function MaterialsSection({ onCraftName }: { onCraftName?: (craft: string) => void }) {
   const { t, language } = useLanguage();
   const [materials, setMaterials] = useState<Material[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [craftName, setCraftName] = useState("Your Craft");
   const [mode, setMode] = useState<Mode>("restock");
   /** Set when the AI half could not be reached; the curated half still renders. */
   const [degraded, setDegraded] = useState<string | null>(null);
@@ -72,17 +71,17 @@ export default function MaterialsPage() {
     setError(null);
     try {
       // Two strings, one tiny query — not the whole dashboard payload.
-      const dbRes = await fetch('/api/artisan/profile-lite', { cache: 'no-store' });
+      const dbRes = await fetch("/api/artisan/profile-lite", { cache: "no-store" });
       const dbData = await dbRes.json();
 
       const craftType = dbData?.craftType || "General Crafts";
       const clusterName = dbData?.clusterName || "Local Artisan Cluster";
-      setCraftName(craftType);
+      onCraftName?.(craftType);
 
-      const res = await fetch('/api/artisan/generate-materials', {
+      const res = await fetch("/api/artisan/generate-materials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ craftType, clusterName, language })
+        body: JSON.stringify({ craftType, clusterName, language }),
       });
       const data = await res.json();
       if (data.success && Array.isArray(data.data) && data.data.length > 0) {
@@ -94,19 +93,19 @@ export default function MaterialsPage() {
         // Never render a fabricated row: say plainly that nothing loaded.
         setMaterials([]);
         setDegraded(null);
-        setError(data?.error || t('materials_load_failed'));
+        setError(data?.error || t("materials_load_failed"));
       }
     } catch (e) {
       console.error(e);
       setMaterials([]);
       setDegraded(null);
-      setError(t('materials_load_failed'));
+      setError(t("materials_load_failed"));
     } finally {
       setLoading(false);
     }
-    // `t` is read inside but deliberately not a dependency: the fetch only
-    // needs to re-run when the language changes, and listing it here would
-    // re-create this callback on every render.
+    // `t` and `onCraftName` are read inside but deliberately not dependencies:
+    // the fetch only needs to re-run when the language changes, and listing them
+    // would re-create this callback on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language]);
 
@@ -130,25 +129,16 @@ export default function MaterialsPage() {
     [materials, mode]
   );
 
-  const verifiedCount = materials.filter((mat) => mat.isVerified !== false).length;
-
   return (
-    <Shell>
-      <div className="mb-9">
-        <PageTitle>{t("page_raw_materials_title")}</PageTitle>
-        <PageLede>
-          Sourcing leads for {craftName}, with what each material should cost near your cluster.
-        </PageLede>
-      </div>
-
+    <>
       <SegmentedToggle
-        ariaLabel="Sourcing mode"
+        ariaLabel={t("materials_mode_label")}
         value={mode}
         onChange={setMode}
         className="mb-7"
         options={[
-          { value: "restock", label: "Restock", icon: <Boxes size={14} /> },
-          { value: "bulk", label: "Bulk buy", icon: <Users size={14} /> },
+          { value: "restock", label: t("materials_mode_restock"), icon: <Boxes size={14} /> },
+          { value: "bulk", label: t("materials_mode_bulk"), icon: <Users size={14} /> },
         ]}
       />
 
@@ -159,7 +149,7 @@ export default function MaterialsPage() {
             disabled={loading}
             className="kg-press text-[11px] font-bold text-primary hover:underline flex items-center gap-1.5 disabled:opacity-50 min-h-[32px]"
           >
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> Refresh
+            <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> {t("materials_refresh")}
           </button>
         }
       >
@@ -191,20 +181,18 @@ export default function MaterialsPage() {
       ) : error ? (
         <Card pad="lg" className="border-dashed text-center">
           <AlertTriangle size={26} className="mx-auto mb-3 text-gray-400" />
-          <p className="font-bold text-gray-900 mb-1">{t('materials_load_failed')}</p>
+          <p className="font-bold text-gray-900 mb-1">{t("materials_load_failed")}</p>
           <p className="text-sm text-gray-500 mb-6">{error}</p>
           <button
             onClick={fetchData}
             className="kg-press inline-flex items-center gap-2 bg-primary hover:bg-primary-dark text-white px-5 min-h-[44px] rounded-xl font-bold text-sm"
           >
-            <RefreshCw size={16} /> {t('retry')}
+            <RefreshCw size={16} /> {t("retry")}
           </button>
         </Card>
       ) : visible.length === 0 ? (
         <Card pad="lg" className="border-dashed text-center text-sm text-gray-500 italic">
-          {mode === "bulk"
-            ? "No bulk-buy lots came back for your craft this time."
-            : "No restock suppliers came back for your craft this time."}
+          {mode === "bulk" ? t("materials_none_bulk") : t("materials_none_restock")}
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 kg-stagger">
@@ -222,7 +210,7 @@ export default function MaterialsPage() {
               </div>
 
               <p className="text-sm text-gray-600 leading-relaxed mb-4">
-                {mat.description || "Raw materials suitable for traditional craft making."}
+                {mat.description || t("materials_generic_description")}
               </p>
 
               <div className="flex items-center gap-2 flex-wrap mb-3">
@@ -235,11 +223,11 @@ export default function MaterialsPage() {
                     {t("materials_cluster_verified")}
                   </Badge>
                 )}
-                {mat.sample && (
-                  <Badge variant="neutral" caps>{t("materials_sample_listing")}</Badge>
-                )}
+                {mat.sample && <Badge variant="neutral" caps>{t("materials_sample_listing")}</Badge>}
                 {mat.minOrder && (
-                  <Badge variant="mint" caps>MOQ {mat.minOrder}</Badge>
+                  <Badge variant="mint" caps>
+                    {fill(t("materials_moq"), { value: mat.minOrder })}
+                  </Badge>
                 )}
               </div>
 
@@ -250,7 +238,7 @@ export default function MaterialsPage() {
                 </div>
                 <div className="flex items-center gap-2 min-w-0">
                   <Phone size={13} className="text-gray-400 shrink-0" />
-                  <span className="truncate">{mat.contact || "Contact details hidden"}</span>
+                  <span className="truncate">{mat.contact || t("materials_contact_hidden")}</span>
                 </div>
               </dl>
 
@@ -262,15 +250,15 @@ export default function MaterialsPage() {
                     href={`tel:${String(mat.contact).replace(/[^\d+]/g, "")}`}
                     className="kg-press flex-1 min-h-[44px] rounded-xl border border-gray-200 font-bold text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-center gap-2"
                   >
-                    <Phone size={15} /> Call
+                    <Phone size={15} /> {t("materials_call")}
                   </a>
                 ) : (
                   <span className="flex-1 min-h-[44px] rounded-xl border border-dashed border-gray-200 text-xs text-gray-400 flex items-center justify-center">
-                    No number listed
+                    {t("materials_no_number")}
                   </span>
                 )}
                 <span className="flex-1 min-h-[44px] rounded-xl bg-[var(--color-mint)] text-primary font-bold text-xs flex items-center justify-center gap-1.5 text-center px-2">
-                  <ExternalLink size={14} /> Order off-platform
+                  <ExternalLink size={14} /> {t("materials_order_off_platform")}
                 </span>
               </div>
             </Card>
@@ -284,33 +272,29 @@ export default function MaterialsPage() {
         </p>
       )}
 
-      <SectionLabel className="mt-9">Quality guides</SectionLabel>
+      <SectionLabel className="mt-9">{t("materials_quality_guides")}</SectionLabel>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card tone="muted">
           <span className="w-10 h-10 rounded-xl bg-card text-primary flex items-center justify-center mb-3">
             <BookOpen size={18} />
           </span>
-          <p className="font-bold text-sm text-gray-900 mb-1">Spotting real silk</p>
-          <p className="text-xs text-gray-600 leading-relaxed">
-            The burn test and the sheen test, in under a minute.
-          </p>
+          <p className="font-bold text-sm text-gray-900 mb-1">{t("materials_guide_silk_title")}</p>
+          <p className="text-xs text-gray-600 leading-relaxed">{t("materials_guide_silk_body")}</p>
         </Card>
         <Card tone="muted">
           <span className="w-10 h-10 rounded-xl bg-card text-primary flex items-center justify-center mb-3">
             <ShieldCheck size={18} />
           </span>
-          <p className="font-bold text-sm text-gray-900 mb-1">Dye fastness</p>
-          <p className="text-xs text-gray-600 leading-relaxed">
-            Checking colour hold before you buy a whole batch.
-          </p>
+          <p className="font-bold text-sm text-gray-900 mb-1">{t("materials_guide_dye_title")}</p>
+          <p className="text-xs text-gray-600 leading-relaxed">{t("materials_guide_dye_body")}</p>
         </Card>
       </div>
 
       {loading && (
         <p className="sr-only" role="status">
-          <Loader2 className="animate-spin" size={16} /> Loading suppliers
+          <Loader2 className="animate-spin" size={16} /> {t("materials_loading")}
         </p>
       )}
-    </Shell>
+    </>
   );
 }

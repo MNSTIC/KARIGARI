@@ -15,6 +15,10 @@
 
 import {
   matchPmVishwakarmaTrade,
+  SCHEMES,
+  citedSchemes,
+  isSchemeCited,
+  statesAnAmount,
   evaluateScheme,
   evaluateAllSchemes,
   selfDeclarationsFor,
@@ -228,7 +232,11 @@ section('3. Lakshmi - Ikat weaver, OBC, income 1.8L, full profile');
 const lakshmiByKey: Record<string, string> = {};
 for (const s of evaluateAllSchemes(LAKSHMI)) lakshmiByKey[s.key] = s.verdict.status;
 
-assertEqual('evaluateAllSchemes returns all 6 schemes', evaluateAllSchemes(LAKSHMI).length, 6);
+assertEqual(
+  'evaluateAllSchemes returns every cited scheme',
+  evaluateAllSchemes(LAKSHMI).length,
+  citedSchemes().length
+);
 assertEqual('pm_vishwakarma INELIGIBLE (weaving is not notified)', lakshmiByKey.pm_vishwakarma, 'INELIGIBLE');
 assertEqual('nsfdc INELIGIBLE (OBC, not SC)', lakshmiByKey.nsfdc, 'INELIGIBLE');
 assertEqual('nbcfdc ELIGIBLE', lakshmiByKey.nbcfdc, 'ELIGIBLE');
@@ -372,6 +380,89 @@ for (const craft of [
 ]) {
   assertEqual('G4: "' + craft + '" stays OUT of the 18 trades', matchPmVishwakarmaTrade(craft).trade, null);
 }
+
+/* ------------------------------------------------------------------------- */
+/* Citation guard — a money figure must carry the page it was read from       */
+/* ------------------------------------------------------------------------- */
+
+section('Citation guard');
+
+// The rule this whole section exists for: a wrong loan figure in front of a
+// ministry judge, or an artisan, is the worst thing this engine can do.
+for (const scheme of SCHEMES) {
+  if (!statesAnAmount(scheme)) continue;
+  assertEqual(
+    scheme.key + ' states an amount, so it cites a source URL',
+    Boolean(scheme.sourceUrl),
+    true
+  );
+  assertEqual(
+    scheme.key + ' states an amount, so it carries the date it was checked',
+    Boolean(scheme.verifiedOn),
+    true
+  );
+  assertEqual(
+    scheme.key + ' check date is an ISO date',
+    /^\d{4}-\d{2}-\d{2}$/.test(String(scheme.verifiedOn)),
+    true
+  );
+  assertEqual(
+    scheme.key + ' source is an https government page',
+    /^https:\/\//.test(String(scheme.sourceUrl)),
+    true
+  );
+}
+
+// An uncited figure must be withheld, not shown unverified.
+assertEqual(
+  'a scheme with an uncited amount fails the guard',
+  isSchemeCited({
+    key: 'pmegp',
+    name: 'test',
+    description: 'test',
+    benefit: 'Loan up to ₹4 lakh',
+    officialUrl: 'https://example.gov.in/',
+    applyMode: 'DIRECT',
+    rules: [],
+  }),
+  false
+);
+assertEqual(
+  'a scheme that states no amount needs no citation',
+  isSchemeCited({
+    key: 'ahvy',
+    name: 'test',
+    description: 'test',
+    benefit: 'Toolkits and a Common Facility Centre',
+    note: 'At least 50% of members must be cluster artisans',
+    officialUrl: 'https://example.gov.in/',
+    applyMode: 'DIRECT',
+    rules: [],
+  }),
+  true
+);
+assertEqual(
+  'an eligibility percentage is not a money figure',
+  statesAnAmount({ benefit: 'Common Facility Centres', note: 'at least 50% of members are cluster artisans' }),
+  false
+);
+assertEqual(
+  'an interest rate is a money figure',
+  statesAnAmount({ benefit: 'Collateral-free loan at 5% interest' }),
+  true
+);
+assertEqual(
+  'SFURTI is withheld from artisans until its figures can be confirmed',
+  citedSchemes().some((s) => s.key === 'sfurti'),
+  false
+);
+assertEqual('PMEGP is cited and shown', citedSchemes().some((s) => s.key === 'pmegp'), true);
+assertEqual('MUDRA is cited and shown', citedSchemes().some((s) => s.key === 'mudra'), true);
+assertEqual(
+  'every equipment-funding scheme shown to an artisan is cited',
+  citedSchemes().filter((s) => s.equipmentFunding).every(isSchemeCited),
+  true
+);
 
 console.log(passed + ' passed, ' + failed + ' failed');
 process.exit(failed > 0 ? 1 : 0);

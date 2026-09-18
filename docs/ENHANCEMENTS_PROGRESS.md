@@ -15,8 +15,8 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 | 4 | Buyer Discovery Page (QR passport + product page) | DONE | 11eddd0 | 2026-09-17 | Shared passport (story, timeline, 3-layer trust, similar request, more from artisan, gallery) on `/verify/[patchId]` and the product page. Fixes a PII leak on the QR page. 21 unit checks, 65 page checks on dev and on a key-less production build, browser checks in four languages at 360 px. |
 | 5 | AI Learning Pathways (skill stages, offline cache) | DONE | 2fbcae9 | 2026-09-18 | `skillStage.ts` (pure, derived, never stored), three learning tracks from AI with a curated catalogue underneath, YouTube *search* links only, and an on-phone copy so the page opens offline. 26 unit checks, 71 live API checks on dev and again on a key-less production build, browser checks in four languages at 360 px. |
 | 6 | Proactive Supply Intelligence (20-day reminder) | DONE | 210fc73 | 2026-09-18 | Lazy, idempotent 20-day restock nudge on the dashboard request — no cron added. Offline sales and demand orders count as activity. In-app alert stored in English and rendered in the artisan's language with the real day count, plus an inline card, a 7-day snooze and a per-device dismiss. 15 unit checks, 31 live API checks, browser checks in four languages at 360 px. |
-| 7 | Sync Status Indicator ("Synced 2 min ago") | DONE | (this commit) | 2026-09-18 | Header chip reporting the last confirmed round-trip, with a hydration-safe relative time from i18n keys. No new polling. Also fixes a pre-existing 360 px header overflow and translates the offline badge and sync toast. 17 unit checks, browser checks on dev and a production build in four languages at 360 px. |
-| 8 | Workshop Resources (rename + repair + tool schemes) | PENDING | — | — | — |
+| 7 | Sync Status Indicator ("Synced 2 min ago") | DONE | d7b3b53 | 2026-09-18 | Header chip reporting the last confirmed round-trip, with a hydration-safe relative time from i18n keys. No new polling. Also fixes a pre-existing 360 px header overflow and translates the offline badge and sync toast. 17 unit checks, browser checks on dev and a production build in four languages at 360 px. |
+| 8 | Workshop Resources (rename + repair + tool schemes) | DONE | (this commit) | 2026-09-18 | `/artisan/materials` → `/artisan/workshop` (308 redirect) with three tabs: materials unchanged, cluster-sourced repair help whose AI brief is stripped of any contact detail, and equipment schemes that cite the page every figure was read from. PMEGP and MUDRA added from official sources; SFURTI withheld because its source could not be reached. 11 unit checks, 89 scheme assertions, 23 live API checks, browser checks in four languages at 360 px. |
 | 9 | Recognition & Anonymous Cluster Benchmarks | PENDING | — | — | — |
 | 10 | Design Lab (AI concept + SVG motif composer) | PENDING | — | — | — |
 | 11 | Digital Craft IP Registry (motif fingerprint + licensing) | PENDING | — | — | — |
@@ -25,6 +25,50 @@ Spec: `KARIGARI_ENHANCEMENTS_V12_MASTER_PROMPT.md` at the app root.
 
 A commit cannot contain its own hash, so the newest row reads `(this commit)`;
 each phase backfills the previous row's short sha when it updates this file.
+
+## Phase 8 detail
+- Status: **DONE** (2026-09-18)
+- Schema: none.
+- Files created: `src/lib/toolingGuide.ts` (pure: 22 curated repair entries by material family, `stripContactDetails`, `normaliseToolingBrief`) · `src/app/api/artisan/tooling/route.ts` · `src/components/schemes/SchemeCard.tsx` (the scheme card, its helpers and the API payload types, lifted out of the schemes page so both screens share one rendering) · `src/components/workshop/{MaterialsSection,RepairSection,FundingSection}.tsx` · `src/lib/__tests__/toolingGuide.test.mjs`
+- Files moved: `src/app/artisan/materials/{page,loading}.tsx` → `src/app/artisan/workshop/` (git rename; the page body became the three-tab shell and the old body moved into `MaterialsSection`)
+- Files modified: `next.config.ts` (a `redirects()` block, added to the object the PWA wrapper receives), `src/lib/schemes.ts`, `scripts/verify-schemes.ts`, `src/app/api/artisan/schemes/route.ts` (reports what it withheld), `src/app/artisan/schemes/page.tsx` (imports the extracted card), `src/app/api/voice-assistant/route.ts`, `src/app/artisan/notifications/page.tsx`, `src/components/NotificationsBell.tsx`, `src/components/SupplyNudgeCard.tsx`, `src/components/ui/Sidebar.tsx` (`nav_workshop_resources`), `package.json` (`test:tooling` in `test:all`), `src/lib/i18n/{en,hi,or,te}.ts`
+- i18n keys added: 146 × 4 dictionaries (all 25 in §8.6, 66 curated tooling strings, the materials tab's own copy — English-only before this phase — the two new schemes' name/description/benefit/note, their seven new rule labels, and three singular forms found in the browser). One key **replaced**: `scheme_ahvy_benefit`, which carried two approximate figures. Coverage script: 0 missing, 0 extra, 0 collisions, placeholders identical.
+- Gates: tsc PASS | lint 112 / 44 source, 0 files worse than baseline (one warning fewer than Phase 7) | build PASS | `test:all` PASS (+ toolingGuide 11 checks) | `verify:schemes` 89 passed, 0 failed
+- Verification — scheme figures, fetched today:
+  - ✓ **PM Vishwakarma** — read on pmvishwakarma.gov.in: ₹15,000 toolkit grant, collateral-free ₹1 lakh then ₹2 lakh at 5 % with an 8 % subvention cap, ₹500/day stipend, ₹1 per digital transaction up to 100 a month. The benefit line was rewritten to match what the portal says and now carries `sourceUrl` + `verifiedOn`.
+  - ✓ **PMEGP** — read on pmegp.msme.gov.in/Home/FAQ: age 18+, class VIII for projects above ₹10 lakh (manufacturing) / ₹5 lakh (service), one person per family, new units only, business/trading ceiling ₹20 lakh. The subsidy table and the manufacturing ceiling could **not** be confirmed from a current source — the only guidelines PDF that opened (kvic.gov.in) is the 2008 original, whose ₹25 lakh / ₹10 lakh caps are out of date — so no subsidy percentage and no manufacturing ceiling is shown, and the note tells the artisan to check the portal.
+  - ✓ **MUDRA** — read in a PIB backgrounder (static.pib.gov.in, Oct 2024): Shishu up to ₹50,000, Kishore above ₹50,000 to ₹5 lakh, Tarun above ₹5 lakh to ₹10 lakh, Tarun Plus ₹10 lakh to ₹20 lakh after a repaid Tarun loan, collateral-free through member lending institutions.
+  - ✓ **SFURTI** — sfurti.msme.gov.in, msme.gov.in and the PIB release all refused this environment (TLS failure or HTTP 403), so the scheme carries `verifiedOn: null`, states no figure, and is **withheld from the artisan-facing list** by the guard. The funding tab says one scheme is not shown and why.
+  - ✓ **AHVY** — handicrafts.nic.in unreachable, so its "~₹5,000 toolkits / ~₹4,000 margin money" approximations were removed from both the scheme and the four dictionaries. It still renders, describing what it funds.
+- Verification — live API (23/23 against `next dev`):
+  - ✓ `/artisan/materials` → **308** to `/artisan/workshop`; a grep proves no `/artisan/materials` link is left in `src`
+  - ✓ tooling: unauthenticated 401, ADMIN 403; cluster key follows the one app-wide rule; a weaver gets the loom entries and every curated row carries its three i18n keys
+  - ✓ **No phone number, email or link survives in the AI brief** (checked against the live model answer), and the cost band it returned states its basis
+  - ✓ "Ask my cluster" writes a real `ResourceRequest`; it appears in the tab marked as the artisan's own; **another artisan in the same cluster sees it** and one in a different cluster does not
+  - ✓ Every equipment scheme that names an amount carries an https .gov.in source and an ISO check date; SFURTI is absent from the list and named in `withheld`; each blocked scheme reports the rule that blocks it
+- Verification — browser (Browser pane, signed in as lakshmi@karigari.com):
+  - ✓ The old URL lands on Workshop Resources with the sidebar reading "Workshop Resources"; `?tab=repair` and `?tab=funding` deep-link correctly and the tab is written back to the URL
+  - ✓ Materials tab unchanged: 14 rows, Restock/Bulk toggle, and the prototype-directory caveat intact
+  - ✓ Repair tab: cluster reach line, a posted request appearing in the list as "Your request", the AI brief labelled "AI suggestion for your craft", no digit run anywhere in it, and the note that Karigari keeps no list of repair shops
+  - ✓ Funding tab: PMEGP and MUDRA cards with "Official source" links and "Figures checked on 18 Sept 2026"; PM Vishwakarma in "Not open to you yet" with "Needs: One of the 18 notified trades · Yours: Sambalpuri Ikat Silk Saree (handloom weaving)"; the withheld-scheme footnote
+  - ✓ en / hi / or / te at 360 px on all three tabs: page scroll width 360, no overflowing element, no raw keys, no tap target under 40 px
+  - ✓ Console on a fresh tab: no errors, no React warnings
+  - ✓ Cleanup: the two artisans temporarily joined into one SHG were restored to their original (null) links, and all four test `ResourceRequest` rows were deleted
+- Decisions and deviations:
+  1. **Nothing states an amount it has not read.** `statesAnAmount` + `isSchemeCited` in `src/lib/schemes.ts` are a guard, not a convention: `evaluateAllSchemes` withholds any scheme that names a figure without a source and a date, or that the author marked `verifiedOn: null`, and `verify:schemes` fails the same case in CI.
+  2. **A percentage is only a money figure in a money context.** The first version of that guard read AHVY's "at least 50 % of members are cluster artisans" as a price and withheld a scheme that states no amount at all. It now looks for money words within 40 characters of the `%`.
+  3. **The repair tab names nobody.** No shop, no person, no number — from the curated guide or from the model. `stripContactDetails` removes any 6+ digit run (spaced or hyphenated), anything with an @, and any URL or bare domain, and a test asserts "call 98765 43210" cannot survive in any of those forms.
+  4. **A cost band needs a stated basis.** The model must say what the range covers; without that `typicalCostBand` becomes null rather than a price an artisan might quote to a repairer. Where a band is shown it is labelled "AI estimate — verify locally before paying."
+  5. **"Who fixes it" is the cluster.** The primary action posts a real `ResourceRequest` prefixed `Repair:`, and the page says how many artisans it will actually reach — including when that is nobody.
+  6. **The scheme card was extracted, not forked** (§8.5 asks for exactly this): `SchemeCard`, `LockedCard`, the status maps, the payload types and one `toAssistantScheme` converter now live in `src/components/schemes/SchemeCard.tsx`, imported by both the schemes page and the funding tab.
+  7. **The Scrap & waste tab is not added here**, per §8.3's own instruction — Phase 12 adds it with the code behind it.
+  8. **The materials tab's English-only strings were translated** (mode toggle, refresh, empty states, call/order labels, the two quality guides), because this phase is checked in four languages.
+  9. **Three singular forms** were added after seeing "1 artisans" in the browser, and the no-cluster line now distinguishes "you are in no cluster" from "nobody else has joined your cluster yet".
+- Known follow-ups:
+  - Every seeded artisan is alone in their own `auto:<location>` cluster, so cluster visibility was proved by temporarily joining two Odisha artisans into one SHG and then restoring both. Nothing in the seed exercises a real multi-member cluster.
+  - PMEGP's subsidy rates and manufacturing ceiling are still unverified from this environment; the card deliberately shows neither. If kviconline.gov.in becomes reachable, the revised (Dec 2023) guidelines should be read and the figures added with a fresh `verifiedOn`.
+  - SFURTI stays hidden until its source can be fetched. It is a cluster-level scheme applied for by an implementing agency, so an individual artisan losing it costs them little.
+  - The tooling brief is per craft and area, cached in process memory for a day; a model that answers in English for an Odia request is not re-asked.
 
 ## Phase 7 detail
 - Status: **DONE** (2026-09-18)

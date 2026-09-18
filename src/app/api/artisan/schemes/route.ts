@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { loadEligibilitySnapshot } from '@/lib/artisanEligibility';
 import {
   evaluateAllSchemes,
+  withheldSchemes,
   normalizeStatus,
   resolveLegacySchemeKey,
   type ApplicationStatus,
@@ -94,6 +95,12 @@ export async function GET() {
       artisanName: snapshot.artisanName,
       profileSummary: snapshot.profileSummary,
       schemes,
+      /**
+       * Schemes held back because their published figures could not be
+       * confirmed against their official source. Named so a screen can say a
+       * scheme is missing rather than quietly showing a shorter list.
+       */
+      withheld: withheldSchemes().map((scheme) => ({ key: scheme.key, name: scheme.name })),
       counts: {
         eligible: schemes.filter((s) => s.verdict.status === 'ELIGIBLE').length,
         infoNeeded: schemes.filter((s) => s.verdict.status === 'INFO_NEEDED').length,

@@ -135,7 +135,7 @@ export function SupplyNudgeCard({
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <Link
-              href="/artisan/materials"
+              href="/artisan/workshop"
               className="kg-press inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-primary px-3.5 text-[13px] font-semibold text-white hover:bg-primary-dark"
             >
               <PackageSearch size={14} aria-hidden /> {t("supply_nudge_browse_suppliers")}
