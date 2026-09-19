@@ -28,7 +28,7 @@ each phase backfills the previous row's short sha when it updates this file.
 
 ## Closeout — after the last phase
 
-- Date: **2026-09-19**, commit `(this commit)`
+- Date: **2026-09-19**, commit `e08d9c8`
 - Phases 0–12 built and verified. **Phase 13 was skipped on the project owner's instruction**, so the programme ends here; what follows the phases in the master prompt is Appendix A (a consolidated schema list), Appendix B (a guardrails checklist), Appendix C (a resume prompt) and Appendix D (a demo order for a person). A and B are executable claims, so they were executed.
 
 ### The commission model, now that phase 13 will not run
