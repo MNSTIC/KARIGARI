@@ -21,6 +21,7 @@ import {
   Search,
   PackageCheck,
   Fingerprint,
+  Recycle,
 } from "lucide-react";
 import { StatCard } from "@/components/ui/StatCard";
 import { AdminShell, TabBar, LiveBadge } from "@/components/AdminShell";
@@ -39,6 +40,7 @@ import { cn } from "@/lib/utils";
 
 import { TicketsReports } from "@/components/admin/TicketsReports";
 import { MotifReviews } from "@/components/admin/MotifReviews";
+import { ScrapSales } from "@/components/admin/ScrapSales";
 import { ADMIN_POLL_MS } from "@/lib/pollingIntervals";
 
 const POLL_MS = ADMIN_POLL_MS;
@@ -155,12 +157,14 @@ export default function FacilitatorDashboard() {
   const router = useRouter();
   const { t } = useLanguage();
   // The sidebar deep links into a tab, so the tab lives in the URL.
-  const [tab, setTab] = useUrlTab<"qa" | "cluster" | "tickets" | "motifs">(
+  const [tab, setTab] = useUrlTab<"qa" | "cluster" | "tickets" | "motifs" | "scrap">(
     "qa",
-    ["qa", "cluster", "tickets", "motifs"] as const
+    ["qa", "cluster", "tickets", "motifs", "scrap"] as const
   );
   /** Live count of motif records still waiting for a human, for the badge. */
   const [openMotifs, setOpenMotifs] = useState(0);
+  /** Live count of pooled scrap lots listed and waiting for a sale to be recorded. */
+  const [openScrap, setOpenScrap] = useState(0);
   /** Live open-report count, reported up by the tickets console for the badge. */
   const [openTickets, setOpenTickets] = useState(0);
   const [queue, setQueue] = useState<QueuePayload | null>(null);
@@ -352,10 +356,18 @@ export default function FacilitatorDashboard() {
             icon: <Fingerprint size={16} />,
             badge: openMotifs,
           },
+          {
+            key: "scrap",
+            label: t("scrap_admin_tab"),
+            icon: <Recycle size={16} />,
+            badge: openScrap,
+          },
         ]}
       />
 
-      {tab === "motifs" ? (
+      {tab === "scrap" ? (
+        <ScrapSales onOpenCount={setOpenScrap} />
+      ) : tab === "motifs" ? (
         <MotifReviews onOpenCount={setOpenMotifs} />
       ) : tab === "tickets" ? (
         <TicketsReports onOpenCount={setOpenTickets} />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Boxes, Landmark, Wrench } from "lucide-react";
+import { Boxes, Landmark, Recycle, Wrench } from "lucide-react";
 import { Shell } from "@/components/ui/AppShell";
 import { PageLede, PageTitle } from "@/components/ui/SectionEyebrow";
 import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
@@ -11,6 +11,7 @@ import { fill } from "@/components/buyer/passportFormat";
 import { MaterialsSection } from "@/components/workshop/MaterialsSection";
 import { RepairSection } from "@/components/workshop/RepairSection";
 import { FundingSection } from "@/components/workshop/FundingSection";
+import { ScrapSection } from "@/components/workshop/ScrapSection";
 
 /**
  * Workshop Resources — everything the supply side of a workshop needs.
@@ -24,12 +25,15 @@ import { FundingSection } from "@/components/workshop/FundingSection";
  *    business, because no verified directory of repairers exists to name one from.
  *  · Equipment funding — the schemes that actually buy equipment, each card
  *    citing the official page its figures came from and the date it was checked.
+ *  · Scrap & waste — offcuts and shavings pooled across the cluster until the
+ *    weight is worth a recycler's trip. Held back from Phase 8 on purpose, so
+ *    that an empty tab never shipped ahead of the feature behind it.
  *
  * The tab lives in the URL (`?tab=repair`), so the sidebar, the restock nudge
  * and a bookmark can all deep-link to one section.
  */
 
-const TABS = ["materials", "repair", "funding"] as const;
+const TABS = ["materials", "repair", "funding", "scrap"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function WorkshopPage() {
@@ -55,6 +59,7 @@ export default function WorkshopPage() {
           { value: "materials", label: t("workshop_tab_materials"), icon: <Boxes size={14} /> },
           { value: "repair", label: t("workshop_tab_repair"), icon: <Wrench size={14} /> },
           { value: "funding", label: t("workshop_tab_funding"), icon: <Landmark size={14} /> },
+          { value: "scrap", label: t("workshop_tab_scrap"), icon: <Recycle size={14} /> },
         ]}
       />
 
@@ -64,6 +69,7 @@ export default function WorkshopPage() {
       {tab === "materials" && <MaterialsSection onCraftName={setCraftName} />}
       {tab === "repair" && <RepairSection onGoToFunding={() => setTab("funding")} />}
       {tab === "funding" && <FundingSection />}
+      {tab === "scrap" && <ScrapSection />}
     </Shell>
   );
 }

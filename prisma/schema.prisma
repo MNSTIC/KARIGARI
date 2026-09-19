@@ -88,6 +88,12 @@ model User {
   motifRegistrations       MotifRegistration[]
   /// V12. This artisan's frozen share of each licence fee the cluster was paid.
   motifPayoutShares        MotifPayoutShare[]
+  /// V12. Offcuts, shavings and clay waste this artisan logged for the cluster
+  /// pool. Weight is self-reported and labelled as such on every screen.
+  scrapLots                ScrapLot[]
+  /// V12. This artisan's frozen pro-rata share of each scrap pool the cluster
+  /// sold. A fourth income stream, never folded into craft earnings.
+  scrapShares              ScrapPayoutShare[]
 
   // Admin fields
   patchBankBalance Int @default(5000)
@@ -1352,5 +1358,138 @@ model MotifPayoutShare {
   createdAt  DateTime     @default(now())
 
   @@unique([licenceId, artisanId])
+  @@index([artisanId])
+}
+
+// ---------------------------------------------------------------------------
+// V12 PHASE 12 — SCRAP-TO-WEALTH
+//
+// Textile offcuts, wood shavings and clay waste are burned or dumped. A kilo
+// alone is worthless; pooled across a cluster it is a lot a recycler will come
+// for. This is supplementary income from material an artisan already has.
+//
+// The honesty boundary this schema draws: there is no recycler directory and no
+// scrap price feed available to this project, so nothing here invents either.
+// Artisans LOG weight, the platform POOLS it, arithmetic LISTS it, and a price
+// column stays null until a human types a figure a real buyer really paid.
+// ---------------------------------------------------------------------------
+
+/// One artisan's logged scrap, and the cluster pool it feeds.
+///
+/// Weight is the unit of account and is entered by the artisan, so it is
+/// self-reported and labelled as such everywhere. `pooledLotId` is set when the
+/// lot joins a pool; a lot in a SOLD pool is frozen, because withdrawing scrap
+/// from a lot that has already gone to a recycler would misstate what was sold.
+model ScrapLot {
+  id           String     @id @default(uuid())
+  artisanId    String
+  artisan      User       @relation(fields: [artisanId], references: [id])
+  clusterKey   String
+  /// Free text from the artisan, normalised against SCRAP_MATERIALS in
+  /// src/lib/scrap.ts so that pooling actually groups. An unrecognised material
+  /// pools under OTHER, and the screen says so rather than mislabelling it.
+  material     String
+  /// Grams, not kilos: a stored float of 0.3 kg reconciles badly across a
+  /// hundred contributors, and grams keep every total and every split integral.
+  grams        Int
+  photoUrl     String?
+  notes        String?
+  /// LOGGED | POOLED | SOLD | WITHDRAWN
+  status       String     @default("LOGGED")
+  pooledLotId  String?
+  pool         ScrapPool? @relation(fields: [pooledLotId], references: [id])
+  loggedAt     DateTime   @default(now())
+
+  @@index([clusterKey, material, status])
+  @@index([artisanId])
+}
+
+/// A cluster's pooled scrap of one material.
+///
+/// Promoted to LISTED the moment `totalGrams` crosses the material's threshold
+/// — that promotion is arithmetic on real logged weight, not an editorial
+/// decision, and it reverses just as mechanically when a withdrawal drops the
+/// pool back under. `salePriceRupees` stays null until a real sale is recorded;
+/// the public board says the price is not set rather than showing an estimate,
+/// because this project has no market feed to estimate from.
+model ScrapPool {
+  id               String             @id @default(uuid())
+  clusterKey       String
+  material         String
+  totalGrams       Int                @default(0)
+  contributorCount Int                @default(0)
+  /// OPEN | LISTED | SOLD
+  status           String             @default("OPEN")
+  /// `"LIVE"` while the pool is still collecting, NULL once it is SOLD.
+  ///
+  /// This is what makes "one live pool per cluster and material" true in the
+  /// database. Putting `status` itself in the unique key would also have
+  /// allowed only ONE SOLD pool per cluster and material ever — a cluster that
+  /// sold cotton twice would hit a constraint violation on its second sale.
+  /// Postgres treats NULLs in a unique index as distinct, so clearing this
+  /// column at sale time lets every past sale coexist while still permitting
+  /// exactly one pool to be open or listed at a time.
+  liveKey          String?            @default("LIVE")
+  listedAt         DateTime?
+  soldAt           DateTime?
+  salePriceRupees  Int?
+  /// Who bought it, as they identified themselves. No directory, no accounts.
+  recyclerName     String?
+  recyclerContact  String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  lots             ScrapLot[]
+  enquiries        ScrapEnquiry[]
+  shares           ScrapPayoutShare[]
+
+  /// One live pool per cluster and material, enforced by the database rather
+  /// than by convention. Every SOLD pool drops out of this key (see `liveKey`),
+  /// so past sales coexist happily with the pool the cluster is filling now:
+  /// selling one lot must not stop the cluster starting the next.
+  @@unique([clusterKey, material, liveKey])
+  @@index([status])
+}
+
+/// A recycler's enquiry against a listed pool. Public and unauthenticated — a
+/// scrap buyer has no account here, so they identify themselves in free text,
+/// the same way a demand buyer already does.
+model ScrapEnquiry {
+  id           String    @id @default(uuid())
+  poolId       String
+  pool         ScrapPool @relation(fields: [poolId], references: [id])
+  recyclerName String
+  contact      String
+  offerRupees  Int?
+  message      String?
+  /// RECEIVED | ACCEPTED | DECLINED
+  status       String    @default("RECEIVED")
+  /// Salted digest of the caller's address — the same digest MarketplaceSearch
+  /// already stores. It answers "was this the same visitor" for the rate limit
+  /// and nothing else.
+  ipHash       String?
+  createdAt    DateTime  @default(now())
+
+  @@index([poolId])
+}
+
+/// Pro-rata distribution of a sold pool, by contributed grams, frozen at payout.
+///
+/// Frozen because a contributor who logs scrap after the sale must not
+/// retroactively dilute a distribution that was already settled. `splitProRata`
+/// throws rather than write shares that do not sum to exactly the sale price.
+model ScrapPayoutShare {
+  id         String    @id @default(uuid())
+  poolId     String
+  pool       ScrapPool @relation(fields: [poolId], references: [id])
+  artisanId  String
+  artisan    User      @relation(fields: [artisanId], references: [id])
+  grams      Int
+  amount     Int
+  payoutMode String
+  payoutRef  String?
+  createdAt  DateTime  @default(now())
+
+  @@unique([poolId, artisanId])
   @@index([artisanId])
 }
