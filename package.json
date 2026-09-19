@@ -10,6 +10,7 @@
     "lint": "eslint",
     "seed": "tsx prisma/seed.ts",
     "verify:schemes": "tsx scripts/verify-schemes.ts",
+    "verify:guardrails": "node scripts/verify-guardrails.mjs",
     "test:order-stage": "node src/lib/__tests__/orderStage.test.mjs",
     "test:offline-parse": "node src/lib/__tests__/offlineSaleParse.test.mjs",
     "test:buyers": "node src/lib/__tests__/buyers.test.mjs",

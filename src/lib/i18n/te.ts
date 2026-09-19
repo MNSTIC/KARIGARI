@@ -30,7 +30,7 @@ const dict: Record<string, string> = {
   days: "రోజులు",
   craft_details: "క్రాఫ్ట్ వివరాలు",
   upload_date: "అప్‌లోడ్ తేదీ",
-  blockchain_patch_id: "బ్లాక్‌చెయిన్ ప్యాచ్ ID",
+  blockchain_patch_id: "ప్యాచ్ ID",
   verification_status: "ధృవీకరణ స్థితి",
   action: "చర్య",
   pending_admin: "అడ్మిన్ పెండింగ్",
