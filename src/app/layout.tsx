@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Fraunces, IBM_Plex_Mono, Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { OfflineSyncProvider } from "@/components/OfflineSyncProvider";
+import { AutoTranslator } from "@/components/AutoTranslator";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -94,6 +95,7 @@ export default function RootLayout({
         {/* Mounted once for the whole app so a queued offline capture flushes
             the moment connectivity returns, whatever page is open. */}
         <OfflineSyncProvider />
+        <AutoTranslator />
         {children}
       </body>
     </html>

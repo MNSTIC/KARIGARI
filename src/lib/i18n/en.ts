@@ -19,7 +19,6 @@ const dict: Record<string, string> = {
   set_your_price: "Set Your Price",
   price_ai_suggests: "AI suggests {band}",
   price_fair_floor_note: "Fair wage floor {amount}",
-  asking_price_label: "Your asking price (₹)",
   asking_price_hint: "Leave blank to list at the AI suggested price.",
   price_below_floor_warning: "This is below the AI fair-wage floor — buyers may be under-paying you.",
   price_needs_labour_first: "Describe your craft in Step 1 first so the AI can suggest a price.",
@@ -409,7 +408,7 @@ const dict: Record<string, string> = {
   publish_explainer: "A craft goes live automatically the moment a facilitator approves its QA. There is no separate publish step.",
   valuation: "Valuation",
   fair_wage_floor: "Fair wage floor",
-  edit_listing_text: "Edit listing text",
+  
   save_listing: "Save listing",
   listing_saved: "Listing saved. This text now goes out as your ONDC listing.",
   listing_save_failed: "Could not save the listing.",
@@ -1038,7 +1037,7 @@ const dict: Record<string, string> = {
   verify_missing_fields: "Enter a patch ID and add a photo of what you received.",
 
   /* Artisan — Trust & Reports card */
-  trust_and_reports: "Trust & Reports",
+  trust_and_reports: "Health Score",
   health_score_label: "Health score",
   verified_genuine_deliveries: "verified genuine deliveries",
   verified_genuine_note: "+{reward}% each, cap {max}",
@@ -2378,6 +2377,11 @@ const dict: Record<string, string> = {
   scrap_material_leather: "Leather",
   scrap_material_paper: "Paper & card",
   scrap_material_other: "Other",
+
+  edit_listing_text: "Edit listing",
+  asking_price_label: "Asking Price (₹)",
+  add_more_images: "Add More Images",
+  delete_listing: "Delete Listing",
 };
 
 export default dict;

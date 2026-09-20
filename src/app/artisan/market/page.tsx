@@ -166,6 +166,8 @@ export default function MarketPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftEnglish, setDraftEnglish] = useState("");
   const [draftOriginal, setDraftOriginal] = useState("");
+  const [draftAskingPrice, setDraftAskingPrice] = useState("");
+  const [draftImages, setDraftImages] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -265,6 +267,41 @@ export default function MarketPage() {
     setSavedId(null);
     setDraftEnglish(item.descriptionEnglish || item.aiGeneratedListing || "");
     setDraftOriginal(item.descriptionOriginal || "");
+    setDraftAskingPrice(item.askingPrice?.toString() || item.standardMarketPrice?.toString() || "");
+    setDraftImages([]);
+  };
+
+  const deleteListing = async (item: Listing) => {
+    if (!confirm("Are you sure you want to delete this listing?")) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/artisan/listings?id=${item.id}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        await load();
+      } else {
+        const json = await res.json();
+        setSaveError(json.error || "Failed to delete");
+      }
+    } catch (e) {
+      setSaveError("Failed to delete");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (typeof event.target?.result === 'string') {
+          setDraftImages((prev) => [...prev, event.target!.result as string]);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const saveListing = async (item: Listing) => {
@@ -275,6 +312,7 @@ export default function MarketPage() {
     setSaving(true);
     setSaveError(null);
     try {
+      const parsedPrice = parseFloat(draftAskingPrice);
       const res = await fetch("/api/artisan/listings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -282,6 +320,8 @@ export default function MarketPage() {
           itemId: item.id,
           descriptionEnglish: draftEnglish,
           descriptionOriginal: draftOriginal,
+          askingPrice: isNaN(parsedPrice) ? undefined : parsedPrice,
+          newImages: draftImages,
         }),
       });
       const json = await res.json();
@@ -478,21 +518,61 @@ export default function MarketPage() {
                 />
               </div>
 
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                  {t("asking_price_label")}
+                </label>
+                <input
+                  type="number"
+                  value={draftAskingPrice}
+                  onChange={(e) => setDraftAskingPrice(e.target.value)}
+                  placeholder="e.g. 1500"
+                  className="w-full text-sm border border-gray-200 rounded-xl p-3 focus:outline-none focus:border-[var(--color-sage)]"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-500 mb-1">
+                  {t("add_more_images")}
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAddImage}
+                  className="w-full text-sm border border-gray-200 rounded-xl p-3 focus:outline-none"
+                />
+                {draftImages.length > 0 && (
+                  <div className="flex gap-2 mt-2 overflow-x-auto">
+                    {draftImages.map((img, i) => (
+                      <img key={i} src={img} alt="draft" className="h-16 w-16 object-cover rounded-xl" />
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {saveError && <p className="text-xs font-bold text-red-700">{saveError}</p>}
 
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditingId(null)}
+                    className="flex-1 py-2 rounded-xl text-sm font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+                  >
+                    {t("cancel")}
+                  </button>
+                  <button
+                    onClick={() => saveListing(item)}
+                    disabled={saving}
+                    className="flex-1 py-2 rounded-xl text-sm font-bold bg-primary text-white hover:bg-primary-dark disabled:opacity-50 transition-colors"
+                  >
+                    {t("save_listing")}
+                  </button>
+                </div>
                 <button
-                  onClick={() => setEditingId(null)}
-                  className="flex-1 py-2 rounded-xl text-sm font-bold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
-                >
-                  {t("cancel")}
-                </button>
-                <button
-                  onClick={() => saveListing(item)}
+                  onClick={() => deleteListing(item)}
                   disabled={saving}
-                  className="flex-1 py-2 rounded-xl text-sm font-bold bg-primary text-white hover:bg-primary-dark disabled:opacity-50 transition-colors"
+                  className="w-full py-2 rounded-xl text-sm font-bold text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 disabled:opacity-50 transition-colors"
                 >
-                  {t("save_listing")}
+                  {t("delete_listing")}
                 </button>
               </div>
             </div>

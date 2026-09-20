@@ -19,7 +19,6 @@ const dict: Record<string, string> = {
   set_your_price: "अपनी कीमत तय करें",
   price_ai_suggests: "AI सुझाव {band}",
   price_fair_floor_note: "उचित मज़दूरी सीमा {amount}",
-  asking_price_label: "आपकी माँगी कीमत (₹)",
   asking_price_hint: "खाली छोड़ें तो AI की सुझाई कीमत पर सूचीबद्ध होगा।",
   price_below_floor_warning: "यह AI की उचित मज़दूरी सीमा से कम है — खरीदार आपको कम भुगतान कर सकते हैं।",
   price_needs_labour_first: "पहले चरण 1 में अपने शिल्प का विवरण दें ताकि AI कीमत सुझा सके।",
@@ -395,7 +394,6 @@ const dict: Record<string, string> = {
   publish_explainer: "सुविधाकर्ता के QA अनुमोदन पर शिल्प अपने आप लाइव हो जाता है। अलग से प्रकाशित करने की ज़रूरत नहीं।",
   valuation: "मूल्यांकन",
   fair_wage_floor: "उचित मज़दूरी सीमा",
-  edit_listing_text: "लिस्टिंग पाठ बदलें",
   save_listing: "लिस्टिंग सहेजें",
   listing_saved: "लिस्टिंग सहेजी गई। यही पाठ अब आपकी ONDC लिस्टिंग है।",
   listing_save_failed: "लिस्टिंग सहेजी नहीं जा सकी।",
@@ -2340,6 +2338,11 @@ const dict: Record<string, string> = {
   scrap_material_leather: "चमड़ा",
   scrap_material_paper: "काग़ज़ और गत्ता",
   scrap_material_other: "अन्य",
+
+  edit_listing_text: "लिस्टिंग संपादित करें",
+  asking_price_label: "पूछी गई कीमत (₹)",
+  add_more_images: "और चित्र जोड़ें",
+  delete_listing: "लिस्टिंग हटाएं",
 };
 
 export default dict;

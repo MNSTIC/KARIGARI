@@ -318,14 +318,18 @@ export async function PATCH(req: Request) {
     const descriptionEnglish = text(body?.descriptionEnglish);
     const descriptionOriginal = text(body?.descriptionOriginal);
     const aiGeneratedListing = text(body?.aiGeneratedListing) ?? descriptionEnglish;
+    const askingPrice = typeof body?.askingPrice === 'number' ? body.askingPrice : undefined;
+    const newImages = Array.isArray(body?.newImages) ? body.newImages.filter((i: any) => typeof i === 'string') : undefined;
 
     if (
       descriptionEnglish === undefined &&
       descriptionOriginal === undefined &&
-      productionStage === undefined
+      productionStage === undefined &&
+      askingPrice === undefined &&
+      newImages === undefined
     ) {
       return NextResponse.json(
-        { error: 'Provide descriptionEnglish, descriptionOriginal and/or productionStage.' },
+        { error: 'Provide descriptionEnglish, descriptionOriginal, productionStage, askingPrice, and/or newImages.' },
         { status: 400 }
       );
     }
@@ -333,16 +337,23 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'The English listing cannot be empty.' }, { status: 400 });
     }
 
+    const updateData: any = {
+      ...(descriptionEnglish !== undefined ? { descriptionEnglish } : {}),
+      ...(descriptionOriginal !== undefined ? { descriptionOriginal } : {}),
+      ...(aiGeneratedListing !== undefined ? { aiGeneratedListing } : {}),
+      ...(productionStage !== undefined
+        ? { productionStage, stageUpdatedAt: new Date() }
+        : {}),
+      ...(askingPrice !== undefined ? { askingPrice } : {}),
+    };
+    
+    if (newImages && newImages.length > 0) {
+      updateData.images = [...item.images, ...newImages];
+    }
+
     const updated = await prisma.craftItem.update({
       where: { id: item.id },
-      data: {
-        ...(descriptionEnglish !== undefined ? { descriptionEnglish } : {}),
-        ...(descriptionOriginal !== undefined ? { descriptionOriginal } : {}),
-        ...(aiGeneratedListing !== undefined ? { aiGeneratedListing } : {}),
-        ...(productionStage !== undefined
-          ? { productionStage, stageUpdatedAt: new Date() }
-          : {}),
-      },
+      data: updateData,
       select: LISTING_FIELDS,
     });
 
@@ -365,12 +376,47 @@ export async function PATCH(req: Request) {
       comments:
         productionStage !== undefined
           ? `Artisan advanced this piece to ${productionStage}. The buyer's tracker moves with it.`
-          : 'Artisan edited their own listing description. This text is what goes out as the ONDC listing.',
+          : 'Artisan edited their own listing description, price, or images. This text is what goes out as the ONDC listing.',
     });
 
     return NextResponse.json({ success: true, item: updated });
   } catch (error) {
     console.error('Artisan listings PATCH error:', error);
     return NextResponse.json({ error: 'Failed to save listing' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const auth = await requireArtisan();
+    if (!auth.ok) return auth.response;
+
+    const url = new URL(req.url);
+    const id = url.searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'Item ID required' }, { status: 400 });
+    }
+
+    const item = await prisma.craftItem.findUnique({
+      where: { id, artisanId: auth.userId },
+      select: { id: true, isListedOnMarketplace: true, isOndcLive: true },
+    });
+
+    if (!item) {
+      return NextResponse.json({ error: 'Item not found' }, { status: 404 });
+    }
+
+    // Usually you don't want to delete items that are already live or sold,
+    // but the request is to "delete that listing", so we can just delete it.
+    // However, it's safer to just set a status if it was live, but the user explicitly asked to delete it.
+    await prisma.craftItem.delete({
+      where: { id },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Artisan listings DELETE error:', error);
+    return NextResponse.json({ error: 'Failed to delete listing' }, { status: 500 });
   }
 }

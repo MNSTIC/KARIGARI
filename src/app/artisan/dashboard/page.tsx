@@ -1156,7 +1156,7 @@ function TrustAndReportsCard({
   return (
     <section className="mt-12" aria-labelledby="trust-heading">
       <SectionHeading id="trust-heading" size="md">
-        {t("trust_and_reports")}
+        Health Score
       </SectionHeading>
 
       <div className="kg-enter rounded-[24px] bg-[#F2EFE9] border border-[#E8E4DB] shadow-sm p-6 sm:p-8">

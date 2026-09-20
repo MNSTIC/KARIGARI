@@ -19,7 +19,6 @@ const dict: Record<string, string> = {
   set_your_price: "మీ ధరను నిర్ణయించండి",
   price_ai_suggests: "AI సూచన {band}",
   price_fair_floor_note: "న్యాయమైన కూలీ కనీసం {amount}",
-  asking_price_label: "మీరు కోరుతున్న ధర (₹)",
   asking_price_hint: "ఖాళీగా వదిలితే AI సూచించిన ధరకు జాబితా చేయబడుతుంది.",
   price_below_floor_warning: "ఇది AI న్యాయమైన కూలీ కనీస స్థాయి కంటే తక్కువ — కొనుగోలుదారులు మీకు తక్కువ చెల్లించవచ్చు.",
   price_needs_labour_first: "AI ధరను సూచించడానికి ముందుగా దశ 1లో మీ చేతిపనిని వివరించండి.",
@@ -378,7 +377,6 @@ const dict: Record<string, string> = {
   publish_explainer: "ఫెసిలిటేటర్ QA ఆమోదించిన వెంటనే వస్తువు స్వయంచాలకంగా ప్రత్యక్షమవుతుంది. వేరే పబ్లిష్ దశ లేదు.",
   valuation: "మూల్యాంకనం",
   fair_wage_floor: "న్యాయమైన కూలీ కనీసం",
-  edit_listing_text: "లిస్టింగ్ వచనం మార్చండి",
   save_listing: "లిస్టింగ్ సేవ్ చేయండి",
   listing_saved: "లిస్టింగ్ సేవ్ అయింది. ఈ వచనమే మీ ONDC లిస్టింగ్.",
   listing_save_failed: "లిస్టింగ్ సేవ్ కాలేదు.",
@@ -2343,6 +2341,11 @@ const dict: Record<string, string> = {
   scrap_material_leather: "తోలు",
   scrap_material_paper: "కాగితం & అట్ట",
   scrap_material_other: "ఇతరం",
+
+  edit_listing_text: "జాబితాను సవరించండి",
+  asking_price_label: "అడిగే ధర (₹)",
+  add_more_images: "మరిన్ని చిత్రాలను జోడించండి",
+  delete_listing: "జాబితాను తొలగించండి",
 };
 
 export default dict;
