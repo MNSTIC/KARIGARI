@@ -26,8 +26,6 @@ import { useLanguage } from "@/lib/translations";
 import { formatRupees } from "@/lib/pricing";
 import { imageProps } from "@/lib/marketplace";
 import { cn } from "@/lib/utils";
-import { Shell } from "@/components/ui/AppShell";
-import { PageLede, PageTitle } from "@/components/ui/SectionEyebrow";
 import { SectionLabel } from "@/components/ui/SectionLabel";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
@@ -240,7 +238,7 @@ function writeDraft(form: FormState | null) {
   }
 }
 
-export default function LogSalePage() {
+export function OfflineSale() {
   const { t, language } = useLanguage();
   const { online, syncing } = useOfflineQueue();
 
@@ -680,11 +678,7 @@ export default function LogSalePage() {
       : null;
 
   return (
-    <Shell>
-      <div className="mb-8">
-        <PageTitle>{t("log_sale_title")}</PageTitle>
-        <PageLede>{t("log_sale_lede")}</PageLede>
-      </div>
+    <>
 
       {!online && (
         <p
@@ -1285,7 +1279,7 @@ export default function LogSalePage() {
           </>
         )}
       </section>
-    </Shell>
+    </>
   );
 }
 

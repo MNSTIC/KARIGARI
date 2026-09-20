@@ -60,7 +60,17 @@ export default function ArtisanLayout({ children }: { children: React.ReactNode 
         // The dashboard already opens the profile editor from `?edit=profile`.
         // Reusing that deep link keeps the modal and its data in the one place
         // that already loads the full profile.
-        onProfileClick={() => router.push("/artisan/dashboard?edit=profile")}
+        onProfileClick={() => {
+          if (pathname === "/artisan/dashboard") {
+            window.dispatchEvent(
+              new CustomEvent("karigari:assistant-action", {
+                detail: { type: "OPEN_PROFILE" },
+              })
+            );
+          } else {
+            router.push("/artisan/dashboard?edit=profile");
+          }
+        }}
       >
         {children}
       </AppShell>

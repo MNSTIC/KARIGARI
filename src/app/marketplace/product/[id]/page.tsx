@@ -22,6 +22,8 @@ function clip(text: string): string {
   return `${cut.slice(0, Math.max(0, cut.lastIndexOf(" ")))}…`;
 }
 
+export const revalidate = 60;
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const passport = await loadPassportById(id);

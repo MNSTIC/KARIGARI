@@ -8,6 +8,8 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   X,
+  Landmark,
+  Wrench,
 } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
 import { SchemeFormAssistant, type AssistantScheme } from "@/components/SchemeFormAssistant";
@@ -15,6 +17,9 @@ import { Shell } from "@/components/ui/AppShell";
 import { Card } from "@/components/ui/Card";
 import { DarkCard, PinkButton } from "@/components/ui/DarkCard";
 import { Pill } from "@/components/ui/FilterTabs";
+import { SegmentedToggle } from "@/components/ui/SegmentedToggle";
+import { useUrlTab } from "@/lib/urlTab";
+import { FundingSection } from "@/components/workshop/FundingSection";
 import { PageLede, PageTitle, SectionEyebrow, SectionHeading } from "@/components/ui/SectionEyebrow";
 import {
   LockedCard,
@@ -84,8 +89,12 @@ function profileCompletion(profile: ProfileSummary | null, t: Translate) {
   };
 }
 
+const SCHEMES_TABS = ["government", "equipment"] as const;
+type SchemesTab = (typeof SCHEMES_TABS)[number];
+
 export default function SchemesPage() {
   const { t } = useLanguage();
+  const [tab, setTab] = useUrlTab<SchemesTab>("government", SCHEMES_TABS);
 
   const [data, setData] = useState<SchemesResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -179,153 +188,172 @@ export default function SchemesPage() {
 
   return (
     <Shell>
-      <PageTitle>{t("page_schemes_title")}</PageTitle>
-      <PageLede>{t("schemes_page_subtitle")}</PageLede>
+      <div className="mb-9">
+        <PageTitle>{t("page_schemes_title")}</PageTitle>
+        <PageLede>{t("schemes_page_subtitle")}</PageLede>
+      </div>
 
-      {/* ================================================ Eligibility card */}
-      <DarkCard arc className="kg-enter mt-9">
-        <div className="flex flex-col gap-8 lg:flex-row lg:items-center">
-          <div className="min-w-0 flex-1">
-            <SectionEyebrow tone="light">{t("schemes_eligibility_profile")}</SectionEyebrow>
+      <SegmentedToggle
+        ariaLabel={t("page_schemes_title")}
+        value={tab}
+        onChange={setTab}
+        className="mb-7"
+        options={[
+          { value: "government", label: "Government funding", icon: <Landmark size={14} /> },
+          { value: "equipment", label: t("workshop_tab_funding") === "workshop_tab_funding" ? "Equipment funding" : t("workshop_tab_funding"), icon: <Wrench size={14} /> },
+        ]}
+      />
 
-            <div className="mt-4 flex flex-wrap items-baseline gap-x-5 gap-y-1">
-              <span className="kg-display text-[52px] leading-none text-white">
-                {loading ? "—" : `${completion.pct}%`}
-              </span>
-              <span className="kg-display text-[24px] leading-none text-white/90">
-                {t("schemes_profile_complete_label")}
-              </span>
+      {tab === "government" && (
+        <>
+          {/* ================================================ Eligibility card */}
+          <DarkCard arc className="kg-enter mt-2">
+            <div className="flex flex-col gap-8 lg:flex-row lg:items-center">
+              <div className="min-w-0 flex-1">
+                <SectionEyebrow tone="light">{t("schemes_eligibility_profile")}</SectionEyebrow>
+
+                <div className="mt-4 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+                  <span className="kg-display text-[52px] leading-none text-white">
+                    {loading ? "—" : `${completion.pct}%`}
+                  </span>
+                  <span className="kg-display text-[24px] leading-none text-white/90">
+                    {t("schemes_profile_complete_label")}
+                  </span>
+                </div>
+
+                <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-white/60">
+                  {t(eligible.length === 1 ? "schemes_unlocks_one" : "schemes_unlocks_many").replace(
+                    "{n}",
+                    String(eligible.length)
+                  )}{" "}
+                  {completion.missing.length > 0
+                    ? t("schemes_add_to_be_checked").replace(
+                        "{fields}",
+                        completion.missing
+                          .slice(0, 2)
+                          .map((f) => f.label.toLowerCase())
+                          .join(", ")
+                      )
+                    : t("schemes_all_fields_filled")}
+                </p>
+
+                <ul className="mt-6 flex flex-wrap gap-2.5">
+                  {completion.fields.map((field) => (
+                    <li key={field.key}>
+                      <Pill tone={field.filled ? "onDark" : "onDarkMuted"} className="kg-label font-medium">
+                        {field.filled ? (
+                          <ShieldCheck size={13} className="shrink-0" />
+                        ) : (
+                          <CircleSlash size={13} className="shrink-0" />
+                        )}
+                        {field.label}
+                      </Pill>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="shrink-0">
+                <PinkButton href="/artisan/dashboard?edit=profile" className="w-full lg:w-auto">
+                  {t("schemes_update_profile")} <ArrowRight size={15} />
+                </PinkButton>
+              </div>
             </div>
+          </DarkCard>
 
-            <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-white/60">
-              {t(eligible.length === 1 ? "schemes_unlocks_one" : "schemes_unlocks_many").replace(
-                "{n}",
-                String(eligible.length)
-              )}{" "}
-              {completion.missing.length > 0
-                ? t("schemes_add_to_be_checked").replace(
-                    "{fields}",
-                    completion.missing
-                      .slice(0, 2)
-                      .map((f) => f.label.toLowerCase())
-                      .join(", ")
-                  )
-                : t("schemes_all_fields_filled")}
-            </p>
-
-            <ul className="mt-6 flex flex-wrap gap-2.5">
-              {completion.fields.map((field) => (
-                <li key={field.key}>
-                  <Pill tone={field.filled ? "onDark" : "onDarkMuted"} className="kg-label font-medium">
-                    {field.filled ? (
-                      <ShieldCheck size={13} className="shrink-0" />
-                    ) : (
-                      <CircleSlash size={13} className="shrink-0" />
-                    )}
-                    {field.label}
-                  </Pill>
-                </li>
+          {loading ? (
+            <div className="mt-14 space-y-4" aria-busy="true">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="kg-shimmer h-44 rounded-2xl" />
               ))}
-            </ul>
-          </div>
-
-          <div className="shrink-0">
-            <PinkButton href="/artisan/dashboard?edit=profile" className="w-full lg:w-auto">
-              {t("schemes_update_profile")} <ArrowRight size={15} />
-            </PinkButton>
-          </div>
-        </div>
-      </DarkCard>
-
-      {loading ? (
-        <div className="mt-14 space-y-4" aria-busy="true">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="kg-shimmer h-44 rounded-2xl" />
-          ))}
-        </div>
-      ) : error || !data ? (
-        <Card pad="lg" className="mt-14 border-dashed text-center">
-          <p className="mb-5 text-gray-500">{t("schemes_error")}</p>
-          <button
-            onClick={load}
-            className="kg-press inline-flex min-h-[44px] items-center rounded-xl bg-primary px-6 text-[13px] font-semibold text-white hover:bg-primary-dark"
-          >
-            {t("schemes_retry")}
-          </button>
-        </Card>
-      ) : (
-        <div className="mt-14 grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
-          {/* ------------------------------------------------- Eligible */}
-          <section aria-labelledby="eligible-heading" className="min-w-0">
-            <SectionHeading
-              id="eligible-heading"
-              action={
-                <Pill
-                  icon={<SlidersHorizontal size={14} />}
-                  tone={hideTracked ? "dark" : "neutral"}
-                  onClick={() => setHideTracked((v) => !v)}
+            </div>
+          ) : error || !data ? (
+            <Card pad="lg" className="mt-14 border-dashed text-center">
+              <p className="mb-5 text-gray-500">{t("schemes_error")}</p>
+              <button
+                onClick={load}
+                className="kg-press inline-flex min-h-[44px] items-center rounded-xl bg-primary px-6 text-[13px] font-semibold text-white hover:bg-primary-dark"
+              >
+                {t("schemes_retry")}
+              </button>
+            </Card>
+          ) : (
+            <div className="mt-14 grid gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
+              {/* ------------------------------------------------- Eligible */}
+              <section aria-labelledby="eligible-heading" className="min-w-0">
+                <SectionHeading
+                  id="eligible-heading"
+                  action={
+                    <Pill
+                      icon={<SlidersHorizontal size={14} />}
+                      tone={hideTracked ? "dark" : "neutral"}
+                      onClick={() => setHideTracked((v) => !v)}
+                    >
+                      {hideTracked ? t("schemes_showing_new_only") : t("schemes_filter")}
+                    </Pill>
+                  }
                 >
-                  {hideTracked ? t("schemes_showing_new_only") : t("schemes_filter")}
-                </Pill>
-              }
-            >
-              {t("schemes_eligible_for_you")}{" "}
-              <span className="kg-label ml-1 inline-flex h-6 w-6 translate-y-[-3px] items-center justify-center rounded-full bg-primary font-medium text-white">
-                {eligible.length}
-              </span>
-            </SectionHeading>
+                  {t("schemes_eligible_for_you")}{" "}
+                  <span className="kg-label ml-1 inline-flex h-6 w-6 translate-y-[-3px] items-center justify-center rounded-full bg-primary font-medium text-white">
+                    {eligible.length}
+                  </span>
+                </SectionHeading>
 
-            {shownEligible.length === 0 ? (
-              <Card pad="lg" className="border-dashed text-center text-[14px] text-gray-500">
-                {eligible.length === 0
-                  ? t("schemes_none_eligible")
-                  : t("schemes_all_started")}
-              </Card>
-            ) : (
-              <div className="kg-stagger space-y-5">
-                {shownEligible.map((scheme) => (
-                  <SchemeCard
-                    key={scheme.key}
-                    scheme={scheme}
-                    expanded={expanded === scheme.key}
-                    onToggle={() => setExpanded(expanded === scheme.key ? null : scheme.key)}
-                    onApply={() => openApply(scheme)}
-                    onAssist={() => setAssistantScheme(openAssistant(scheme))}
-                    t={t}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
+                {shownEligible.length === 0 ? (
+                  <Card pad="lg" className="border-dashed text-center text-[14px] text-gray-500">
+                    {eligible.length === 0
+                      ? t("schemes_none_eligible")
+                      : t("schemes_all_started")}
+                  </Card>
+                ) : (
+                  <div className="kg-stagger space-y-5">
+                    {shownEligible.map((scheme) => (
+                      <SchemeCard
+                        key={scheme.key}
+                        scheme={scheme}
+                        expanded={expanded === scheme.key}
+                        onToggle={() => setExpanded(expanded === scheme.key ? null : scheme.key)}
+                        onApply={() => openApply(scheme)}
+                        onAssist={() => setAssistantScheme(openAssistant(scheme))}
+                        t={t}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
 
-          {/* --------------------------------------------------- Locked */}
-          <aside aria-labelledby="locked-heading" className="min-w-0">
-            <SectionHeading id="locked-heading" size="sm">
-              <span className="inline-flex items-center gap-2.5">
-                <Lock size={18} strokeWidth={1.7} className="text-gray-500" />
-                {t("schemes_locked_heading")}
-              </span>
-            </SectionHeading>
+              {/* --------------------------------------------------- Locked */}
+              <aside aria-labelledby="locked-heading" className="min-w-0">
+                <SectionHeading id="locked-heading" size="sm">
+                  <span className="inline-flex items-center gap-2.5">
+                    <Lock size={18} strokeWidth={1.7} className="text-gray-500" />
+                    {t("schemes_locked_heading")}
+                  </span>
+                </SectionHeading>
 
-            {blocked.length === 0 ? (
-              <Card tone="muted" className="text-[13px] text-gray-500">
-                {t("schemes_none_blocked")}
-              </Card>
-            ) : (
-              <div className="space-y-4">
-                {blocked.map((scheme) => (
-                  <LockedCard
-                    key={scheme.key}
-                    scheme={scheme}
-                    onAssist={() => setAssistantScheme(openAssistant(scheme))}
-                    t={t}
-                  />
-                ))}
-              </div>
-            )}
-          </aside>
-        </div>
+                {blocked.length === 0 ? (
+                  <Card tone="muted" className="text-[13px] text-gray-500">
+                    {t("schemes_none_blocked")}
+                  </Card>
+                ) : (
+                  <div className="space-y-4">
+                    {blocked.map((scheme) => (
+                      <LockedCard
+                        key={scheme.key}
+                        scheme={scheme}
+                        onAssist={() => setAssistantScheme(openAssistant(scheme))}
+                        t={t}
+                      />
+                    ))}
+                  </div>
+                )}
+              </aside>
+            </div>
+          )}
+        </>
       )}
+
+      {tab === "equipment" && <FundingSection />}
 
       {/* Self-declaration modal — the only thing "apply" does is record a row */}
       {applyTarget && (

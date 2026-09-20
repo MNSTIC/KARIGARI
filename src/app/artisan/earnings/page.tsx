@@ -27,6 +27,7 @@ import { StatTile } from "@/components/ui/StatTile";
 import { PillTabs } from "@/components/ui/SegmentedToggle";
 import { MyBuyers } from "@/components/MyBuyers";
 import { CreditProfileCard } from "@/components/CreditProfileCard";
+import { OfflineSale } from "@/components/OfflineSale";
 import { useUrlTab } from "@/lib/urlTab";
 import dynamic from "next/dynamic";
 import type { MonthlyEarning } from "@/components/EarningsAnalytics";
@@ -115,7 +116,7 @@ interface TopProduct {
 }
 
 /** `?tab=` values. Money stays the default, so every existing link lands where it did. */
-const EARNINGS_TABS = ["money", "buyers", "credit"] as const;
+const EARNINGS_TABS = ["money", "buyers", "credit", "offline"] as const;
 type EarningsTab = (typeof EARNINGS_TABS)[number];
 
 /** How a settlement row reads in the activity list. */
@@ -243,6 +244,7 @@ export default function EarningsPage() {
           { value: "money", label: t("money_tab") },
           { value: "buyers", label: t("buyers_tab") },
           { value: "credit", label: t("credit_tab") },
+          { value: "offline", label: "Offline sale" },
         ]}
       />
     </>
@@ -266,6 +268,15 @@ export default function EarningsPage() {
     );
   }
 
+  if (tab === "offline") {
+    return (
+      <Shell>
+        {header}
+        <OfflineSale />
+      </Shell>
+    );
+  }
+
   return (
     <Shell>
       {header}
@@ -283,7 +294,7 @@ export default function EarningsPage() {
               {t("earnings_total_income")}
             </p>
             <Link
-              href="/artisan/log-sale"
+              href="?tab=offline"
               className="kg-press inline-flex min-h-[40px] items-center gap-2 rounded-xl bg-white/10 px-3 text-[12px] font-bold hover:bg-white/20"
             >
               <ReceiptIndianRupee size={14} /> {t("earnings_log_offline_cta")}

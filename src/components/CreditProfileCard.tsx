@@ -253,7 +253,7 @@ function eventRows(profile: CreditProfile) {
     { key: "verified", labelKey: "credit_event_verified", n: i.verifiedListings, href: "/artisan/market", icon: <ShieldCheck size={16} /> },
     { key: "sold", labelKey: "credit_event_sold", n: i.soldCount, href: "/artisan/market", icon: <ShoppingBag size={16} /> },
     { key: "orders", labelKey: "credit_event_orders", n: i.ordersAccepted, href: "/artisan/orders", icon: <Truck size={16} /> },
-    { key: "offline", labelKey: "credit_event_offline", n: i.offlineSalesCount, href: "/artisan/log-sale", icon: <ReceiptIndianRupee size={16} /> },
+    { key: "offline", labelKey: "credit_event_offline", n: i.offlineSalesCount, href: "/artisan/earnings?tab=offline", icon: <ReceiptIndianRupee size={16} /> },
   ];
 }
 

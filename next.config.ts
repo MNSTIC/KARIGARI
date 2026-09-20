@@ -205,6 +205,7 @@ const nextConfig: NextConfig = {
   // console fills with WebSocket handshake errors on every page.
   allowedDevOrigins: ['192.168.29.230', '*.trycloudflare.com', '*.ngrok-free.app', '*.loca.lt'],
   images: {
+    formats: ['image/avif', 'image/webp'],
     remotePatterns: [
       {
         protocol: 'https',

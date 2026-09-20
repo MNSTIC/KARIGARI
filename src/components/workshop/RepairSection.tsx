@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, Hammer, Loader2, MessageSquarePlus, Send, Sparkles, Users, Wrench } from "lucide-react";
 import { useLanguage } from "@/lib/translations";
+import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { SectionHeading } from "@/components/ui/SectionEyebrow";
@@ -50,7 +51,7 @@ interface ToolingPayload {
   curated: CuratedEntry[];
 }
 
-export function RepairSection({ onGoToFunding }: { onGoToFunding: () => void }) {
+export function RepairSection() {
   const { t, language } = useLanguage();
   const [data, setData] = useState<ToolingPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -192,13 +193,12 @@ export function RepairSection({ onGoToFunding }: { onGoToFunding: () => void }) 
               {posting ? <Loader2 size={15} className="animate-spin" aria-hidden /> : <Send size={15} aria-hidden />}
               {t("repair_post_request")}
             </button>
-            <button
-              type="button"
-              onClick={onGoToFunding}
+            <Link
+              href="/artisan/schemes?tab=equipment"
               className="kg-press inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-2 text-[13px] font-medium text-gray-600 underline underline-offset-2"
             >
               {t("repair_buy_instead")}
-            </button>
+            </Link>
           </div>
           {posted && (
             <p role="status" aria-live="polite" className="text-[13px] font-medium text-green-700">

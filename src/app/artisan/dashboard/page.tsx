@@ -371,29 +371,7 @@ export default function ArtisanDashboard() {
         </div>
       </div>
 
-      {/* ===================================== Income across streams
-          The overview above is platform income. This tile adds the artisan's
-          self-logged offline sales, and its delta line names every part so the
-          sum is never mistaken for money Karigari handled. */}
-      {dashboardData && (
-        <Link href="/artisan/earnings" className="kg-press mt-8 block rounded-2xl focus-visible:outline-2 focus-visible:outline-offset-2">
-          <StatTile
-            label={t("earnings_total_income")}
-            icon={<Banknote size={16} className="text-gray-500" />}
-            value={formatRupees(
-              Number(dashboardData.onlineEarnings ?? 0) +
-                Number(dashboardData.demandEarnings ?? 0) +
-                Number(dashboardData.offlineEarnings ?? 0)
-            )}
-            delta={t("earnings_total_parts")
-              .replace("{online}", formatRupees(dashboardData.onlineEarnings ?? 0))
-              .replace("{demand}", formatRupees(dashboardData.demandEarnings ?? 0))
-              .replace("{offline}", formatRupees(dashboardData.offlineEarnings ?? 0))}
-          />
-        </Link>
-      )}
 
-      {/* ===================================== Trust & buyer reports */}
       <TrustAndReportsCard data={dashboardData} t={t} />
 
       {/* ===================================== Production record (credit score) */}
@@ -541,7 +519,7 @@ export default function ArtisanDashboard() {
         <RecognitionPanel />
 
         {/* -------------------------------------------- Recent portfolio */}
-        <Card as="section" pad="lg" className="kg-enter min-w-0" radius="3xl">
+        <Card as="section" pad="lg" className="kg-enter min-w-0 lg:col-span-2" radius="3xl">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <h2 className="kg-display text-[26px] leading-tight text-gray-900">

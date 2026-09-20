@@ -23,6 +23,6 @@ export async function logout(router: ReturnType<typeof useRouter>): Promise<void
   // The learn page's saved copy carries this artisan's stage and earnings; a
   // shared phone must not show them to whoever signs in next. Never throws.
   await clearLearningCache();
-  router.replace("/login");
-  router.refresh();
+  // Force a full page reload to clear all in-memory module state (artisanIdentity, etc.)
+  window.location.href = "/login";
 }

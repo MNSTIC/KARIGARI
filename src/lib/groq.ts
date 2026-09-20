@@ -190,6 +190,64 @@ export function firstArray(obj: unknown): unknown[] {
   return [];
 }
 
+/**
+ * Transcribe base64-encoded audio with Groq Whisper.
+ *
+ * Extracted from `voiceParse.ts` so the voice assistant can use the same
+ * Whisper transcription path without pulling in the craft-parsing pipeline.
+ *
+ * Returns the transcript string, or null when transcription fails.
+ */
+export async function groqWhisperTranscribe(
+  base64Audio: string,
+  mimeType: string = 'audio/webm',
+  languageHint?: string | null
+): Promise<string | null> {
+  const key = groqKey();
+  if (!key) return null;
+
+  // Convert base64 to a Blob for the multipart form.
+  const binary = Buffer.from(base64Audio, 'base64');
+  const blob = new Blob([binary], { type: mimeType });
+
+  // Map UI language code to Whisper ISO-639-1. Odia is unsupported by Whisper
+  // so it falls through to auto-detect (better than a rejection).
+  const WHISPER_LANGS: Record<string, string> = { en: 'en', hi: 'hi', te: 'te' };
+  const whisperCode = WHISPER_LANGS[(languageHint || '').toLowerCase()] ?? null;
+
+  try {
+    const form = new FormData();
+    form.append('file', blob, 'recording.webm');
+    form.append('model', GROQ_WHISPER_MODEL);
+    form.append('response_format', 'json');
+    form.append('temperature', '0');
+    if (whisperCode) form.append('language', whisperCode);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
+
+    const res = await fetch(`${GROQ_BASE}/audio/transcriptions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}` },
+      body: form,
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      console.warn('[Groq Whisper] transcription failed:', res.status);
+      return null;
+    }
+
+    const data = await res.json();
+    const text = typeof data?.text === 'string' ? data.text.trim() : '';
+    return text.length >= 3 ? text : null;
+  } catch (error) {
+    console.warn('[Groq Whisper] error:', (error as Error)?.message);
+    return null;
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Language                                                                   */
 /* -------------------------------------------------------------------------- */
