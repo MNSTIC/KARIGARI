@@ -93,8 +93,8 @@
 }
 
 .strip {
-  --strip-bg: #eef7e9;
-  --strip-fg: #16743e;
+  --strip-bg: var(--color-green-50);
+  --strip-fg: var(--color-green-700);
 
   display: flex;
   align-items: center;
@@ -136,18 +136,18 @@
 }
 
 .insight {
-  --strip-bg: #eef7e9;
-  --strip-fg: #16743e;
+  --strip-bg: var(--color-green-50);
+  --strip-fg: var(--color-green-700);
 }
 
 .sync {
-  --strip-bg: #edf5ff;
-  --strip-fg: #1857a8;
+  --strip-bg: var(--color-blue-50);
+  --strip-fg: var(--color-blue-700);
 }
 
 .delivery {
-  --strip-bg: #fff1de;
-  --strip-fg: #96501e;
+  --strip-bg: var(--color-orange-50);
+  --strip-fg: var(--color-orange-700);
 }
 
 .lead {

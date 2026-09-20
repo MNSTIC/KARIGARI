@@ -1159,7 +1159,7 @@ function TrustAndReportsCard({
         Health Score
       </SectionHeading>
 
-      <div className="kg-enter rounded-[24px] bg-[#F2EFE9] border border-[#E8E4DB] shadow-sm p-6 sm:p-8">
+      <div className="kg-enter rounded-[24px] bg-[var(--color-gray-100)] border border-[var(--color-gray-200)] shadow-sm p-6 sm:p-8">
         <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-8">
           {/* ---------------------------------------- health score */}
           <div className="min-w-0 flex-1">
@@ -1173,9 +1173,9 @@ function TrustAndReportsCard({
               </span>
             </div>
             {/* Custom textured progress bar */}
-            <div className="mt-3 h-4 w-full overflow-hidden rounded-full bg-[#E8E2D5]">
+            <div className="mt-3 h-4 w-full overflow-hidden rounded-full bg-[var(--color-gray-200)]">
               <div
-                className="relative h-full rounded-full bg-[#245C42] transition-all duration-500 overflow-hidden"
+                className="relative h-full rounded-full bg-[var(--color-green-500)] transition-all duration-500 overflow-hidden"
                 style={{ width: `${Math.min(100, Math.max(0, health))}%` }}
               >
                 <div className="absolute inset-0 bg-[url('/droodle-bg.jpg')] bg-repeat bg-[length:150px_auto] mix-blend-color-burn opacity-60" />
@@ -1185,22 +1185,22 @@ function TrustAndReportsCard({
 
           {/* ---------------------------------------- stats blocks */}
           <div className="flex flex-wrap items-center gap-3 xl:shrink-0">
-            <div className="flex min-w-[120px] items-center gap-3 rounded-xl bg-[#E5DFD1] px-4 py-3">
-              <ShieldCheck size={28} className="text-[#245C42] shrink-0" strokeWidth={2.5} />
+            <div className="flex min-w-[120px] items-center gap-3 rounded-xl bg-[var(--color-gray-200)] px-4 py-3">
+              <ShieldCheck size={28} className="text-[var(--color-green-600)] shrink-0" strokeWidth={2.5} />
               <div>
                 <div className="kg-label text-[10px] font-bold tracking-widest text-gray-700">GPB</div>
                 <div className="text-xl font-black text-gray-900 leading-none">{openTickets}</div>
               </div>
             </div>
-            <div className="flex min-w-[120px] items-center gap-3 rounded-xl bg-[#E5DFD1] px-4 py-3">
-              <CloudUpload size={28} className="text-[#36494E] shrink-0" strokeWidth={2.5} />
+            <div className="flex min-w-[120px] items-center gap-3 rounded-xl bg-[var(--color-gray-200)] px-4 py-3">
+              <CloudUpload size={28} className="text-[var(--color-stat-blue)] shrink-0" strokeWidth={2.5} />
               <div>
                 <div className="kg-label text-[10px] font-bold tracking-widest text-gray-700">UPLOADED</div>
                 <div className="text-xl font-black text-gray-900 leading-none">{guiltyTickets}</div>
               </div>
             </div>
-            <div className="flex min-w-[120px] items-center gap-3 rounded-xl bg-[#E5DFD1] px-4 py-3">
-              <Award size={28} className="text-[#8C5A35] shrink-0" strokeWidth={2.5} />
+            <div className="flex min-w-[120px] items-center gap-3 rounded-xl bg-[var(--color-gray-200)] px-4 py-3">
+              <Award size={28} className="text-[var(--color-yellow-700)] shrink-0" strokeWidth={2.5} />
               <div>
                 <div className="kg-label text-[10px] font-bold tracking-widest text-gray-700">RECOGNIZED</div>
                 <div className="text-xl font-black text-gray-900 leading-none">{notGuiltyTickets}</div>
@@ -1210,9 +1210,9 @@ function TrustAndReportsCard({
         </div>
 
         {/* ---------------------------------------- insights pill */}
-        <div className="mt-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-[#E4EACD] px-5 py-4">
+        <div className="mt-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-2xl bg-[var(--color-green-100)] px-5 py-4">
           <div className="flex items-center gap-3">
-            <Leaf size={20} className="text-[#4B6B38] shrink-0" />
+            <Leaf size={20} className="text-[var(--color-green-600)] shrink-0" />
             <span className="text-[13px] font-medium text-gray-800">
               Insights are updated as per ~{Math.round(verifiedCount * 2.5)}% reach, cap {healthMax}
             </span>

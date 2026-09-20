@@ -12,11 +12,21 @@ import { formatRupees } from "@/lib/pricing";
 
 type Tone = "craft" | "verify" | "schemes";
 
-/** Card, icon tile and icon colours for each metric — soft pastels, one vivid glyph. */
+/**
+ * Card, icon tile and icon colours for each metric.
+ *
+ * Hex rather than `var(--color-…)` because these values are handed to the SVG
+ * icons as a `fill` / `stroke` PRESENTATION ATTRIBUTE, which does not resolve
+ * CSS custom properties. Each one therefore MIRRORS a token from
+ * src/app/globals.css and must be changed only in step with it.
+ */
 const TONES: Record<Tone, { card: string; tile: string; icon: string }> = {
-  craft: { card: "#F7EEE8", tile: "#FCF6F1", icon: "#B65A28" },
-  verify: { card: "#EEF0EA", tile: "#E2F4E7", icon: "#1E7A46" },
-  schemes: { card: "#ECEFF2", tile: "#E4EEFA", icon: "#2F6AD1" },
+  // --color-orange-50 · a lighter step of it · --color-stat-orange
+  craft:   { card: "#FBEDE3", tile: "#FDF7F2", icon: "#C2632F" },
+  // --color-green-50 · a lighter step of it · --color-stat-teal
+  verify:  { card: "#EFF0E8", tile: "#F8F8F5", icon: "#4A5241" },
+  // --color-blue-50 · a lighter step of it · --color-stat-blue
+  schemes: { card: "#E9EDF0", tile: "#F5F7F8", icon: "#4D5D6C" },
 };
 
 /** Handmade work in general — a hammer crossed with a chisel — not one craft's tool. */
@@ -176,14 +186,14 @@ export function MonthlyOverview({
               aria-hidden="true"
               className={down ? "rotate-90" : undefined}
               fill="none"
-              stroke={down ? "#A33A2A" : "#1B8A4A"}
+              stroke={down ? "#8C2B22" : "#49523E"}
               strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
               <path d="M4 12L12 4M6 4h6v6" />
             </svg>
-            <span className="font-semibold" style={{ color: down ? "#A33A2A" : "#1B8A4A" }}>
+            <span className="font-semibold" style={{ color: down ? "#8C2B22" : "#49523E" }}>
               {deltaFigure}
             </span>
             <span>{deltaSuffix}</span>
