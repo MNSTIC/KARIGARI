@@ -347,6 +347,8 @@ export default function ArtisanDashboard() {
             pendingVerifications={tiles.pending}
             pendingNote={tiles.capped ? t("of_your_10_recent") : null}
             schemesActive={tiles.schemes}
+            offlineSales={dashboardData?.offlineSalesCount ?? 0}
+            uniqueBuyers={dashboardData?.uniqueBuyersCount ?? 0}
           />
         </div>
 
@@ -519,7 +521,7 @@ export default function ArtisanDashboard() {
         <RecognitionPanel />
 
         {/* -------------------------------------------- Recent portfolio */}
-        <Card as="section" pad="lg" className="kg-enter min-w-0 lg:col-span-2" radius="3xl">
+        <Card id="recent-portfolio" as="section" pad="lg" className="kg-enter min-w-0 lg:col-span-2" radius="3xl">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <h2 className="kg-display text-[26px] leading-tight text-gray-900">

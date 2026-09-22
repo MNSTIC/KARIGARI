@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { formatRupees } from "@/lib/pricing";
 
 /**
@@ -10,7 +11,7 @@ import { formatRupees } from "@/lib/pricing";
  * pages, and this look belongs to the dashboard alone.
  */
 
-type Tone = "craft" | "verify" | "schemes";
+type Tone = "craft" | "verify" | "schemes" | "offline" | "buyers";
 
 /**
  * Card, icon tile and icon colours for each metric.
@@ -27,6 +28,10 @@ const TONES: Record<Tone, { card: string; tile: string; icon: string }> = {
   verify:  { card: "#EFF0E8", tile: "#F8F8F5", icon: "#4A5241" },
   // --color-blue-50 · a lighter step of it · --color-stat-blue
   schemes: { card: "#E9EDF0", tile: "#F5F7F8", icon: "#4D5D6C" },
+  // --color-purple-50 · a lighter step of it · --color-purple-500
+  offline: { card: "#EFEAF0", tile: "#F8F5F8", icon: "#6B5A78" },
+  // --color-yellow-50 · a lighter step of it · --color-yellow-600
+  buyers:  { card: "#F6EEDD", tile: "#FDFBF7", icon: "#8A6E38" },
 };
 
 /** Handmade work in general — a hammer crossed with a chisel — not one craft's tool. */
@@ -75,6 +80,27 @@ function PeopleIcon({ color }: { color: string }) {
   );
 }
 
+function StoreIcon({ color }: { color: string }) {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true" className="h-[26px] w-[26px] @min-[18rem]:h-[30px] @min-[18rem]:w-[30px]" fill={color}>
+      <path d="M4 11 L4 27 L28 27 L28 11 Z" fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M2.5 11 L29.5 11 L26.5 5 L5.5 5 Z" fill={color} />
+      <path d="M12 27 L12 17 L20 17 L20 27" fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function UniqueBuyersIcon({ color }: { color: string }) {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true" className="h-[26px] w-[26px] @min-[18rem]:h-[30px] @min-[18rem]:w-[30px]" fill={color}>
+      <circle cx="16" cy="11" r="5" />
+      <path d="M7 26 C7 19, 25 19, 25 26" stroke={color} strokeWidth="1.8" fill="none" strokeLinecap="round" />
+      <circle cx="23" cy="20" r="4.5" fill="#ffffff" />
+      <path d="M20.5 20 L22 21.5 L25.5 17.5" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /**
  * Two balanced lines for the card label, in any language: the split point is
  * the word boundary that keeps the longer line shortest ("GOVT SCHEMES /
@@ -99,40 +125,63 @@ function MetricCard({
   value,
   label,
   note,
+  href,
+  onClick,
 }: {
   tone: Tone;
   icon: ReactNode;
   value: ReactNode;
   label: string;
   note?: string | null;
+  href?: string;
+  onClick?: () => void;
 }) {
   const colours = TONES[tone];
   const lines = balancedLines(label);
-  return (
-    <div className="@container min-w-0 rounded-[20px] px-4 py-4 sm:py-5" style={{ backgroundColor: colours.card }}>
-      {/* Side by side (as in the reference) whenever the card can hold it —
-          including the three-up row at a 1440 px desktop — and stacked only in
-          the narrower three-up column between lg and xl. Sizes step up again
-          once the card is roomy (a one-column phone layout). */}
-      <div className="flex flex-col items-start gap-3 @min-[11.5rem]:flex-row @min-[11.5rem]:items-center @min-[18rem]:gap-4">
-        <span
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] @min-[18rem]:h-14 @min-[18rem]:w-14 @min-[18rem]:rounded-2xl"
-          style={{ backgroundColor: colours.tile }}
-        >
-          {icon}
+  
+  const content = (
+    <div className="flex flex-col items-start gap-3 @min-[11.5rem]:flex-row @min-[11.5rem]:items-center @min-[18rem]:gap-4">
+      <span
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] @min-[18rem]:h-14 @min-[18rem]:w-14 @min-[18rem]:rounded-2xl"
+        style={{ backgroundColor: colours.tile }}
+      >
+        {icon}
+      </span>
+      <div className="flex min-w-0 items-center gap-3 @min-[18rem]:gap-4">
+        <span className="kg-display text-[36px] leading-none text-gray-900 @min-[18rem]:text-[46px]">{value}</span>
+        <span className="min-w-0 text-[11.5px] font-medium uppercase leading-[1.35] tracking-[0.04em] text-gray-700 @min-[18rem]:text-[13.5px] @min-[18rem]:tracking-[0.05em]">
+          {lines.map((line, index) => (
+            <span key={index} className="block whitespace-nowrap">
+              {line}
+            </span>
+          ))}
+          {note && <span className="mt-0.5 block text-[10.5px] normal-case tracking-normal text-gray-500">{note}</span>}
         </span>
-        <div className="flex min-w-0 items-center gap-3 @min-[18rem]:gap-4">
-          <span className="kg-display text-[36px] leading-none text-gray-900 @min-[18rem]:text-[46px]">{value}</span>
-          <span className="min-w-0 text-[11.5px] font-medium uppercase leading-[1.35] tracking-[0.04em] text-gray-700 @min-[18rem]:text-[13.5px] @min-[18rem]:tracking-[0.05em]">
-            {lines.map((line, index) => (
-              <span key={index} className="block whitespace-nowrap">
-                {line}
-              </span>
-            ))}
-            {note && <span className="mt-0.5 block text-[10.5px] normal-case tracking-normal text-gray-500">{note}</span>}
-          </span>
-        </div>
       </div>
+    </div>
+  );
+
+  const containerClasses = "@container min-w-0 rounded-[20px] px-4 py-4 sm:py-5";
+
+  if (href) {
+    return (
+      <Link href={href} onClick={onClick} className={`${containerClasses} block transition-transform hover:scale-[1.02] active:scale-[0.98]`} style={{ backgroundColor: colours.card }}>
+        {content}
+      </Link>
+    );
+  }
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`${containerClasses} block w-full text-left transition-transform hover:scale-[1.02] active:scale-[0.98] cursor-pointer`} style={{ backgroundColor: colours.card }}>
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className={containerClasses} style={{ backgroundColor: colours.card }}>
+      {content}
     </div>
   );
 }
@@ -148,6 +197,8 @@ export interface MonthlyOverviewProps {
   pendingVerifications: number;
   pendingNote?: string | null;
   schemesActive: number;
+  offlineSales: number;
+  uniqueBuyers: number;
 }
 
 export function MonthlyOverview({
@@ -159,6 +210,8 @@ export function MonthlyOverview({
   pendingVerifications,
   pendingNote,
   schemesActive,
+  offlineSales,
+  uniqueBuyers,
 }: MonthlyOverviewProps) {
   const hasPct = earningsChangePct !== null;
   const down = hasPct && earningsChangePct < 0;
@@ -207,6 +260,7 @@ export function MonthlyOverview({
           icon={<CraftToolsIcon color={TONES.craft.icon} />}
           value={itemsSold}
           label={t("items_sold")}
+          href="/artisan/earnings"
         />
         <MetricCard
           tone="verify"
@@ -214,12 +268,33 @@ export function MonthlyOverview({
           value={pendingVerifications}
           label={t("pending_verification_label")}
           note={pendingNote}
+          onClick={() => {
+            const section = document.getElementById("recent-portfolio");
+            if (section) {
+              section.scrollIntoView({ behavior: "smooth" });
+            }
+          }}
         />
         <MetricCard
           tone="schemes"
           icon={<PeopleIcon color={TONES.schemes.icon} />}
           value={schemesActive}
           label={t("govt_schemes_active")}
+          href="/artisan/schemes"
+        />
+        <MetricCard
+          tone="offline"
+          icon={<StoreIcon color={TONES.offline.icon} />}
+          value={offlineSales}
+          label="Offline Sale"
+          href="/artisan/earnings?tab=offline"
+        />
+        <MetricCard
+          tone="buyers"
+          icon={<UniqueBuyersIcon color={TONES.buyers.icon} />}
+          value={uniqueBuyers}
+          label="Buyers"
+          href="/artisan/earnings?tab=buyers"
         />
       </div>
     </div>

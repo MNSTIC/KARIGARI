@@ -263,6 +263,8 @@ export async function GET(req: Request) {
       pastWeekOfflineAgg,
       offlineSeries,
       supplyStatus,
+      marketplaceBuyersRows,
+      demandBuyersRows,
     ] = await Promise.all([
       prisma.craftItem.findMany({
         where: { artisanId, status: { in: ['ADVANCE_PAID', 'SOLD_FINAL'] }, createdAt: { gte: twoWeeksAgo, lt: oneWeekAgo } },
@@ -293,6 +295,28 @@ export async function GET(req: Request) {
       // the write half runs fire-and-forget below, so it can never delay or
       // fail this response.
       readSupplyStatus(artisanId),
+      // Buyers from marketplace who have paid (advance or fully)
+      prisma.craftItem.findMany({
+        where: {
+          artisanId,
+          OR: [
+            { status: { in: ['SOLD_FINAL', 'PAYOUT_COMPLETED', 'ADVANCE_PAID', 'SOLD_MIDDLEMAN'] } },
+            { escrowStatus: { in: [STAGE1_ADVANCE_PAID_40, STAGE2_SETTLED_89] } },
+          ],
+        },
+        select: { buyerName: true, buyerContact: true }
+      }),
+      // Buyers from demands that the artisan accepted and got paid for
+      prisma.artisanOrder.findMany({
+        where: {
+          artisanId,
+          OR: [
+            { advancePaidAt: { not: null } },
+            { settledAt: { not: null } }
+          ]
+        },
+        select: { demand: { select: { buyerName: true } } }
+      }),
     ]);
 
     // The 20-day restock reminder. No cron exists in this app, so the check
@@ -453,6 +477,21 @@ export async function GET(req: Request) {
       };
     }
 
+    const uniqueBuyersSet = new Set<string>();
+    
+    // Add marketplace buyers
+    marketplaceBuyersRows.forEach(row => {
+      if (row.buyerContact) uniqueBuyersSet.add(row.buyerContact.trim().toLowerCase());
+      else if (row.buyerName) uniqueBuyersSet.add(row.buyerName.trim().toLowerCase());
+    });
+    
+    // Add demand buyers
+    demandBuyersRows.forEach(row => {
+      if (row.demand?.buyerName) uniqueBuyersSet.add(row.demand.buyerName.trim().toLowerCase());
+    });
+    
+    const uniqueBuyersCount = uniqueBuyersSet.size;
+
     return NextResponse.json({
       success: true,
       data: {
@@ -474,6 +513,7 @@ export async function GET(req: Request) {
          */
         offlineEarnings,
         offlineSalesCount: offlineAgg._count._all,
+        uniqueBuyersCount,
         /**
          * Idle-days for the restock nudge, computed by the same rules the
          * notification uses (src/lib/supplyReminderRules.ts) so the card and the
